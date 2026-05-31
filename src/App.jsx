@@ -11,19 +11,16 @@ import { AddPage }             from "./components/add/AddPage";
 import { EditPage }            from "./components/add/EditPage";
 import { AnalysisPage }        from "./components/analysis/AnalysisPage";
 import { SettingsPage }        from "./components/settings/SettingsPage";
-import { BottomNav } from "./components/layout/BottomNav";
-import { Sidebar }   from "./components/layout/Sidebar";
+import { BottomNav }           from "./components/layout/BottomNav";
+import { Sidebar }             from "./components/layout/Sidebar";
 
 export default function App() {
   const [currentPage,  setCurrentPage]  = useState("home");
-
-  // ② normalizeTransaction を適用して旧データを新構造に自動変換
   const [transactions, setTransactions] = useState(() =>
     (loadStorage(STORAGE_KEYS.TRANSACTIONS, SAMPLE_TX) || [])
       .map(normalizeTransaction)
       .filter(Boolean)
   );
-
   const [categories,   setCategories]   = useState(() => loadStorage(STORAGE_KEYS.CATEGORIES, DEFAULT_CATS));
   const [learnedRules, setLearnedRules] = useState(() => loadStorage(STORAGE_KEYS.RULES, []));
   const [editingTx,    setEditingTx]    = useState(null);
@@ -48,15 +45,20 @@ export default function App() {
   };
 
   if (editingTx) return (
-    <div className="max-w-md mx-auto min-h-screen bg-gray-50">
-      <EditPage
-        transaction={editingTx}
-        categories={categories}
-        allRules={DEFAULT_CATEGORY_RULES}
-        learnedRules={learnedRules}
-        onSave={handleUpdate}
-        onCancel={() => setEditingTx(null)}
-      />
+    <div className="min-h-screen bg-gray-50">
+      <div className="hidden md:block fixed left-0 top-0 h-full w-56 z-40">
+        <Sidebar currentPage={currentPage} onNavigate={navigate} />
+      </div>
+      <div className="md:ml-56">
+        <EditPage
+          transaction={editingTx}
+          categories={categories}
+          allRules={DEFAULT_CATEGORY_RULES}
+          learnedRules={learnedRules}
+          onSave={handleUpdate}
+          onCancel={() => setEditingTx(null)}
+        />
+      </div>
     </div>
   );
 
@@ -97,7 +99,7 @@ export default function App() {
     }
   };
 
-return (
+  return (
     <div className="min-h-screen bg-gray-50">
 
       {/* PC：サイドバー */}
@@ -105,7 +107,7 @@ return (
         <Sidebar currentPage={currentPage} onNavigate={navigate} />
       </div>
 
-      {/* コンテンツ（PC はサイドバー分ずらす） */}
+      {/* コンテンツ */}
       <div className="md:ml-56">
         <div className="max-w-md mx-auto md:max-w-none md:px-8 min-h-screen relative">
           <main className="pb-20 md:pb-8">
@@ -119,3 +121,4 @@ return (
 
     </div>
   );
+}
