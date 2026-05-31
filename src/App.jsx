@@ -96,10 +96,25 @@ export default function App() {
     }
   };
 
-  return (
-    <div className="max-w-md mx-auto min-h-screen bg-gray-50 relative">
-      <main>{renderPage()}</main>
+return (
+    <div className="min-h-screen bg-gray-50">
+
+      {/* PC：サイドバー */}
+      <div className="hidden md:block fixed left-0 top-0 h-full w-56 z-40">
+        <Sidebar currentPage={currentPage} onNavigate={navigate} />
+      </div>
+
+      {/* コンテンツ（PC はサイドバー分ずらす） */}
+      <div className="md:ml-56">
+        <div className="max-w-md mx-auto md:max-w-none md:px-8 min-h-screen relative">
+          <main className="pb-20 md:pb-8">
+            {renderPage()}
+          </main>
+        </div>
+      </div>
+
+      {/* スマホ：ボトムナビ */}
       <BottomNav currentPage={currentPage} onNavigate={navigate} />
+
     </div>
   );
-}
