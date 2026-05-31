@@ -11,7 +11,8 @@ import { AddPage }             from "./components/add/AddPage";
 import { EditPage }            from "./components/add/EditPage";
 import { AnalysisPage }        from "./components/analysis/AnalysisPage";
 import { SettingsPage }        from "./components/settings/SettingsPage";
-import { BottomNav }           from "./components/layout/BottomNav";
+import { BottomNav } from "./components/layout/BottomNav";
+import { Sidebar }   from "./components/layout/Sidebar";
 
 export default function App() {
   const [currentPage,  setCurrentPage]  = useState("home");
