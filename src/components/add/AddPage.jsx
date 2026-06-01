@@ -180,7 +180,11 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
     }
   };
 
-  const handleOcrFile = (e) => { const f=e.target.files?.[0]; if(f) startOcr(f); };
+const handleOcrFile = (e) => {
+  const files = e.target.files;
+  if (!files || files.length === 0) return;
+  startOcrMultiple(files);
+};
 
   const submitOcr = () => {
     if (!ocrAmount || !ocrLabel) { alert("金額と内容を入力してください"); return; }
@@ -262,7 +266,7 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
               <p className="text-sm font-bold text-indigo-600">カメラでレシートを撮影</p>
               <p className="text-xs text-indigo-400">真正面から・明るい場所で</p>
             </button>
-            <input ref={ocrFileRef} type="file" accept="image/*" onChange={handleOcrFile} className="hidden" />
+            <input ref={ocrFileRef} type="file" accept="image/*" multiple onChange={handleOcrFile} className="hidden" />
             <button onClick={() => ocrFileRef.current?.click()}
               className="w-full py-4 rounded-2xl border border-gray-200 bg-white flex items-center justify-center gap-2 transition-all duration-200 active:scale-98">
               <span className="text-xl">🖼️</span>
@@ -368,6 +372,55 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
           </div>
         )}
 
+{ocrStep==="multi-review" && (
+          <div className="space-y-4">
+            <div className="bg-indigo-50 rounded-xl p-3 border border-indigo-100">
+              <p className="text-sm font-bold text-indigo-700">
+                📷 {ocrResults.length}枚の読み取りが完了
+              </p>
+              <p className="text-xs text-indigo-500 mt-0.5">
+                内容を確認して一括登録できます
+              </p>
+            </div>
+            <div className="space-y-2">
+              {ocrResults.map((r, i) => (
+                <div key={i} className={`bg-white rounded-xl p-4 border ${r.confidence < 60 ? "border-amber-200" : "border-gray-100"}`}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-800 truncate">
+                        {r.label || "（店舗名なし）"}
+                      </p>
+                      <p className="text-xs text-gray-400">{r.date} · {r.cat}</p>
+                      {r.confidence < 60 && (
+                        <p className="text-xs text-amber-500">⚠️ 精度低（{r.confidence}%）要確認</p>
+                      )}
+                    </div>
+                    <p className="text-base font-bold text-rose-500 flex-shrink-0 ml-2">
+                      {r.amount ? `¥${Number(r.amount).toLocaleString()}` : "金額なし"}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <PrimaryButton
+              onClick={() => {
+                ocrResults.forEach(r => {
+                  if (!r.amount || !r.label) return;
+                  onLearnRule?.(r.label, r.cat, "expense");
+                  const tx = createTransaction({ date:r.date, label:r.label, category:r.cat, amount:-Number(r.amount), type:"expense", source:"ocr" });
+                  onAdd(tx);
+                });
+                const hist = [...ocrResults.filter(r=>r.label&&r.amount).map(r=>({label:r.label,amount:r.amount,date:r.date,cat:r.cat})), ...ocrHistory].slice(0,5);
+                setOcrHistory(hist); saveStorage(STORAGE_KEYS.OCR_HISTORY, hist);
+                setOcrStep("done");
+                setTimeout(() => { setOcrStep("upload"); setMode("select"); }, 1500);
+              }}
+            >
+              ✅ {ocrResults.filter(r=>r.amount).length}件をまとめて登録
+            </PrimaryButton>
+          </div>
+        )}
+        
         {ocrStep==="done" && (
           <div className="text-center py-12">
             <div className="text-6xl mb-4">🎉</div>
