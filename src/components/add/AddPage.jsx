@@ -2,7 +2,7 @@ import { useState, useRef } from "react";
 import { todayStr } from "../../utils/format";
 import { createTransaction, findDuplicateCandidates, DUPLICATE_KEY } from "../../services/transaction";
 import { predictCategory, learnCategoryRule } from "../../services/categoryPredictor";
-import { parseCSVText } from "../../services/csvParser";
+import { parseCSVText, readCSVFile } from "../../services/csvParser";
 import { runTesseract, extractAmount, extractDate, extractStoreName } from "../../services/ocrUtils";
 import { DEFAULT_CATEGORY_RULES, CSV_FORMATS, STORAGE_KEYS } from "../../constants";
 import { loadStorage, saveStorage } from "../../utils/storage";
@@ -74,17 +74,20 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
   };
 
   // ─── csv ───
-  const handleCSVFile = (e) => {
+  const handleCSVFile = async (e) => {
     const file = e.target.files?.[0]; if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const rows    = parseCSVText(ev.target.result, csvFormat);
+    try {
+      // Shift-JIS / UTF-8 を自動判定して読み込む
+      const text    = await readCSVFile(file);
+      const rows    = parseCSVText(text, csvFormat);
       const existKeys = new Set(existingTransactions.map(DUPLICATE_KEY));
       const withDup = rows.map(r => ({ ...r, isDuplicate:existKeys.has(DUPLICATE_KEY(r)) }));
       const init = {}; withDup.forEach((_,i) => init[i] = !withDup[i].isDuplicate);
-      setCsvRows(withDup); setCsvChecked(init); setCsvStep("preview");
-    };
-    reader.readAsText(file, "UTF-8");
+      setCsvRows(withDup); setCsvChecked(init);
+      setCsvStep(rows.length === 0 ? "empty" : "preview");
+    } catch {
+      alert("CSVの読み込みに失敗しました。ファイルを確認してください。");
+    }
   };
 
   const execCSVImport = () => {
@@ -357,6 +360,29 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
           </div>
         )}
 
+        {csvStep==="empty" && (
+          <div className="space-y-4">
+            <div className="bg-amber-50 rounded-2xl p-5 border border-amber-200 text-center">
+              <p className="text-3xl mb-3">🔍</p>
+              <p className="text-sm font-bold text-amber-700 mb-2">0件でした</p>
+              <p className="text-xs text-amber-600 leading-relaxed">
+                選択したフォーマットがCSVと合っていない可能性があります。<br/>
+                別のフォーマットを試してみてください。
+              </p>
+            </div>
+            <div className="bg-gray-50 rounded-xl p-4 border border-gray-200">
+              <p className="text-xs font-semibold text-gray-600 mb-2">💡 ヒント</p>
+              <p className="text-xs text-gray-500 leading-relaxed">
+                三井住友カードは「三井住友カード」<br/>
+                PayPayは「PayPay」<br/>
+                住信SBIは「住信SBIネット銀行」<br/>
+                リクルートカードは「リクルートカード」<br/>
+                を選択してください
+              </p>
+            </div>
+            <PrimaryButton onClick={()=>setCsvStep("upload")} variant="ghost">← 戻る</PrimaryButton>
+          </div>
+        )}
         {csvStep==="preview" && (
           <div className="space-y-3">
             <div className="flex justify-between items-center">
