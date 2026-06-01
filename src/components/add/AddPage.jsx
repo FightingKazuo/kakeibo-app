@@ -44,6 +44,9 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
   const [ocrConfidence, setOcrConfidence] = useState(null);
   const [ocrError,      setOcrError]      = useState("");
   const [ocrHistory,    setOcrHistory]    = useState(() => loadStorage(STORAGE_KEYS.OCR_HISTORY, []));
+  const [ocrQueue,      setOcrQueue]      = useState([]);   // 複数枚処理キュー
+  const [ocrQueueIdx,   setOcrQueueIdx]   = useState(0);    // 現在処理中の枚数
+  const [ocrResults,    setOcrResults]    = useState([]);   // 複数枚の結果
   const ocrFileRef   = useRef(null);
   const ocrCameraRef = useRef(null);
 
@@ -113,6 +116,47 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
   const handleOcrDupDecide = (decision) => {
     if (decision==="skip") { setPendingTx(null); setDupCandidates([]); }
     else { handleOcrAdd(pendingTx); setPendingTx(null); setDupCandidates([]); }
+  };
+
+// 複数枚を順番に処理する
+  const startOcrMultiple = async (files) => {
+    const fileArr = Array.from(files);
+    setOcrQueue(fileArr);
+    setOcrQueueIdx(0);
+    setOcrStep("processing");
+    setOcrProgress(0);
+    const results = [];
+    for (let i = 0; i < fileArr.length; i++) {
+      setOcrQueueIdx(i + 1);
+      setOcrProgress(0);
+      try {
+        const { text, confidence } = await runTesseract(fileArr[i], setOcrProgress);
+        const amt   = extractAmount(text);
+        const dt    = extractDate(text);
+        const store = extractStoreName(text);
+        const combined = [...(allRules || DEFAULT_CATEGORY_RULES), ...(learnedRules || [])];
+        const res   = predictCategory(store, combined);
+        results.push({
+          label:      store,
+          amount:     amt ? String(amt) : "",
+          date:       dt,
+          cat:        res.isConfident ? res.topCategory : "食費",
+          confidence,
+          ok:         true,
+        });
+      } catch {
+        results.push({ label:"（読み取り失敗）", amount:"", date:todayStr(), cat:"その他", confidence:0, ok:false });
+      }
+    }
+    setOcrResults(results);
+    setOcrStep(fileArr.length === 1 ? "review" : "multi-review");
+    // 1枚の場合は既存の review UI に流す
+    if (fileArr.length === 1) {
+      const r = results[0];
+      setOcrLabel(r.label); setOcrAmount(r.amount);
+      setOcrDate(r.date);   setOcrCat(r.cat);
+      setOcrConfidence(r.confidence);
+    }
   };
 
   const startOcr = async (imageFile) => {
