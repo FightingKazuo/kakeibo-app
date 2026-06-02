@@ -127,7 +127,7 @@ export const CSV_FORMATS = {
     normalize: (r) => {
       const content = (r["取引内容"] || "").trim();
       // 送金・ポイント獲得はスキップ
-      if (["ポイント、残高の獲得"].includes(content)) return null;
+      if (["送った金額","ポイント、残高の獲得"].includes(content)) return null;
       const dateRaw = (r["取引日"] || "").slice(0, 10);
       const date    = dateRaw.replace(/\//g, "-");
       if (!date.match(/^\d{4}-\d{2}-\d{2}$/)) return null;
@@ -171,7 +171,7 @@ export const CSV_FORMATS = {
       let date;
       const m1 = dateRaw.match(/^(\d{2})\s+(\d{2})\s+(\d{2})$/);
       if (m1) {
-        date = \`20\${m1[1]}-\${m1[2]}-\${m1[3]}\`;
+        date = `20${m1[1]}-${m1[2]}-${m1[3]}`;
       } else {
         date = dateRaw.replace(/\//g, "-");
       }
