@@ -590,3 +590,35 @@ export const normalizeReceiptItems = (rawItems, allRules = [], predict = null) =
     });
   });
 };
+
+// ─── OCR.space API（高精度・無料）────────────────────────────
+/**
+ * runOCRSpace
+ * Tesseract.js より高精度な日本語OCR
+ * 無料API取得: https://ocr.space/ocrapi (月25,000回)
+ */
+export const runOCRSpace = async (imageFile, apiKey, onProgress) => {
+  onProgress?.(20);
+  const formData = new FormData();
+  formData.append("file",              imageFile);
+  formData.append("language",          "jpn");
+  formData.append("detectOrientation", "true");
+  formData.append("scale",             "true");
+  formData.append("OCREngine",         "2");
+
+  const res = await fetch("https://api.ocr.space/parse/image", {
+    method:  "POST",
+    headers: { apikey: apiKey || "helloworld" },
+    body:    formData,
+  });
+  onProgress?.(80);
+
+  const data = await res.json();
+  if (data.OCRExitCode !== 1 && data.OCRExitCode !== 2) {
+    throw new Error(data.ErrorMessage?.[0] || "OCR失敗");
+  }
+
+  const text = data.ParsedResults?.[0]?.ParsedText || "";
+  onProgress?.(100);
+  return { text, confidence: text.length > 20 ? 88 : 50 };
+};
