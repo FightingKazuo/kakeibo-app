@@ -592,15 +592,60 @@ export const normalizeReceiptItems = (rawItems, allRules = [], predict = null) =
 };
 
 // ─── OCR.space API（高精度・無料）────────────────────────────
+
+/**
+ * compressImage
+ * iPhoneのカメラ写真（3〜8MB）を OCR.space の上限（1MB）以内に圧縮する。
+ * HEIC → JPEG 変換も自動で行う。
+ */
+const compressImage = (file, maxBytes = 900000) =>
+  new Promise((resolve) => {
+    // すでに小さければそのまま
+    if (file.size <= maxBytes) { resolve(file); return; }
+
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const scale  = Math.min(1, Math.sqrt(maxBytes / file.size));
+      const canvas = document.createElement("canvas");
+      canvas.width  = Math.round(img.width  * scale);
+      canvas.height = Math.round(img.height * scale);
+      canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+      // quality を下げながら 1MB 以内に収める
+      let quality = 0.85;
+      const tryCompress = () => {
+        canvas.toBlob(blob => {
+          if (!blob) { resolve(file); return; }
+          if (blob.size <= maxBytes || quality < 0.3) {
+            resolve(blob);
+          } else {
+            quality -= 0.1;
+            tryCompress();
+          }
+        }, "image/jpeg", quality);
+      };
+      tryCompress();
+    };
+    img.onerror = () => resolve(file);
+    img.src = url;
+  });
+
 /**
  * runOCRSpace
  * Tesseract.js より高精度な日本語OCR
  * 無料API取得: https://ocr.space/ocrapi (月25,000回)
+ * ※ iPhoneの写真は自動圧縮してから送信（1MB制限対応）
  */
 export const runOCRSpace = async (imageFile, apiKey, onProgress) => {
-  onProgress?.(20);
+  onProgress?.(10);
+
+  // 圧縮（iPhone写真 3〜8MB → 1MB以内）
+  const compressed = await compressImage(imageFile);
+  onProgress?.(30);
+
   const formData = new FormData();
-  formData.append("file",              imageFile);
+  formData.append("file",              compressed, "receipt.jpg");
   formData.append("language",          "jpn");
   formData.append("detectOrientation", "true");
   formData.append("scale",             "true");
@@ -614,8 +659,15 @@ export const runOCRSpace = async (imageFile, apiKey, onProgress) => {
   onProgress?.(80);
 
   const data = await res.json();
+
+  // エラー詳細をログに出す（デバッグ用）
   if (data.OCRExitCode !== 1 && data.OCRExitCode !== 2) {
-    throw new Error(data.ErrorMessage?.[0] || "OCR失敗");
+    console.error("OCR.space error:", data);
+    throw new Error(
+      Array.isArray(data.ErrorMessage)
+        ? data.ErrorMessage.join(" / ")
+        : (data.ErrorMessage || `ExitCode:${data.OCRExitCode}`)
+    );
   }
 
   const text = data.ParsedResults?.[0]?.ParsedText || "";
