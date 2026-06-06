@@ -142,6 +142,7 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
   const [ocrQueueIdx,   setOcrQueueIdx]   = useState(0);
   const [ocrResults,    setOcrResults]    = useState([]);
   const [ocrApiKey,     setOcrApiKey]     = useState(() => loadStorage("OCR_API_KEY", "") || "");
+  const [pasteText,     setPasteText]     = useState("");  // テキスト貼り付けモード
   const [dupModal,      setDupModal]      = useState(null); // {txs, candidates}
   const ocrFileRef   = useRef(null);
   const ocrCameraRef = useRef(null);
@@ -316,6 +317,25 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
     setDupModal(null);
   };
 
+  /** テキスト貼り付けモード（Google Lens等からコピペして解析） */
+  const handlePasteSubmit = (text) => {
+    if (!text.trim()) return;
+    const amt   = extractAmount(text);
+    const dt    = extractDate(text);
+    const store = extractStoreName(text);
+    const items = extractReceiptItems(text).map(i => ({ ...i, type: "shared" }));
+    const combined = [...(allRules || DEFAULT_CATEGORY_RULES), ...(learnedRules || [])];
+    const res   = predictCategory(store, combined);
+    setOcrLabel(store);
+    setOcrAmount(amt ? String(amt) : "");
+    setOcrDate(dt);
+    setOcrItems(items);
+    setOcrPreds(res.predictions);
+    setOcrCat(res.isConfident ? res.topCategory : "食費");
+    setOcrConfidence(null);
+    setOcrStep("review");
+  };
+
   /** 複数枚 OCR */
   const startOcrMultiple = async (files) => {
     const fileArr = Array.from(files);
@@ -470,6 +490,17 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
               <span className="text-xl">🖼️</span>
               <span className="text-sm font-semibold text-gray-600">画像を選択（複数枚OK）</span>
             </button>
+
+            {/* ── テキスト貼り付けボタン（推奨） ── */}
+            <button onClick={() => { setPasteText(""); setOcrStep("paste"); }}
+              className="w-full py-4 rounded-2xl border-2 border-emerald-300 bg-emerald-50 flex items-center gap-4 px-5">
+              <span className="text-3xl">📋</span>
+              <div className="text-left">
+                <p className="text-sm font-bold text-emerald-700">テキストを貼り付け（おすすめ）</p>
+                <p className="text-xs text-emerald-500">Google Lens等でコピーしたテキストを使う</p>
+              </div>
+            </button>
+
             <div className="bg-gray-50 rounded-xl p-3 border border-gray-200 text-xs text-gray-500 space-y-1">
               <p className="font-semibold">📌 きれいに読み取るコツ</p>
               <p>・明るい場所で真正面から撮影</p>
@@ -490,6 +521,41 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
               </div>
             )}
           </>
+        )}
+
+        {/* ── テキスト貼り付けモード ── */}
+        {ocrStep === "paste" && (
+          <div className="space-y-4">
+            <div className="bg-emerald-50 rounded-xl p-4 border border-emerald-200 space-y-2">
+              <p className="text-sm font-bold text-emerald-700">📋 テキスト貼り付けモード</p>
+              <p className="text-xs text-emerald-600 leading-relaxed">
+                Google Lens・iOS Live Text等でレシートのテキストをコピーして貼り付けてください。<br/>
+                PDFは「テキスト選択 → コピー」でそのまま使えます。
+              </p>
+            </div>
+            <div className="bg-blue-50 rounded-xl p-3 border border-blue-100 text-xs text-blue-600 space-y-1">
+              <p className="font-semibold">おすすめツール</p>
+              <p>📱 Google Lens → レシートを写真で撮る → テキストをコピー</p>
+              <p>📱 iOSカメラ → 写真でLive Text → 全選択コピー</p>
+              <p>📄 PDF → 文字を選択してコピー（そのまま貼り付けOK）</p>
+            </div>
+            <textarea
+              value={pasteText}
+              onChange={e => setPasteText(e.target.value)}
+              placeholder={"ここにテキストを貼り付け...\n\n例:\nウエルシア静岡川合店\n2026年05月20日\n合計 ¥12,162"}
+              rows={10}
+              className="w-full px-3 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-300 font-mono leading-relaxed"
+            />
+            <PrimaryButton
+              onClick={() => handlePasteSubmit(pasteText)}
+              variant={pasteText.trim() ? "primary" : "disabled"}
+            >
+              🔍 テキストを解析する
+            </PrimaryButton>
+            <button onClick={() => setOcrStep("upload")} className="w-full text-center text-xs text-gray-400 py-2">
+              ← 戻る
+            </button>
+          </div>
         )}
 
         {/* ── processing ── */}
