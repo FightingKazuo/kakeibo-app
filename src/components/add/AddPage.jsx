@@ -474,6 +474,12 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
     setOcrResults(results);
     if (fileArr.length === 1) {
       const r = results[0];
+      // エラーの場合は upload 画面に戻して明確に表示
+      if (!r.ok && r.error) {
+        setOcrError(r.error);
+        setOcrStep("upload");
+        return;
+      }
       setOcrLabel(r.label); setOcrAmount(r.amount); setOcrDate(r.date);
       setOcrCat(r.cat); setOcrConfidence(r.confidence); setOcrItems(r.items);
       setOcrStep("review");
@@ -604,7 +610,17 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
         {/* ── upload ── */}
         {ocrStep === "upload" && (
           <>
-            {ocrError && <div className="bg-rose-50 border border-rose-200 rounded-xl p-3"><p className="text-sm text-rose-600">⚠️ {ocrError}</p></div>}
+            {ocrError && (
+              <div className="bg-rose-50 border border-rose-300 rounded-xl p-4">
+                <p className="text-sm font-semibold text-rose-700 mb-1">OCR エラー</p>
+                {ocrError.split("\n").map((line, i) => (
+                  <p key={i} className="text-xs text-rose-600 leading-relaxed">{line}</p>
+                ))}
+                <p className="text-xs text-rose-400 mt-2">
+                  ※ 上限エラーの場合は 1〜2分待ってから再試行してください
+                </p>
+              </div>
+            )}
             {/* Gemini APIキー（最優先） */}
             <div className={`rounded-xl p-3 border ${geminiKey ? "bg-emerald-50 border-emerald-300" : "bg-gray-50 border-gray-200"}`}>
               <p className="text-xs font-semibold text-gray-600 mb-1.5">🤖 Gemini APIキー（最高精度・推奨）</p>
