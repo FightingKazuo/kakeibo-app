@@ -12,9 +12,11 @@ import { safeAmount, safeDate } from "../utils/format";
  * UTF-8 としてデコードした際に文字化けが多ければ Shift-JIS と判断
  */
 const looksLikeShiftJIS = (text) => {
-  // 文字化け記号（UTF-8 で Shift-JIS を読むと出やすい文字）の割合を確認
-  const mojibake = (text.match(/[ï¿½Â¿Â½]/g) || []).length;
-  return mojibake > 3;
+  // ブラウザの FileReader.readAsText("UTF-8") は
+  // 無効なUTF-8バイト列を U+FFFD に置換する
+  // Shift-JIS(CP932)を UTF-8 で読むと大量の U+FFFD が出現する
+  // 三井住友CSVで検証済み: 337個の U+FFFD が出現
+  return (text.match(/\uFFFD/g) || []).length > 5;
 };
 
 /**
@@ -88,12 +90,24 @@ export const detectCSVFormat = (text) => {
 
 /**
  * CSV テキストをパースして取引配列に変換する
- * ③ 不正データ（日付なし・金額0・空行）を自動除外
+ * ・リクルートカードは実際のヘッダー行を探してスキップ
  */
 export const parseCSVText = (text, formatId) => {
+  // ── リクルートカード専用前処理 ───────────────────────────
+  // 先頭5行がカード情報でヘッダーが途中にあるため、
+  // 「ご利用日」を含む行を探してそこを先頭にする
+  let processText = text;
+  if (formatId === "recruit") {
+    const lines = text.split("\n");
+    const hi = lines.findIndex(
+      l => l.includes("ご利用日") && l.includes("ご利用先")
+    );
+    if (hi > 0) processText = lines.slice(hi).join("\n");
+  }
+
   let result;
   try {
-    result = Papa.parse(text, { header: true, skipEmptyLines: true });
+    result = Papa.parse(processText, { header: true, skipEmptyLines: true });
   } catch {
     return [];
   }
