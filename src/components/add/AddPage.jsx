@@ -2,7 +2,7 @@ import { useState, useRef } from "react";
 import { todayStr } from "../../utils/format";
 import { createTransaction, findDuplicateCandidates, DUPLICATE_KEY } from "../../services/transaction";
 import { predictCategory } from "../../services/categoryPredictor";
-import { parseCSVText, readCSVFile } from "../../services/csvParser";
+import { parseCSVText, readCSVFile, detectCSVFormat } from "../../services/csvParser";
 import {
   runTesseract, runOCRSpace,
   extractAmount, extractDate, extractStoreName, extractReceiptItems,
@@ -115,7 +115,9 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
   const [done,          setDone]         = useState(false);
 
   // csv
-  const [csvFormat,  setCsvFormat]  = useState("generic");
+  const [csvFormat,        setCsvFormat]       = useState("generic");
+  const [csvDetected,      setCsvDetected]     = useState(null);   // 自動判定結果
+  const [csvShowOverride,  setCsvShowOverride] = useState(false);  // 手動選択を表示
   const [csvRows,    setCsvRows]    = useState([]);
   const [csvChecked, setCsvChecked] = useState({});
   const [csvStep,    setCsvStep]    = useState("upload");
@@ -194,15 +196,21 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
   const handleCSVFile = async (e) => {
     const file = e.target.files?.[0]; if (!file) return;
     try {
-      const text    = await readCSVFile(file);
-      const rows    = parseCSVText(text, csvFormat);
+      const text     = await readCSVFile(file);
+      // 自動判定
+      const detected = detectCSVFormat(text);
+      setCsvDetected(detected);
+      const formatToUse = detected !== "generic" ? detected : csvFormat;
+      setCsvFormat(formatToUse);
+
+      const rows      = parseCSVText(text, formatToUse);
       const existKeys = new Set(existingTransactions.map(DUPLICATE_KEY));
-      const withDup = rows.map(r => ({ ...r, isDuplicate: existKeys.has(DUPLICATE_KEY(r)) }));
-      const init = {}; withDup.forEach((_, i) => init[i] = !withDup[i].isDuplicate);
+      const withDup   = rows.map(r => ({ ...r, isDuplicate: existKeys.has(DUPLICATE_KEY(r)) }));
+      const init      = {}; withDup.forEach((_, i) => init[i] = !withDup[i].isDuplicate);
       setCsvRows(withDup); setCsvChecked(init);
       setCsvStep(rows.length === 0 ? "empty" : "preview");
     } catch {
-      alert("CSVの読み込みに失敗しました。");
+      alert("CSVの読み込みに失敗しました。ファイルを確認してください。");
     }
   };
 
@@ -628,20 +636,43 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
 
         {csvStep === "upload" && (
           <div className="space-y-4">
-            <div>
-              <label className="block text-xs font-semibold text-gray-500 mb-2">フォーマット</label>
-              {Object.entries(CSV_FORMATS).map(([id, f]) => (
-                <button key={id} onClick={() => setCsvFormat(id)}
-                  className={`w-full text-left p-3 rounded-xl border mb-2 transition-all ${csvFormat === id ? "border-indigo-400 bg-indigo-50" : "border-gray-200 bg-white"}`}>
-                  <p className="text-sm font-semibold text-gray-800">{f.label}</p>
-                  <div className="flex flex-wrap gap-1 mt-1">
-                    {f.sampleColumns.map(c => <span key={c} className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full font-mono">{c}</span>)}
-                  </div>
-                </button>
-              ))}
-            </div>
+            {/* ファイル選択（メイン） */}
             <input ref={fileRef} type="file" accept=".csv" onChange={handleCSVFile} className="hidden" />
-            <PrimaryButton onClick={() => fileRef.current?.click()}>📂 CSVファイルを選択</PrimaryButton>
+            <button onClick={() => fileRef.current?.click()}
+              className="w-full py-10 rounded-2xl border-2 border-dashed border-indigo-300 bg-indigo-50 flex flex-col items-center gap-3">
+              <span className="text-5xl">📂</span>
+              <p className="text-sm font-bold text-indigo-600">CSVファイルを選択</p>
+              <p className="text-xs text-indigo-400">フォーマットは自動で判定します</p>
+            </button>
+
+            {/* 手動選択（折りたたみ） */}
+            <button onClick={() => setCsvShowOverride(p => !p)}
+              className="w-full text-xs text-gray-400 flex items-center justify-center gap-1 py-1">
+              ⚙️ フォーマットを手動で選ぶ {csvShowOverride ? "▲" : "▼"}
+            </button>
+            {csvShowOverride && (
+              <div className="bg-gray-50 rounded-xl p-3 border border-gray-200 space-y-2">
+                {Object.entries(CSV_FORMATS).map(([id, f]) => (
+                  <button key={id} onClick={() => setCsvFormat(id)}
+                    className={`w-full text-left p-3 rounded-xl border transition-all ${csvFormat===id ? "border-indigo-400 bg-indigo-50" : "border-gray-200 bg-white"}`}>
+                    <p className="text-sm font-semibold text-gray-800">{f.label}</p>
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {f.sampleColumns.map(c => <span key={c} className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full font-mono">{c}</span>)}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* 対応フォーマット一覧 */}
+            <div className="bg-gray-50 rounded-xl p-3 border border-gray-200">
+              <p className="text-xs font-semibold text-gray-500 mb-2">✅ 自動対応フォーマット</p>
+              <div className="flex flex-wrap gap-1.5">
+                {Object.values(CSV_FORMATS).map(f => (
+                  <span key={f.label} className="text-xs bg-white border border-gray-200 text-gray-600 px-2 py-1 rounded-full">{f.label}</span>
+                ))}
+              </div>
+            </div>
           </div>
         )}
 
@@ -660,8 +691,25 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
           <div className="space-y-3">
             <div className="flex justify-between items-center">
               <p className="text-sm font-bold text-gray-700">{csvRows.length}件を読み込みました</p>
-              <button onClick={() => setCsvStep("upload")} className="text-xs text-gray-400 underline">← 戻る</button>
+              <button onClick={() => { setCsvStep("upload"); setCsvDetected(null); }} className="text-xs text-gray-400 underline">← 戻る</button>
             </div>
+            {/* 自動判定バッジ */}
+            {csvDetected && (
+              <div className={`rounded-xl px-3 py-2 border flex items-center gap-2 ${csvDetected !== "generic" ? "bg-emerald-50 border-emerald-200" : "bg-amber-50 border-amber-200"}`}>
+                <span className="text-sm">{csvDetected !== "generic" ? "✅" : "⚠️"}</span>
+                <div>
+                  <p className="text-xs font-semibold text-gray-700">
+                    {csvDetected !== "generic"
+                      ? `自動判定: ${CSV_FORMATS[csvDetected]?.label || csvDetected}`
+                      : "フォーマット不明（汎用モードで処理）"
+                    }
+                  </p>
+                  {csvDetected === "generic" && (
+                    <p className="text-xs text-amber-600">正しく読み込めない場合は手動選択してください</p>
+                  )}
+                </div>
+              </div>
+            )}
             <div className="grid grid-cols-3 gap-2">
               <div className="bg-gray-50 rounded-xl p-2.5 text-center border border-gray-100">
                 <p className="text-lg font-bold text-gray-800">{Object.values(csvChecked).filter(Boolean).length}</p>
