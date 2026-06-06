@@ -44,6 +44,49 @@ export const readCSVFile = (file) => new Promise((resolve, reject) => {
 });
 
 /**
+ * detectCSVFormat
+ * CSVテキストの内容からフォーマットを自動判定する。
+ *
+ * 判定ロジック:
+ *   先頭8行のテキストから各フォーマット固有の列名・パターンを検索する。
+ *   判定できない場合は "generic" を返す。
+ */
+export const detectCSVFormat = (text) => {
+  const lines  = text.split('\n').map(l => l.trim()).filter(Boolean);
+  const header = lines.slice(0, 8).join('\n');
+
+  // PayPay: 全角括弧の「出金金額（円）」が特徴
+  if (header.includes('出金金額（円）') && header.includes('取引先')) return 'paypay';
+
+  // 住信SBIネット銀行: 残高列がある
+  if (header.includes('残高(円)') || header.includes('残高（円）')) return 'sbi';
+
+  // マネーフォワードME: 大項目・振替列がある
+  if (header.includes('大項目') || (header.includes('振替') && header.includes('金額（円）'))) return 'moneyforward';
+
+  // リクルートカード: ¥マーク付きの利用金額列
+  if (header.includes('ご利用金額(￥)') || header.includes('ご利用金額(¥)')) return 'recruit';
+
+  // エポスカード: 円表記の利用金額列
+  if (header.includes('ご利用金額(円)') && header.includes('ご利用先')) return 'epos';
+
+  // 三井住友カード:
+  //   1行目がカード情報（様・VISA・****が含まれる）
+  //   2行目以降が YYYY/MM/DD 形式の日付で始まる
+  const first = lines[0] || '';
+  const second = lines[1] || '';
+  if (
+    (first.includes('様') || first.includes('ＶＩＳＡ') || first.includes('VISA') || first.includes('****')) &&
+    /^\d{4}\/\d{2}\/\d{2}[,，]/.test(second)
+  ) return 'smbc';
+
+  // ヘッダーなしで日付始まりのデータ行 → 三井住友可能性
+  if (/^\d{4}\/\d{2}\/\d{2}[,，]/.test(first)) return 'smbc';
+
+  return 'generic';
+};
+
+/**
  * CSV テキストをパースして取引配列に変換する
  * ③ 不正データ（日付なし・金額0・空行）を自動除外
  */
