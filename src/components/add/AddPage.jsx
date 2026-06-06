@@ -3,6 +3,7 @@ import { todayStr } from "../../utils/format";
 import { createTransaction, findDuplicateCandidates, DUPLICATE_KEY } from "../../services/transaction";
 import { predictCategory } from "../../services/categoryPredictor";
 import { parseCSVText, readCSVFile, detectCSVFormat } from "../../services/csvParser";
+import { parsePDF, PDF_FORMAT_LABELS } from "../../services/pdfParser";
 import {
   runTesseract, runOCRSpace,
   extractAmount, extractDate, extractStoreName, extractReceiptItems,
@@ -193,26 +194,68 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
   };
 
   // ─── csv ───
-  const handleCSVFile = async (e) => {
-    const file = e.target.files?.[0]; if (!file) return;
-    try {
-      const text     = await readCSVFile(file);
-      // 自動判定
-      const detected = detectCSVFormat(text);
-      setCsvDetected(detected);
-      const formatToUse = detected !== "generic" ? detected : csvFormat;
-      setCsvFormat(formatToUse);
+  const [csvPdfLoading, setCsvPdfLoading] = useState(false);
 
-      const rows      = parseCSVText(text, formatToUse);
+  const handleFileInput = async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    setCsvPdfLoading(true);
+    try {
+      let allRows = [];
+      const detectedLabels = new Set();
+      const errors = [];
+
+      for (const file of files) {
+        const isPDF = file.name.toLowerCase().endsWith(".pdf");
+        const isCSV = file.name.toLowerCase().endsWith(".csv");
+
+        if (isPDF) {
+          // ── PDF ──
+          try {
+            const { transactions, format } = await parsePDF(file);
+            detectedLabels.add(PDF_FORMAT_LABELS[format] || format);
+            allRows = [...allRows, ...transactions];
+          } catch (err) {
+            errors.push(`${file.name}: ${err.message}`);
+          }
+        } else if (isCSV) {
+          // ── CSV ──
+          const text        = await readCSVFile(file);
+          const detected    = detectCSVFormat(text);
+          const formatToUse = detected !== "generic" ? detected : csvFormat;
+          if (detected !== "generic") {
+            detectedLabels.add(CSV_FORMATS[detected]?.label || detected);
+          }
+          allRows = [...allRows, ...parseCSVText(text, formatToUse)];
+        }
+      }
+
+      if (errors.length) alert(errors.join("\n"));
+
+      // ファイル内重複を除去
+      const seenKeys = new Set();
+      allRows = allRows.filter(r => {
+        const k = DUPLICATE_KEY(r);
+        if (seenKeys.has(k)) return false;
+        seenKeys.add(k); return true;
+      });
+
+      const detectedLabel = [...detectedLabels].join(" / ") || "generic";
+      setCsvDetected(detectedLabel);
+
       const existKeys = new Set(existingTransactions.map(DUPLICATE_KEY));
-      const withDup   = rows.map(r => ({ ...r, isDuplicate: existKeys.has(DUPLICATE_KEY(r)) }));
+      const withDup   = allRows.map(r => ({ ...r, isDuplicate: existKeys.has(DUPLICATE_KEY(r)) }));
       const init      = {}; withDup.forEach((_, i) => init[i] = !withDup[i].isDuplicate);
       setCsvRows(withDup); setCsvChecked(init);
-      setCsvStep(rows.length === 0 ? "empty" : "preview");
+      setCsvStep(allRows.length === 0 ? "empty" : "preview");
     } catch {
-      alert("CSVの読み込みに失敗しました。ファイルを確認してください。");
+      alert("ファイルの読み込みに失敗しました。");
+    } finally {
+      setCsvPdfLoading(false);
     }
   };
+
+  const handleCSVFile = handleFileInput; // 後方互換
 
   const execCSVImport = () => {
     const toImport = csvRows.filter((_, i) => csvChecked[i]);
@@ -630,20 +673,32 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
     <div className="pb-20">
       <div className="bg-white px-4 pt-12 pb-4 border-b border-gray-100 flex items-center gap-3">
         <button onClick={() => { setMode("select"); setCsvStep("upload"); }} className="text-gray-400 text-lg">←</button>
-        <h1 className="text-xl font-bold text-gray-900">CSVインポート</h1>
+        <h1 className="text-xl font-bold text-gray-900">CSV / PDFインポート</h1>
       </div>
       <div className="px-4 py-5">
 
         {csvStep === "upload" && (
           <div className="space-y-4">
             {/* ファイル選択（メイン） */}
-            <input ref={fileRef} type="file" accept=".csv" onChange={handleCSVFile} className="hidden" />
-            <button onClick={() => fileRef.current?.click()}
-              className="w-full py-10 rounded-2xl border-2 border-dashed border-indigo-300 bg-indigo-50 flex flex-col items-center gap-3">
-              <span className="text-5xl">📂</span>
-              <p className="text-sm font-bold text-indigo-600">CSVファイルを選択</p>
-              <p className="text-xs text-indigo-400">フォーマットは自動で判定します</p>
-            </button>
+            <input ref={fileRef} type="file" accept=".csv,.pdf" multiple onChange={handleFileInput} className="hidden" />
+            {csvPdfLoading ? (
+              <div className="w-full py-10 rounded-2xl border-2 border-indigo-200 bg-indigo-50 flex flex-col items-center gap-3">
+                <div className="w-10 h-10 border-4 border-indigo-200 border-t-indigo-500 rounded-full animate-spin" />
+                <p className="text-sm font-bold text-indigo-600">読み込み中...</p>
+                <p className="text-xs text-indigo-400">PDFは少し時間がかかります</p>
+              </div>
+            ) : (
+              <button onClick={() => fileRef.current?.click()}
+                className="w-full py-10 rounded-2xl border-2 border-dashed border-indigo-300 bg-indigo-50 flex flex-col items-center gap-3">
+                <span className="text-5xl">📂</span>
+                <p className="text-sm font-bold text-indigo-600">CSV / PDFを選択（複数同時OK）</p>
+                <div className="flex gap-2">
+                  <span className="text-xs bg-indigo-100 text-indigo-600 px-2 py-0.5 rounded-full font-medium">CSV</span>
+                  <span className="text-xs bg-rose-100 text-rose-600 px-2 py-0.5 rounded-full font-medium">PDF</span>
+                </div>
+                <p className="text-xs text-indigo-400">フォーマットは自動で判定します</p>
+              </button>
+            )}
 
             {/* 手動選択（折りたたみ） */}
             <button onClick={() => setCsvShowOverride(p => !p)}
