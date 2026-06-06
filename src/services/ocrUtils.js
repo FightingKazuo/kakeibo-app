@@ -161,7 +161,7 @@ const parseDiscount = (line) => {
 };
 
 // ── ウエルシア ──
-// 形式: 商品名 特? ¥金額
+// 形式: ※?商品名 特? ¥金額 内?
 //       (@N × N個) [任意]
 //       ★割引(XX%) -金額 / まとめ値引き (N個) -N
 const parseWelciaItems = (lines) => {
@@ -170,26 +170,29 @@ const parseWelciaItems = (lines) => {
     const line = lines[i];
     if (isSummaryLine(line) || isBarcodeOnlyLine(line)) continue;
 
-    // 割引行
-    if (isDiscountLine(line) && items.length > 0) {
+    // ポイント行をスキップ (W:+60, W:+40 等)
+    if (/^W:[+\-＋－]?\d/.test(line)) continue;
+
+    // 数量行をスキップ
+    if (/^\(@?\d+[×xX]\s*\d+個?\)/.test(line)) continue;
+
+    // 割引行（★割引・まとめ値引き）- items.length に関係なく処理
+    if (/[★☆]?割引|まとめ値引/.test(line)) {
       const disc = parseDiscount(line);
       if (disc) items.push({ name: "割引", amount: disc, quantity: 1, isDiscount: true });
       continue;
     }
 
-    // 数量行（単体）
-    if (/^\(@?\d+[×x]\s*\d+個\)/.test(line) || /^W:\+\d+/.test(line)) continue;
-
-    // 商品行: 末尾に ¥金額
-    const m = line.match(/^(.+?)\s+(?:特\s+)?[¥￥]([\d,]+)\s*$/);
+    // 商品行: ¥ は \ や ￥ でも対応（OCRの誤読対策）
+    // 末尾の「内」は税込表記なので除去
+    const m = line.match(/^([※＊\s]*)(.*?)\s+(?:特\s+)?[¥￥\\]([\d,]+)(?:内)?\s*$/);
     if (m) {
-      const name  = m[1].replace(/^[※★\s]+/, "").replace(/\s+特$/, "").trim();
-      const price = parseInt(m[2].replace(/,/g, ""));
-      if (name.length > 0 && price > 0 && price < 100000) {
-        // 次の行が数量行か確認
+      const name  = m[2].replace(/^[※＊\s]+/, "").replace(/\s+特$/, "").trim();
+      const price = parseInt(m[3].replace(/,/g, ""));
+      if (name.length >= 1 && price > 0 && price < 100000 && !isSummaryLine(name)) {
         const nextLine = lines[i + 1] || "";
         let qty = 1, unitPrice = price;
-        const qtyM = nextLine.match(/\(?@?(\d[\d,]+)\s*[×x]\s*(\d+)個?\)?/);
+        const qtyM = nextLine.match(/\(?@?(\d[\d,]+)\s*[×xX]\s*(\d+)個?\)?/);
         if (qtyM) {
           unitPrice = parseInt(qtyM[1].replace(/,/g, ""));
           qty = parseInt(qtyM[2]);
@@ -224,8 +227,8 @@ const parsePleinItems = (lines) => {
     // 数量行（括弧付き）
     if (/^\s*\(\s*\d+個/.test(line)) continue;
 
-    // 商品行: 外8 or 外10 で始まる
-    const m = line.match(/^外\d+\s+(.+?)\s+(?:特\s+)?[¥￥]([\d,]+)\s*$/);
+    // 商品行: 外8 or 外10 で始まる（¥を\でも認識）
+    const m = line.match(/^外\d+\s+(.+?)\s+(?:特\s+)?[¥￥\\]([\d,]+)(?:内)?\s*$/);
     if (m) {
       const name  = m[1].trim().replace(/\s+特$/, "").trim();
       const price = parseInt(m[2].replace(/,/g, ""));
@@ -268,8 +271,8 @@ const parseBigdayItems = (lines) => {
     // 数量のみの行
     if (/^\s*\d+コX単\d+/.test(line) || /^\d+コX単\d+/.test(line)) continue;
 
-    // 商品行: ※商品名 ¥金額 / 商品名 ¥金額
-    const m = line.match(/^[※\s]*(.+?)\s+[¥￥]([\d,]+)\s*$/);
+    // 商品行: ※商品名 ¥金額 / 商品名 ¥金額（¥を\でも認識）
+    const m = line.match(/^[※\s]*(.+?)\s+[¥￥\\]([\d,]+)(?:内)?\s*$/);
     if (m) {
       const name  = m[1].replace(/^[※\s]+/, "").trim();
       const price = parseInt(m[2].replace(/,/g, ""));
@@ -303,8 +306,8 @@ const parseCainzItems = (lines) => {
     // 数量行
     if (/^@\d/.test(line.trim())) continue;
 
-    // 商品行: 3桁コード 商品名 ¥金額
-    const m = line.match(/^\d{3}\s+(.+?)\s+[¥￥]([\d,]+)\s*$/);
+    // 商品行: 3桁コード 商品名 ¥金額（¥を\でも認識）
+    const m = line.match(/^\d{3}\s+(.+?)\s+[¥￥\\]([\d,]+)(?:内)?\s*$/);
     if (m) {
       const name  = m[1].trim();
       const price = parseInt(m[2].replace(/,/g, ""));
@@ -336,8 +339,8 @@ const parseNitoriItems = (lines) => {
     if (isSummaryLine(line)) continue;
     if (/^\d{8}$/.test(line.trim())) continue; // バーコード
 
-    // 商品行: 商品名 ¥金額内
-    const m = line.match(/^(.+?)\s+[¥￥]([\d,]+)内?\s*$/);
+    // 商品行: 商品名 ¥金額内（¥を\でも認識）
+    const m = line.match(/^(.+?)\s+[¥￥\\]([\d,]+)内?\s*$/);
     if (m) {
       const name  = m[1].trim();
       const price = parseInt(m[2].replace(/,/g, ""));
@@ -436,7 +439,7 @@ const parseSelvaItems = (lines) => {
     if (isSummaryLine(line)) continue;
     if (/^\d+コX単\d+/.test(line.trim())) continue;
 
-    const m = line.match(/^\d{6}[※\s]*(.+?)\s+[¥￥]([\d,]+)\s*$/);
+    const m = line.match(/^\d{6}[※\s]*(.+?)\s+[¥￥\\]([\d,]+)(?:内)?\s*$/);
     if (m) {
       const name  = m[1].trim();
       const price = parseInt(m[2].replace(/,/g, ""));
@@ -488,7 +491,7 @@ const parseGenericItems = (lines) => {
       if (disc) items.push({ name: "割引", amount: disc, quantity: 1, isDiscount: true });
       continue;
     }
-    const m = line.match(/^(.+?)\s+[¥￥]([\d,]+)\s*$/);
+    const m = line.match(/^(.+?)\s+[¥￥\\]([\d,]+)(?:内)?\s*$/);
     if (m) {
       const name  = m[1].replace(/^外\d+\s*/, "").replace(/\s+特$/, "").trim();
       const price = parseInt(m[2].replace(/,/g, ""));
@@ -516,19 +519,26 @@ const applyTax = (items, taxInfo) => {
 
 // ─── 合計に合わせて端数調整 ────────────────────────────────
 // 各商品の税込合計 ≒ 1番下の合計金額になるように調整
+// ⚠️ 品目が少ししか抽出できていない場合はスケーリングしない
+//    （3件→19件分に引き延ばすと金額が狂う）
 const adjustToTotal = (items, total) => {
   if (!total || items.length === 0) return items;
-  const positiveItems = items.filter(i => !i.isDiscount);
-  const discountSum   = items.filter(i => i.isDiscount).reduce((s, i) => s + i.amount, 0);
-  const positiveSum   = positiveItems.reduce((s, i) => s + i.amount, 0);
-  const targetPositive = total - discountSum; // 割引後の商品合計
+  const positiveItems  = items.filter(i => !i.isDiscount);
+  const discountSum    = items.filter(i => i.isDiscount).reduce((s, i) => s + i.amount, 0);
+  const positiveSum    = positiveItems.reduce((s, i) => s + i.amount, 0);
+  const targetPositive = total - discountSum;
   if (positiveSum === 0 || targetPositive <= 0) return items;
+
   const scale = targetPositive / positiveSum;
+
+  // スケール比が 0.85〜1.15 の範囲外は「品目が大きく欠損している」と判断
+  // → スケーリングせず元の金額をそのまま返す（誤魔化さない）
+  if (scale > 1.15 || scale < 0.85) return items;
+
   let adjusted = items.map(item => {
     if (item.isDiscount) return item;
     return { ...item, amount: Math.round(item.amount * scale) };
   });
-  // 端数を最後の商品に付与して合計を一致させる
   const adjSum = adjusted.reduce((s, i) => s + i.amount, 0);
   const diff   = total - adjSum;
   if (diff !== 0) {
