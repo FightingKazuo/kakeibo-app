@@ -419,8 +419,8 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
       return;
     }
 
-    setOcrQueue(fileArr); setOcrQueueIdx(0);
-    setOcrStep("processing"); setOcrProgress(0); setOcrWaitSec(0);
+    setOcrQueue(fileArr); setOcrQueueIdx(1);
+    setOcrStep("processing"); setOcrProgress(0);
 
     const results = [];
     for (let i = 0; i < fileArr.length; i++) {
@@ -730,8 +730,8 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
             </div>
             {ocrQueue.length > 1 && (
               <p className="text-xs text-gray-400">
-                全体: {Math.round((ocrQueueIdx - 1) / ocrQueue.length * 100)}%
-                　約{Math.round((ocrQueue.length - ocrQueueIdx + 1) * 5)}秒
+                全体: {Math.round(Math.max(0, ocrQueueIdx - 1) / ocrQueue.length * 100)}%
+                （残り約{Math.max(0, ocrQueue.length - ocrQueueIdx + 1) * 5}秒）
               </p>
             )}
           </div>
