@@ -143,6 +143,11 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
   const [ocrQueueIdx,   setOcrQueueIdx]   = useState(0);
   const [ocrResults,    setOcrResults]    = useState([]);
   const [ocrApiKey,     setOcrApiKey]     = useState(() => loadStorage("OCR_API_KEY", "") || "");
+  // ── OCR学習: 修正内容を記憶して次回に自動適用 ────────────
+  const [ocrCorrections, setOcrCorrections] = useState(
+    () => loadStorage(STORAGE_KEYS.OCR_CORRECTIONS, {}) || {}
+  );
+  const [ocrOrigLabel,   setOcrOrigLabel]   = useState(""); // OCRが最初に検出した店名（学習用）
   const [geminiKey,     setGeminiKey]     = useState(() => loadStorage("GEMINI_API_KEY", "") || "");
   const [pasteText,     setPasteText]     = useState("");  // テキスト貼り付けモード
   const [dupModal,      setDupModal]      = useState(null); // {txs, candidates}
@@ -150,6 +155,34 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
   const ocrCameraRef = useRef(null);
 
   // ─── helpers ───
+  /** OCR補正マップから店名・カテゴリを検索（曖昧マッチ対応）*/
+  const lookupCorrection = (rawLabel) => {
+    if (!rawLabel || !ocrCorrections) return null;
+    const lower = rawLabel.toLowerCase().trim();
+    // 完全一致
+    if (ocrCorrections[rawLabel]) return ocrCorrections[rawLabel];
+    // 大文字小文字無視
+    for (const [k, v] of Object.entries(ocrCorrections)) {
+      if (k.toLowerCase().trim() === lower) return v;
+    }
+    // 部分一致（どちらかが他方を含む）
+    for (const [k, v] of Object.entries(ocrCorrections)) {
+      const kl = k.toLowerCase().trim();
+      if (kl.length >= 3 && (lower.includes(kl) || kl.includes(lower))) return v;
+    }
+    return null;
+  };
+
+  /** 修正内容を学習して保存 */
+  const saveCorrection = (rawLabel, correctedLabel, category) => {
+    if (!rawLabel || rawLabel.trim() === "") return;
+    const updated = {
+      ...ocrCorrections,
+      [rawLabel]: { label: correctedLabel, category, learnedAt: new Date().toISOString() },
+    };
+    setOcrCorrections(updated);
+    saveStorage(STORAGE_KEYS.OCR_CORRECTIONS, updated);
+  };
   // Gemini → OCR.space → Tesseract の優先順で使用
   const runOcr = (file, onProg) => {
     if (geminiKey) return analyzeWithGemini(file, geminiKey, onProg).then(r => ({
@@ -302,6 +335,10 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
   const registerOcr = (label, amount, date, cat, items) => {
     if (!amount || !label) { alert("金額と内容を入力してください"); return; }
     onLearnRule?.(label, cat, "expense");
+    // OCR補正を学習: 元の検出名 → ユーザーが確定した名前・カテゴリ
+    if (ocrOrigLabel && (ocrOrigLabel !== label || true)) {
+      saveCorrection(ocrOrigLabel, label, cat);
+    }
     const hist = [{ label, amount, date, cat }, ...ocrHistory].slice(0, 5);
     setOcrHistory(hist); saveStorage(STORAGE_KEYS.OCR_HISTORY, hist);
 
@@ -309,8 +346,16 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
 
     if (items && items.length > 0) {
       const { shared, personal } = calcSplit(items);
-      if (shared > 0)   txsToAdd.push(createTransaction({ date, label,              category: cat, amount: -shared,   type: "expense", source: "ocr" }));
-      if (personal > 0) txsToAdd.push(createTransaction({ date, label: `${label}（個人）`, category: cat, amount: -personal, type: "expense", source: "ocr" }));
+      const sharedItems   = items.filter(i => (i.type || "shared") !== "personal");
+      const personalItems = items.filter(i => i.type === "personal");
+      if (shared   > 0) txsToAdd.push(createTransaction({
+        date, label, category: cat, amount: -shared, type: "expense", source: "ocr",
+        items: sharedItems.map(({ name, amount: a, quantity }) => ({ name, amount: a, quantity, type: "shared" })),
+      }));
+      if (personal > 0) txsToAdd.push(createTransaction({
+        date, label: `${label}（個人）`, category: cat, amount: -personal, type: "expense", source: "ocr",
+        items: personalItems.map(({ name, amount: a, quantity }) => ({ name, amount: a, quantity, type: "personal" })),
+      }));
     }
 
     if (txsToAdd.length === 0) {
@@ -360,20 +405,16 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
   };
 
   /** 複数枚 OCR */
-  // Gemini の 15 RPM 制限対策: リクエスト間の最低待機時間
-  const GEMINI_MIN_INTERVAL_MS = 4200; // 4.2秒 → 最大14.2回/分（安全マージン付き）
-  const MAX_IMAGES = 15; // 1回に処理できる最大枚数
-  const [ocrWaitSec, setOcrWaitSec] = useState(0); // 待機カウントダウン表示用
 
   const startOcrMultiple = async (files) => {
     const fileArr = Array.from(files);
 
     // ── 15枚制限チェック ──
-    if (fileArr.length > MAX_IMAGES) {
+    if (fileArr.length > 15) {
       alert(
-        `一度に選択できる枚数は${MAX_IMAGES}枚までです。\n` +
+        `一度に選択できる枚数は15枚までです。\n` +
         `（選択中: ${fileArr.length}枚）\n\n` +
-        `${MAX_IMAGES}枚以下に減らして再選択してください。`
+        `15枚以下に減らして再選択してください。`
       );
       return;
     }
@@ -384,7 +425,6 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
     const results = [];
     for (let i = 0; i < fileArr.length; i++) {
       setOcrQueueIdx(i + 1); setOcrProgress(0); setOcrWaitSec(0);
-      const requestStart = Date.now();
 
       try {
         const result = await runOcr(fileArr[i], setOcrProgress);
@@ -411,11 +451,15 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
           items = extractReceiptItems(text).map(item => ({ ...item, type: "shared" }));
         }
 
-        const combined = [...(allRules || DEFAULT_CATEGORY_RULES), ...(learnedRules || [])];
-        const res = predictCategory(store, combined);
+        const correction = lookupCorrection(store);
+        const finalLabel = correction?.label    || store;
+        const learnedCat = correction?.category || null;
+        const combined   = [...(allRules || DEFAULT_CATEGORY_RULES), ...(learnedRules || [])];
+        const res        = predictCategory(finalLabel, combined);
         results.push({
-          label: store, amount: amt ? String(amt) : "", date: dt,
-          cat: res.isConfident ? res.topCategory : "食費",
+          label: finalLabel, origLabel: store,
+          amount: amt ? String(amt) : "", date: dt,
+          cat: learnedCat || (res.isConfident ? res.topCategory : "食費"),
           confidence, ok: true, items, showItems: false,
         });
       } catch (err) {
@@ -426,24 +470,6 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
         });
       }
 
-      // ── Gemini 使用時のみレート制限対策: 次の枚まで待機 ──
-      if (geminiKey && i < fileArr.length - 1) {
-        const elapsed = Date.now() - requestStart;
-        const wait    = Math.max(0, GEMINI_MIN_INTERVAL_MS - elapsed);
-        if (wait > 0) {
-          // カウントダウン表示
-          let remaining = Math.ceil(wait / 1000);
-          setOcrWaitSec(remaining);
-          const countdown = setInterval(() => {
-            remaining -= 1;
-            setOcrWaitSec(Math.max(0, remaining));
-            if (remaining <= 0) clearInterval(countdown);
-          }, 1000);
-          await new Promise(resolve => setTimeout(resolve, wait));
-          clearInterval(countdown);
-          setOcrWaitSec(0);
-        }
-      }
     }
     setOcrResults(results);
     if (fileArr.length === 1) {
@@ -483,14 +509,19 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
         items = extractReceiptItems(text).map(item => ({ ...item, type: "shared" }));
       }
 
+      // 学習補正を適用
+      const correction = lookupCorrection(store);
+      const finalLabel = correction?.label    || store;
+      const learnedCat = correction?.category || null;
+      setOcrOrigLabel(store);  // 元のGemini検出名を保存
       setOcrAmount(amt ? String(amt) : "");
       setOcrDate(dt);
-      setOcrLabel(store);
+      setOcrLabel(finalLabel);
       setOcrItems(items);
       const combined = [...(allRules || DEFAULT_CATEGORY_RULES), ...(learnedRules || [])];
-      const res = predictCategory(store, combined);
+      const res = predictCategory(finalLabel, combined);
       setOcrPreds(res.predictions);
-      setOcrCat(res.isConfident ? res.topCategory : "食費");
+      setOcrCat(learnedCat || (res.isConfident ? res.topCategory : "食費"));
       setOcrStep("review");
     } catch (e) {
       setOcrError(e.message || "OCR処理に失敗しました。もう一度お試しください。");
@@ -615,7 +646,7 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
               <span className="text-xl">🖼️</span>
               <div className="text-left">
                 <p className="text-sm font-semibold text-gray-600">画像を選択（複数枚OK）</p>
-                <p className="text-xs text-gray-400">最大{MAX_IMAGES}枚まで · Gemini使用時は自動調整</p>
+                <p className="text-xs text-gray-400">最大15枚まで · Gemini使用時は自動調整</p>
               </div>
             </button>
 
@@ -690,21 +721,10 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
         {ocrStep === "processing" && (
           <div className="text-center space-y-4 py-8">
             <div className="w-16 h-16 border-4 border-indigo-200 border-t-indigo-500 rounded-full animate-spin mx-auto" />
-            {ocrWaitSec > 0 ? (
-              <>
-                <p className="text-sm font-semibold text-amber-600">
-                  次の枚まで待機中... {ocrWaitSec}秒
-                </p>
-                <p className="text-xs text-gray-400">Geminiのレート制限対策（自動）</p>
-              </>
-            ) : (
-              <>
-                <p className="text-sm font-semibold text-gray-700">
-                  文字を認識中...{ocrQueue.length > 1 && ` (${ocrQueueIdx}/${ocrQueue.length}枚目)`}
-                </p>
-                <p className="text-xs text-gray-400">{geminiKey ? "Gemini AI で解析中（高精度）" : ocrApiKey ? "OCR.space で解析中" : "初回は30秒ほどかかります"}</p>
-              </>
-            )}
+            <p className="text-sm font-semibold text-gray-700">
+              文字を認識中...{ocrQueue.length > 1 && ` (${ocrQueueIdx}/${ocrQueue.length}枚目)`}
+            </p>
+            <p className="text-xs text-gray-400">{geminiKey ? "Gemini AI で解析中" : ocrApiKey ? "OCR.space で解析中" : "処理中..."}</p>
             <div className="w-full bg-gray-100 rounded-full h-2">
               <div className="bg-indigo-500 h-2 rounded-full transition-all" style={{ width: `${ocrProgress}%` }} />
             </div>
@@ -850,10 +870,20 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
               ocrResults.forEach(r => {
                 if (!r.amount || !r.label) return;
                 onLearnRule?.(r.label, r.cat, "expense");
+                // 元の検出名と確定名が異なれば学習
+                if (r.origLabel) saveCorrection(r.origLabel, r.label, r.cat);
                 if (r.items && r.items.length > 0) {
                   const { shared, personal } = calcSplit(r.items);
-                  if (shared   > 0) onAdd(createTransaction({ date: r.date, label: r.label,              category: r.cat, amount: -shared,          type: "expense", source: "ocr" }));
-                  if (personal > 0) onAdd(createTransaction({ date: r.date, label: `${r.label}（個人）`, category: r.cat, amount: -personal,         type: "expense", source: "ocr" }));
+                  const si = r.items.filter(i => (i.type || "shared") !== "personal");
+                  const pi = r.items.filter(i => i.type === "personal");
+                  if (shared   > 0) onAdd(createTransaction({
+                    date: r.date, label: r.label, category: r.cat, amount: -shared, type: "expense", source: "ocr",
+                    items: si.map(({ name, amount: a, quantity }) => ({ name, amount: a, quantity, type: "shared" })),
+                  }));
+                  if (personal > 0) onAdd(createTransaction({
+                    date: r.date, label: `${r.label}（個人）`, category: r.cat, amount: -personal, type: "expense", source: "ocr",
+                    items: pi.map(({ name, amount: a, quantity }) => ({ name, amount: a, quantity, type: "personal" })),
+                  }));
                 } else {
                   onAdd(createTransaction({ date: r.date, label: r.label, category: r.cat, amount: -Number(r.amount), type: "expense", source: "ocr" }));
                 }
