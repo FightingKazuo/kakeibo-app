@@ -1,16 +1,16 @@
 // ============================================================
-// geminiOcr.js  (v3)
+// geminiOcr.js  (v4 — 確定版)
 //
 // 修正:
-//   ① モデル名フォールバック: gemini-2.0-flash → 1.5-flash-latest → 1.5-flash
-//      → 2026年以降のモデル名変更に自動対応
-//   ② AbortController → Promise.race に変更（iOS Safari 互換性向上）
-//   ③ FileReader で直接 base64 化（HEIC 含む全形式対応・ハング防止）
+//   ① タイムアウトは即座に throw（次モデルは試さない → 最大ハング時間を20秒に）
+//   ② 429(上限)も即座に throw（全モデル共通の制限のため再試行不要）
+//   ③ 404のみ次モデルへ fallback
+//   ④ タイムアウト 20秒（旧: 30秒）
 // ============================================================
 
 const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 
-// 試みるモデル名リスト（新しい順）
+// 試みるモデル名（404の場合のみ次を試す）
 const GEMINI_MODELS = [
   "gemini-2.0-flash",
   "gemini-2.0-flash-exp",
@@ -18,7 +18,7 @@ const GEMINI_MODELS = [
   "gemini-1.5-flash",
 ];
 
-// ─── FileReader で base64 化（iOS 全形式対応・ハングなし）────
+// ─── FileReader で base64 化（iOS HEIC 含む全形式・ハングなし）──
 const fileToBase64 = (file) =>
   new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -32,74 +32,96 @@ const fileToBase64 = (file) =>
     reader.readAsDataURL(file);
   });
 
-// ─── タイムアウト付き fetch（Promise.race 方式・iOS 互換）─────
-const fetchWithTimeout = (url, options, timeoutMs = 30000) =>
+// ─── 20秒タイムアウト付き fetch ──────────────────────────────
+const fetchWithTimeout = (url, options) =>
   Promise.race([
     fetch(url, options),
     new Promise((_, reject) =>
-      setTimeout(() => reject(new Error(`タイムアウト（${timeoutMs / 1000}秒）: ネット接続を確認してください`)), timeoutMs)
+      setTimeout(
+        () => reject(new Error("TIMEOUT: 接続タイムアウト（20秒）。ネットワークを確認してください")),
+        20000
+      )
     ),
   ]);
 
-// ─── Gemini API 呼び出し（モデル自動フォールバック）────────────
+// ─── Gemini API 呼び出し ──────────────────────────────────────
+// 404 のみ次モデルへ。タイムアウト・429 は即座に throw。
 const callGemini = async (apiKey, parts, maxTokens = 2048) => {
-  let lastError = null;
+  let last404Error = null;
 
   for (const model of GEMINI_MODELS) {
     const url = `${GEMINI_BASE}/${model}:generateContent?key=${apiKey}`;
     let res;
+
     try {
-      res = await fetchWithTimeout(
-        url,
-        {
-          method:  "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [{ parts }],
-            generationConfig: { temperature: 0.1, maxOutputTokens: maxTokens },
-          }),
-        },
-        30000
-      );
+      res = await fetchWithTimeout(url, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts }],
+          generationConfig: { temperature: 0.1, maxOutputTokens: maxTokens },
+        }),
+      });
     } catch (e) {
-      lastError = e;
-      continue; // ネットエラーは次のモデルへ
+      // タイムアウトは即座に throw（ハングを防ぐ）
+      if (e.message.startsWith("TIMEOUT:")) {
+        throw new Error("⏱ タイムアウト（20秒）\nネットワークが不安定か Gemini に問題があります。しばらく待って再試行してください");
+      }
+      // その他ネットエラー
+      throw new Error(`ネットワークエラー: ${e.message}`);
     }
 
-    // 404 = このモデルは未対応 → 次を試す
+    // 404 = このモデル未対応 → 次を試す
     if (res.status === 404) {
-      lastError = new Error(`モデル ${model} が見つかりません`);
+      last404Error = new Error(`モデル ${model} が見つかりません (404)`);
       continue;
+    }
+
+    // 429 = レート上限 → 即座に throw（全モデル共通の制限）
+    if (res.status === 429) {
+      throw new Error(
+        "⚠️ リクエスト上限に達しました（429）\n" +
+        "Gemini 無料プランは 1分15回まで。\n" +
+        "1〜2分待ってから再試行してください。"
+      );
+    }
+
+    // 400 = APIキー無効
+    if (res.status === 400) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(`❌ APIキーエラー: ${(err.error?.message || "").slice(0, 80)}`);
+    }
+
+    // 503 = サーバー混雑
+    if (res.status === 503) {
+      throw new Error("⚠️ Gemini サーバーが混雑中。しばらく待って再試行してください");
     }
 
     // その他エラー
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      const msg = err.error?.message || "";
-      if (res.status === 400) throw new Error(`APIキーが無効です: ${msg.slice(0, 80)}`);
-      if (res.status === 429) throw new Error("リクエスト上限に達しました。しばらく待ってください");
-      if (res.status === 503) throw new Error("Geminiが混雑中。少し待って再試行してください");
-      throw new Error(`Geminiエラー (${res.status}): ${msg.slice(0, 80)}`);
+      throw new Error(`Gemini エラー (${res.status}): ${(err.error?.message || "").slice(0, 80)}`);
     }
 
-    // 成功
+    // ─ 成功 ─────────────────────────────────────────────────
     const data = await res.json();
     const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-    if (!text) throw new Error("Geminiから応答が空でした");
+    if (!text) throw new Error("Gemini から応答が空でした");
 
-    // JSONを抽出
     const clean = text
       .replace(/^```json\s*/m, "").replace(/^```\s*/m, "").replace(/```\s*$/m, "").trim();
+
     try {
       return JSON.parse(clean);
     } catch {
       const match = clean.match(/\{[\s\S]*\}/);
       if (match) { try { return JSON.parse(match[0]); } catch {} }
-      throw new Error(`JSON解析失敗 (${model}): ${text.slice(0, 60)}`);
+      throw new Error(`JSON 解析失敗 (${model}):\n${text.slice(0, 80)}`);
     }
   }
 
-  throw lastError || new Error("すべてのGeminiモデルで失敗しました");
+  // 全モデルが 404 だった場合
+  throw last404Error || new Error("すべての Gemini モデルで失敗しました");
 };
 
 // ─── レシート画像解析 ────────────────────────────────────────
@@ -140,10 +162,9 @@ const PDF_PROMPT = `このクレジットカード・銀行明細PDFから全取
   "transactions": [{"date":"YYYY-MM-DD","label":"取引先名","amount":金額整数}]
 }
 ・date は YYYY-MM-DD形式
-・label はカタカナを日本語に変換（例: シヤトレーゼ → シャトレーゼ）
+・label はカタカナを日本語に変換
 ・amount は正の整数（支出額）
-・合計行・税額行・ポイント行は除外
-・すべての取引を漏れなく抽出`;
+・合計行・税額行・ポイント行は除外`;
 
 export const analyzePDFWithGemini = async (file, apiKey, onProgress) => {
   onProgress?.(10);
