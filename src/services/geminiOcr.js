@@ -1,102 +1,112 @@
 // ============================================================
-// geminiOcr.js
-// Gemini Vision API でレシートを解析し構造化データを返す
+// geminiOcr.js  (v2 — iOS HEIC対応・タイムアウト付き)
 //
-// 無料枠: 1日1,500リクエスト (個人利用で実質無制限)
-// APIキー取得: https://aistudio.google.com → Get API Key
+// 修正点:
+//   ① Canvas変換を廃止 → FileReader で直接base64化
+//      → iOSのHEICで img.onload が無限待機するバグを解消
+//   ② 全リクエストに30秒タイムアウトを追加
+//   ③ エラーメッセージを日本語で詳細化
 // ============================================================
 
 const GEMINI_API =
   "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent";
 
-const PROMPT = `このレシート画像から情報を抽出してください。
-必ずJSONのみを出力してください（コードブロック・説明文不要）。
-
-{
-  "storeName": "店舗名（例: ウエルシア静岡川合店）",
-  "date": "YYYY-MM-DD形式の日付",
-  "totalAmount": 合計金額の整数,
-  "items": [
-    { "name": "商品名", "amount": 単価の整数, "quantity": 数量の整数 }
-  ]
-}
-
-ルール:
-- storeName は看板・ヘッダーから正確に取得
-- totalAmount は「合計」「お会計」の金額（税込）
-- items の amount はすべて正の整数（割引は name に「割引」を含めマイナス値）
-- 読み取れない項目は null`;
-
-// ─── 画像を base64 に変換 ──────────────────────────────────
-const toBase64 = (file) =>
+// ─── ファイルを base64 に変換（FileReader 使用・絶対に止まらない）────
+const fileToBase64 = (file) =>
   new Promise((resolve, reject) => {
-    const r = new FileReader();
-    r.onload  = () => resolve(r.result.split(",")[1]);
-    r.onerror = reject;
-    r.readAsDataURL(file);
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result; // "data:image/heic;base64,xxxx"
+      const base64   = result.split(",")[1];
+      const mimeType = result.split(":")[1]?.split(";")[0] || file.type || "image/jpeg";
+      resolve({ base64, mimeType });
+    };
+    reader.onerror = () => reject(new Error("ファイルの読み込みに失敗しました"));
+    reader.readAsDataURL(file);
   });
 
-// ─── メイン ──────────────────────────────────────────────────
-/**
- * analyzeWithGemini
- * レシート画像を Gemini Vision API で解析し構造化データを返す
- *
- * @param {File}     imageFile  レシート画像
- * @param {string}   apiKey     Gemini API キー
- * @param {function} onProgress 進捗コールバック (0-100)
- * @returns {{ storeName, date, totalAmount, items[] }}
- */
-export const analyzeWithGemini = async (imageFile, apiKey, onProgress) => {
-  onProgress?.(10);
+// ─── タイムアウト付き fetch ──────────────────────────────────
+const fetchWithTimeout = (url, options, timeoutMs = 30000) => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  return fetch(url, { ...options, signal: controller.signal })
+    .finally(() => clearTimeout(timer));
+};
 
-  const base64   = await toBase64(imageFile);
-  const mimeType = imageFile.type || "image/jpeg";
-  onProgress?.(30);
-
-  const res = await fetch(`${GEMINI_API}?key=${apiKey}`, {
-    method:  "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [{
-        parts: [
-          { text: PROMPT },
-          { inline_data: { mime_type: mimeType, data: base64 } },
-        ],
-      }],
-      generationConfig: { temperature: 0.1, maxOutputTokens: 2048 },
-    }),
-  });
-  onProgress?.(80);
+// ─── Gemini API 共通呼び出し ─────────────────────────────────
+const callGemini = async (apiKey, parts, maxTokens = 2048) => {
+  let res;
+  try {
+    res = await fetchWithTimeout(
+      `${GEMINI_API}?key=${apiKey}`,
+      {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts }],
+          generationConfig: { temperature: 0.1, maxOutputTokens: maxTokens },
+        }),
+      },
+      30000
+    );
+  } catch (e) {
+    if (e.name === "AbortError") throw new Error("タイムアウト（30秒）: ネット接続を確認してください");
+    throw new Error(`ネットワークエラー: ${e.message}`);
+  }
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     const msg = err.error?.message || "";
-    if (res.status === 400) throw new Error("APIキーが無効です。Google AI Studioで確認してください。");
-    if (res.status === 429) throw new Error("リクエスト数の上限に達しました。しばらく待ってください。");
-    throw new Error(`Gemini API エラー (${res.status}): ${msg}`);
+    if (res.status === 400) throw new Error(`APIキーが無効です: ${msg.slice(0, 60)}`);
+    if (res.status === 429) throw new Error("リクエスト上限。しばらく待ってください");
+    if (res.status === 503) throw new Error("Geminiが混雑中。少し待って再試行してください");
+    throw new Error(`Geminiエラー (${res.status}): ${msg.slice(0, 60)}`);
   }
 
   const data = await res.json();
   const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  if (!text) throw new Error("Geminiから応答がありませんでした");
+
+  // JSONブロック抽出
+  const clean = text
+    .replace(/^```json\s*/m, "").replace(/^```\s*/m, "").replace(/```\s*$/m, "").trim();
+  try {
+    return JSON.parse(clean);
+  } catch {
+    // もう一度 {} を探す
+    const match = clean.match(/\{[\s\S]*\}/);
+    if (match) {
+      try { return JSON.parse(match[0]); } catch {}
+    }
+    throw new Error(`JSON解析失敗: ${text.slice(0, 80)}`);
+  }
+};
+
+// ─── レシート画像解析 ────────────────────────────────────────
+const RECEIPT_PROMPT = `このレシート画像から情報を抽出してください。JSONのみ出力（コードブロック不要）：
+{
+  "storeName": "店舗名（例: ウエルシア静岡川合店）",
+  "date": "YYYY-MM-DD",
+  "totalAmount": 合計金額の整数,
+  "items": [{"name":"商品名","amount":単価整数,"quantity":数量整数}]
+}
+・totalAmount は税込合計金額
+・割引はnameに「割引」を含めamountをマイナス値
+・不明項目は null`;
+
+export const analyzeWithGemini = async (imageFile, apiKey, onProgress) => {
+  onProgress?.(10);
+
+  // FileReader で直接 base64 化（HEIC含む全形式対応）
+  const { base64, mimeType } = await fileToBase64(imageFile);
+  onProgress?.(40);
+
+  const parsed = await callGemini(apiKey, [
+    { text: RECEIPT_PROMPT },
+    { inline_data: { mime_type: mimeType, data: base64 } },
+  ]);
   onProgress?.(100);
 
-  // JSON を取り出す（コードブロックが含まれていても対応）
-  const clean = text
-    .replace(/^```json\s*/m, "")
-    .replace(/^```\s*/m, "")
-    .replace(/```\s*$/m, "")
-    .trim();
-
-  let parsed;
-  try {
-    parsed = JSON.parse(clean);
-  } catch {
-    throw new Error(
-      `Geminiの応答をパースできませんでした。\n応答: ${text.slice(0, 100)}`
-    );
-  }
-
-  // 正規化
   return {
     storeName:   String(parsed.storeName   || "").trim(),
     date:        String(parsed.date        || "").trim(),
@@ -105,78 +115,31 @@ export const analyzeWithGemini = async (imageFile, apiKey, onProgress) => {
   };
 };
 
-
-// ─── PDF解析（クレジットカード・銀行明細）────────────────────
-const PDF_PROMPT = `このクレジットカード・銀行の明細書PDFから全取引を抽出してください。
-JSONのみ出力（コードブロック不要）：
+// ─── PDF明細解析 ─────────────────────────────────────────────
+const PDF_PROMPT = `このクレジットカード・銀行明細PDFから全取引を抽出してください。JSONのみ出力：
 {
   "cardName": "カード名または銀行名",
-  "transactions": [
-    { "date": "YYYY-MM-DD", "label": "取引先名（日本語で）", "amount": 金額の整数 }
-  ]
+  "transactions": [{"date":"YYYY-MM-DD","label":"取引先名","amount":金額整数}]
 }
-ルール:
-- date は YYYY-MM-DD形式（例: 2026-04-01）
-- label はカタカナを極力日本語に変換（例: セブンーイレブン → セブン-イレブン）
-- amount は正の整数（支出額）
-- 合計行・ポイント行・税額行は除外
-- すべての取引を漏れなく抽出`;
+・date は YYYY-MM-DD形式
+・label はカタカナを日本語に変換
+・amount は正の整数（支出額）
+・合計行・税額行・ポイント行は除外`;
 
-/**
- * analyzePDFWithGemini
- * PDFをGemini APIで直接解析し全取引を返す
- * pdfjs不要・100%ブラウザで動作
- *
- * @param {File}     file       PDFファイル
- * @param {string}   apiKey     Gemini API キー
- * @param {function} onProgress 進捗コールバック
- * @returns {{ cardName, transactions[] }}
- */
 export const analyzePDFWithGemini = async (file, apiKey, onProgress) => {
   onProgress?.(10);
-
-  const base64 = await toBase64(file);
+  const { base64 } = await fileToBase64(file);
   onProgress?.(40);
 
-  const res = await fetch(`${GEMINI_API}?key=${apiKey}`, {
-    method:  "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [{
-        parts: [
-          { text: PDF_PROMPT },
-          { inline_data: { mime_type: "application/pdf", data: base64 } },
-        ],
-      }],
-      generationConfig: { temperature: 0.1, maxOutputTokens: 4096 },
-    }),
-  });
-  onProgress?.(80);
-
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    const msg = err.error?.message || "";
-    if (res.status === 400) throw new Error("APIキーが無効か、PDFのサイズが大きすぎます");
-    if (res.status === 429) throw new Error("リクエスト数の上限に達しました。しばらく待ってください");
-    throw new Error(`Gemini API エラー (${res.status}): ${msg}`);
-  }
-
-  const data = await res.json();
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-  onProgress?.(100);
-
-  const clean = text
-    .replace(/^```json\s*/m, "")
-    .replace(/^```\s*/m, "")
-    .replace(/```\s*$/m, "")
-    .trim();
-
-  let parsed;
-  try {
-    parsed = JSON.parse(clean);
-  } catch {
-    throw new Error(`PDF解析失敗。応答: ${text.slice(0, 80)}`);
-  }
+  const parsed = await callGemini(
+    apiKey,
+    [
+      { text: PDF_PROMPT },
+      { inline_data: { mime_type: "application/pdf", data: base64 } },
+    ],
+    4096
+  );
+  onProgress?.(90);
 
   const transactions = (parsed.transactions || [])
     .map(t => ({
@@ -189,5 +152,6 @@ export const analyzePDFWithGemini = async (file, apiKey, onProgress) => {
     }))
     .filter(t => t.date && t.amount < 0);
 
+  onProgress?.(100);
   return { cardName: String(parsed.cardName || "PDF明細"), transactions };
 };
