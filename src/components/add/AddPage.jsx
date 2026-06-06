@@ -8,6 +8,7 @@ import {
   runTesseract, runOCRSpace,
   extractAmount, extractDate, extractStoreName, extractReceiptItems,
 } from "../../services/ocrUtils";
+import { analyzeWithGemini, analyzePDFWithGemini } from "../../services/geminiOcr";
 import { DEFAULT_CATEGORY_RULES, CSV_FORMATS, STORAGE_KEYS } from "../../constants";
 import { loadStorage, saveStorage } from "../../utils/storage";
 import { fmtCurrency } from "../../utils/format";
@@ -142,14 +143,23 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
   const [ocrQueueIdx,   setOcrQueueIdx]   = useState(0);
   const [ocrResults,    setOcrResults]    = useState([]);
   const [ocrApiKey,     setOcrApiKey]     = useState(() => loadStorage("OCR_API_KEY", "") || "");
+  const [geminiKey,     setGeminiKey]     = useState(() => loadStorage("GEMINI_API_KEY", "") || "");
   const [pasteText,     setPasteText]     = useState("");  // テキスト貼り付けモード
   const [dupModal,      setDupModal]      = useState(null); // {txs, candidates}
   const ocrFileRef   = useRef(null);
   const ocrCameraRef = useRef(null);
 
   // ─── helpers ───
-  const runOcr = (file, onProg) =>
-    ocrApiKey ? runOCRSpace(file, ocrApiKey, onProg) : runTesseract(file, onProg);
+  // Gemini → OCR.space → Tesseract の優先順で使用
+  const runOcr = (file, onProg) => {
+    if (geminiKey) return analyzeWithGemini(file, geminiKey, onProg).then(r => ({
+      text: `${r.storeName}\n${r.date}\n合計 ${r.totalAmount}`,
+      confidence: 99,
+      geminiData: r,   // 構造化データをそのまま渡す
+    }));
+    if (ocrApiKey) return runOCRSpace(file, ocrApiKey, onProg).then(r => ({ ...r, geminiData: null }));
+    return runTesseract(file, onProg).then(r => ({ ...r, geminiData: null }));
+  };
 
   /** 品目から共有/個人の合計を計算 */
   const calcSplit = (items) => {
@@ -212,12 +222,25 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
 
         if (isPDF) {
           // ── PDF ──
-          try {
-            const { transactions, format } = await parsePDF(file);
-            detectedLabels.add(PDF_FORMAT_LABELS[format] || format);
-            allRows = [...allRows, ...transactions];
-          } catch (err) {
-            errors.push(`${file.name}: ${err.message}`);
+          if (geminiKey) {
+            // Gemini で PDF を直接解析（pdfjs不要・高精度）
+            try {
+              setCsvPdfLoading(true);
+              const { cardName, transactions } = await analyzePDFWithGemini(file, geminiKey, () => {});
+              detectedLabels.add(`${cardName}（PDF・Gemini）`);
+              allRows = [...allRows, ...transactions];
+            } catch (err) {
+              errors.push(`${file.name}: ${err.message}`);
+            }
+          } else {
+            // pdfjs フォールバック（Geminiキーなしの場合）
+            try {
+              const { transactions, format } = await parsePDF(file);
+              detectedLabels.add(PDF_FORMAT_LABELS[format] || format);
+              allRows = [...allRows, ...transactions];
+            } catch {
+              errors.push(`${file.name}: PDFの読み込みにはGeminiキーの設定を推奨します（設定 → OCRレシート画面）`);
+            }
           }
         } else if (isCSV) {
           // ── CSV ──
@@ -337,25 +360,89 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
   };
 
   /** 複数枚 OCR */
+  // Gemini の 15 RPM 制限対策: リクエスト間の最低待機時間
+  const GEMINI_MIN_INTERVAL_MS = 4200; // 4.2秒 → 最大14.2回/分（安全マージン付き）
+  const MAX_IMAGES = 15; // 1回に処理できる最大枚数
+  const [ocrWaitSec, setOcrWaitSec] = useState(0); // 待機カウントダウン表示用
+
   const startOcrMultiple = async (files) => {
     const fileArr = Array.from(files);
+
+    // ── 15枚制限チェック ──
+    if (fileArr.length > MAX_IMAGES) {
+      alert(
+        `一度に選択できる枚数は${MAX_IMAGES}枚までです。\n` +
+        `（選択中: ${fileArr.length}枚）\n\n` +
+        `${MAX_IMAGES}枚以下に減らして再選択してください。`
+      );
+      return;
+    }
+
     setOcrQueue(fileArr); setOcrQueueIdx(0);
-    setOcrStep("processing"); setOcrProgress(0);
+    setOcrStep("processing"); setOcrProgress(0); setOcrWaitSec(0);
 
     const results = [];
     for (let i = 0; i < fileArr.length; i++) {
-      setOcrQueueIdx(i + 1); setOcrProgress(0);
+      setOcrQueueIdx(i + 1); setOcrProgress(0); setOcrWaitSec(0);
+      const requestStart = Date.now();
+
       try {
-        const { text, confidence } = await runOcr(fileArr[i], setOcrProgress);
-        const amt    = extractAmount(text);
-        const dt     = extractDate(text);
-        const store  = extractStoreName(text);
-        const items  = extractReceiptItems(text).map(item => ({ ...item, type: "shared" }));
+        const result = await runOcr(fileArr[i], setOcrProgress);
+        const { text, confidence, geminiData } = result;
+
+        let store, amt, dt, items;
+        if (geminiData) {
+          // Gemini: 構造化データを直接使用（高精度）
+          store = geminiData.storeName || "";
+          amt   = geminiData.totalAmount || 0;
+          dt    = geminiData.date || todayStr();
+          items = (geminiData.items || []).map(item => ({
+            name:      String(item.name  || ""),
+            amount:    Math.abs(Number(item.amount) || 0),
+            quantity:  Number(item.quantity) || 1,
+            isDiscount: String(item.name || "").includes("割引"),
+            type: "shared",
+          }));
+        } else {
+          // OCR.space / Tesseract: テキストから抽出
+          amt   = extractAmount(text)    || 0;
+          dt    = extractDate(text)      || todayStr();
+          store = extractStoreName(text) || "";
+          items = extractReceiptItems(text).map(item => ({ ...item, type: "shared" }));
+        }
+
         const combined = [...(allRules || DEFAULT_CATEGORY_RULES), ...(learnedRules || [])];
-        const res    = predictCategory(store, combined);
-        results.push({ label: store, amount: amt ? String(amt) : "", date: dt, cat: res.isConfident ? res.topCategory : "食費", confidence, ok: true, items, showItems: false });
-      } catch {
-        results.push({ label: "（読み取り失敗）", amount: "", date: todayStr(), cat: "その他", confidence: 0, ok: false, items: [], showItems: false });
+        const res = predictCategory(store, combined);
+        results.push({
+          label: store, amount: amt ? String(amt) : "", date: dt,
+          cat: res.isConfident ? res.topCategory : "食費",
+          confidence, ok: true, items, showItems: false,
+        });
+      } catch (err) {
+        results.push({
+          label: "（読み取り失敗）", amount: "", date: todayStr(),
+          cat: "その他", confidence: 0, ok: false, items: [], showItems: false,
+          error: err.message,
+        });
+      }
+
+      // ── Gemini 使用時のみレート制限対策: 次の枚まで待機 ──
+      if (geminiKey && i < fileArr.length - 1) {
+        const elapsed = Date.now() - requestStart;
+        const wait    = Math.max(0, GEMINI_MIN_INTERVAL_MS - elapsed);
+        if (wait > 0) {
+          // カウントダウン表示
+          let remaining = Math.ceil(wait / 1000);
+          setOcrWaitSec(remaining);
+          const countdown = setInterval(() => {
+            remaining -= 1;
+            setOcrWaitSec(Math.max(0, remaining));
+            if (remaining <= 0) clearInterval(countdown);
+          }, 1000);
+          await new Promise(resolve => setTimeout(resolve, wait));
+          clearInterval(countdown);
+          setOcrWaitSec(0);
+        }
       }
     }
     setOcrResults(results);
@@ -373,13 +460,33 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
   const startOcr = async (imageFile) => {
     setOcrStep("processing"); setOcrProgress(0); setOcrError("");
     try {
-      const { text, confidence } = await runOcr(imageFile, setOcrProgress);
+      const result = await runOcr(imageFile, setOcrProgress);
+      const { text, confidence, geminiData } = result;
       setOcrConfidence(confidence);
-      const amt   = extractAmount(text);
-      const dt    = extractDate(text);
-      const store = extractStoreName(text);
-      const items = extractReceiptItems(text).map(item => ({ ...item, type: "shared" }));
-      setOcrAmount(amt ? String(amt) : ""); setOcrDate(dt); setOcrLabel(store); setOcrItems(items);
+
+      let store, amt, dt, items;
+      if (geminiData) {
+        store = geminiData.storeName || "";
+        amt   = geminiData.totalAmount || 0;
+        dt    = geminiData.date || todayStr();
+        items = (geminiData.items || []).map(item => ({
+          name:      String(item.name  || ""),
+          amount:    Math.abs(Number(item.amount) || 0),
+          quantity:  Number(item.quantity) || 1,
+          isDiscount: String(item.name || "").includes("割引"),
+          type: "shared",
+        }));
+      } else {
+        amt   = extractAmount(text)    || 0;
+        dt    = extractDate(text)      || todayStr();
+        store = extractStoreName(text) || "";
+        items = extractReceiptItems(text).map(item => ({ ...item, type: "shared" }));
+      }
+
+      setOcrAmount(amt ? String(amt) : "");
+      setOcrDate(dt);
+      setOcrLabel(store);
+      setOcrItems(items);
       const combined = [...(allRules || DEFAULT_CATEGORY_RULES), ...(learnedRules || [])];
       const res = predictCategory(store, combined);
       setOcrPreds(res.predictions);
@@ -467,16 +574,34 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
         {ocrStep === "upload" && (
           <>
             {ocrError && <div className="bg-rose-50 border border-rose-200 rounded-xl p-3"><p className="text-sm text-rose-600">⚠️ {ocrError}</p></div>}
-            <div className="bg-gray-50 rounded-xl p-3 border border-gray-200">
-              <p className="text-xs font-semibold text-gray-600 mb-1.5">🔑 OCR.space APIキー（高精度）</p>
-              <input type="text" value={ocrApiKey}
-                onChange={e => { setOcrApiKey(e.target.value); saveStorage("OCR_API_KEY", e.target.value); }}
-                placeholder="未設定 → Tesseract使用（精度低め）"
-                className="w-full text-xs px-3 py-2 bg-white border border-gray-200 rounded-lg outline-none focus:ring-1 focus:ring-indigo-300" />
-              {!ocrApiKey
-                ? <p className="text-xs text-amber-500 mt-1">💡 ocr.space で無料APIキーを取得すると精度が大幅に上がります</p>
-                : <p className="text-xs text-emerald-500 mt-1">✅ 高精度OCR有効</p>}
+            {/* Gemini APIキー（最優先） */}
+            <div className={`rounded-xl p-3 border ${geminiKey ? "bg-emerald-50 border-emerald-300" : "bg-gray-50 border-gray-200"}`}>
+              <p className="text-xs font-semibold text-gray-600 mb-1.5">🤖 Gemini APIキー（最高精度・推奨）</p>
+              <input type="text" value={geminiKey}
+                onChange={e => { setGeminiKey(e.target.value); saveStorage("GEMINI_API_KEY", e.target.value); }}
+                placeholder="未設定 → OCR.space/Tesseractを使用"
+                className="w-full text-xs px-3 py-2 bg-white border border-gray-200 rounded-lg outline-none focus:ring-1 focus:ring-emerald-300" />
+              {geminiKey
+                ? <p className="text-xs text-emerald-600 mt-1 font-semibold">✅ Gemini OCR有効（精度95%+）</p>
+                : <p className="text-xs text-gray-400 mt-1">
+                    💡 <a href="https://aistudio.google.com" target="_blank" rel="noopener noreferrer" className="text-indigo-500 underline">aistudio.google.com</a>
+                    {" "}→ Get API Key（無料・1日1500回）
+                  </p>
+              }
             </div>
+            {/* OCR.space APIキー（Geminiなし時のフォールバック） */}
+            {!geminiKey && (
+              <div className="bg-gray-50 rounded-xl p-3 border border-gray-200">
+                <p className="text-xs font-semibold text-gray-600 mb-1.5">🔑 OCR.space APIキー（代替）</p>
+                <input type="text" value={ocrApiKey}
+                  onChange={e => { setOcrApiKey(e.target.value); saveStorage("OCR_API_KEY", e.target.value); }}
+                  placeholder="未設定 → Tesseract使用（精度低め）"
+                  className="w-full text-xs px-3 py-2 bg-white border border-gray-200 rounded-lg outline-none focus:ring-1 focus:ring-indigo-300" />
+                {!ocrApiKey
+                  ? <p className="text-xs text-amber-500 mt-1">GeminiキーかOCR.spaceキーの設定を推奨します</p>
+                  : <p className="text-xs text-emerald-500 mt-1">✅ OCR.space有効</p>}
+              </div>
+            )}
             <input ref={ocrCameraRef} type="file" accept="image/*" capture="environment" onChange={handleOcrFile} className="hidden" />
             <button onClick={() => ocrCameraRef.current?.click()}
               className="w-full py-8 rounded-2xl border-2 border-dashed border-indigo-300 bg-indigo-50 flex flex-col items-center gap-3">
@@ -486,9 +611,12 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
             </button>
             <input ref={ocrFileRef} type="file" accept="image/*" multiple onChange={handleOcrFile} className="hidden" />
             <button onClick={() => ocrFileRef.current?.click()}
-              className="w-full py-4 rounded-2xl border border-gray-200 bg-white flex items-center justify-center gap-2">
+              className="w-full py-4 rounded-2xl border border-gray-200 bg-white flex items-center justify-center gap-3 px-4">
               <span className="text-xl">🖼️</span>
-              <span className="text-sm font-semibold text-gray-600">画像を選択（複数枚OK）</span>
+              <div className="text-left">
+                <p className="text-sm font-semibold text-gray-600">画像を選択（複数枚OK）</p>
+                <p className="text-xs text-gray-400">最大{MAX_IMAGES}枚まで · Gemini使用時は自動調整</p>
+              </div>
             </button>
 
             {/* ── テキスト貼り付けボタン（推奨） ── */}
@@ -562,14 +690,30 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
         {ocrStep === "processing" && (
           <div className="text-center space-y-4 py-8">
             <div className="w-16 h-16 border-4 border-indigo-200 border-t-indigo-500 rounded-full animate-spin mx-auto" />
-            <p className="text-sm font-semibold text-gray-700">
-              文字を認識中...{ocrQueue.length > 1 && ` (${ocrQueueIdx}/${ocrQueue.length}枚目)`}
-            </p>
-            <p className="text-xs text-gray-400">{ocrApiKey ? "OCR.space で解析中" : "初回は30秒ほどかかります"}</p>
+            {ocrWaitSec > 0 ? (
+              <>
+                <p className="text-sm font-semibold text-amber-600">
+                  次の枚まで待機中... {ocrWaitSec}秒
+                </p>
+                <p className="text-xs text-gray-400">Geminiのレート制限対策（自動）</p>
+              </>
+            ) : (
+              <>
+                <p className="text-sm font-semibold text-gray-700">
+                  文字を認識中...{ocrQueue.length > 1 && ` (${ocrQueueIdx}/${ocrQueue.length}枚目)`}
+                </p>
+                <p className="text-xs text-gray-400">{geminiKey ? "Gemini AI で解析中（高精度）" : ocrApiKey ? "OCR.space で解析中" : "初回は30秒ほどかかります"}</p>
+              </>
+            )}
             <div className="w-full bg-gray-100 rounded-full h-2">
               <div className="bg-indigo-500 h-2 rounded-full transition-all" style={{ width: `${ocrProgress}%` }} />
             </div>
-            <p className="text-xs text-gray-400">{ocrProgress}%</p>
+            {ocrQueue.length > 1 && (
+              <p className="text-xs text-gray-400">
+                全体: {Math.round((ocrQueueIdx - 1) / ocrQueue.length * 100)}%
+                　約{Math.round((ocrQueue.length - ocrQueueIdx + 1) * 5)}秒
+              </p>
+            )}
           </div>
         )}
 
@@ -653,7 +797,8 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
                 <div key={i} className={`bg-white rounded-xl border ${r.confidence < 60 ? "border-amber-200" : "border-gray-100"}`}>
                   <div className="flex items-center justify-between px-4 pt-3 pb-1">
                     <span className="text-xs text-gray-400">{i + 1}枚目</span>
-                    {r.confidence < 60 && <span className="text-xs text-amber-500">⚠️ 精度低（{r.confidence}%）</span>}
+                    {r.confidence < 60 && !geminiKey && <span className="text-xs text-amber-500">⚠️ 精度低（{r.confidence}%）</span>}
+                  {r.error && <span className="text-xs text-rose-500">⚠️ {r.error.slice(0, 30)}</span>}
                   </div>
                   <div className="px-4 pb-2">
                     <input type="text" value={r.label}
@@ -786,13 +931,19 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
             )}
 
             {/* 対応フォーマット一覧 */}
-            <div className="bg-gray-50 rounded-xl p-3 border border-gray-200">
-              <p className="text-xs font-semibold text-gray-500 mb-2">✅ 自動対応フォーマット</p>
+            <div className="bg-gray-50 rounded-xl p-3 border border-gray-200 space-y-2">
+              <p className="text-xs font-semibold text-gray-500">✅ CSV自動対応</p>
               <div className="flex flex-wrap gap-1.5">
                 {Object.values(CSV_FORMATS).map(f => (
                   <span key={f.label} className="text-xs bg-white border border-gray-200 text-gray-600 px-2 py-1 rounded-full">{f.label}</span>
                 ))}
               </div>
+              <p className="text-xs font-semibold text-gray-500 mt-2">
+                {geminiKey ? "✅ PDF対応（Gemini）" : "⚠️ PDF: Geminiキーで対応可"}
+              </p>
+              {!geminiKey && (
+                <p className="text-xs text-gray-400">OCRレシート画面でGeminiキーを設定するとPDFも読み込めます</p>
+              )}
             </div>
           </div>
         )}
