@@ -118,8 +118,8 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
 
   // csv
   const [csvFormat,        setCsvFormat]       = useState("generic");
-  const [csvDetected,      setCsvDetected]     = useState(null);   // 自動判定結果
-  const [csvShowOverride,  setCsvShowOverride] = useState(false);  // 手動選択を表示
+  const [csvDetected,      setCsvDetected]     = useState(null);
+  const [csvShowOverride,  setCsvShowOverride] = useState(false);
   const [csvRows,    setCsvRows]    = useState([]);
   const [csvChecked, setCsvChecked] = useState({});
   const [csvStep,    setCsvStep]    = useState("upload");
@@ -138,35 +138,31 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
   const [ocrConfidence, setOcrConfidence] = useState(null);
   const [ocrError,      setOcrError]      = useState("");
   const [ocrHistory,    setOcrHistory]    = useState(() => loadStorage(STORAGE_KEYS.OCR_HISTORY, []));
-  const [ocrItems,      setOcrItems]      = useState([]); // 品目（画面表示のみ・保存しない）
+  const [ocrItems,      setOcrItems]      = useState([]);
   const [ocrQueue,      setOcrQueue]      = useState([]);
   const [ocrQueueIdx,   setOcrQueueIdx]   = useState(0);
+  const [ocrWaitSec,    setOcrWaitSec]    = useState(0); // ← 追加: 未定義エラー修正
   const [ocrResults,    setOcrResults]    = useState([]);
   const [ocrApiKey,     setOcrApiKey]     = useState(() => loadStorage("OCR_API_KEY", "") || "");
-  // ── OCR学習: 修正内容を記憶して次回に自動適用 ────────────
   const [ocrCorrections, setOcrCorrections] = useState(
     () => loadStorage(STORAGE_KEYS.OCR_CORRECTIONS, {}) || {}
   );
-  const [ocrOrigLabel,   setOcrOrigLabel]   = useState(""); // OCRが最初に検出した店名（学習用）
+  const [ocrOrigLabel,   setOcrOrigLabel]   = useState("");
   const [geminiKey,     setGeminiKey]     = useState(() => loadStorage("GEMINI_API_KEY", "") || "");
-  const [pasteText,     setPasteText]     = useState("");  // テキスト貼り付けモード
-  const [keyTesting,    setKeyTesting]    = useState(false); // APIキーテスト中
-  const [dupModal,      setDupModal]      = useState(null); // {txs, candidates}
+  const [pasteText,     setPasteText]     = useState("");
+  const [keyTesting,    setKeyTesting]    = useState(false);
+  const [dupModal,      setDupModal]      = useState(null);
   const ocrFileRef   = useRef(null);
   const ocrCameraRef = useRef(null);
 
   // ─── helpers ───
-  /** OCR補正マップから店名・カテゴリを検索（曖昧マッチ対応）*/
   const lookupCorrection = (rawLabel) => {
     if (!rawLabel || !ocrCorrections) return null;
     const lower = rawLabel.toLowerCase().trim();
-    // 完全一致
     if (ocrCorrections[rawLabel]) return ocrCorrections[rawLabel];
-    // 大文字小文字無視
     for (const [k, v] of Object.entries(ocrCorrections)) {
       if (k.toLowerCase().trim() === lower) return v;
     }
-    // 部分一致（どちらかが他方を含む）
     for (const [k, v] of Object.entries(ocrCorrections)) {
       const kl = k.toLowerCase().trim();
       if (kl.length >= 3 && (lower.includes(kl) || kl.includes(lower))) return v;
@@ -174,7 +170,6 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
     return null;
   };
 
-  /** 修正内容を学習して保存 */
   const saveCorrection = (rawLabel, correctedLabel, category) => {
     if (!rawLabel || rawLabel.trim() === "") return;
     const updated = {
@@ -184,11 +179,9 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
     setOcrCorrections(updated);
     saveStorage(STORAGE_KEYS.OCR_CORRECTIONS, updated);
   };
-  // ハイブリッド方式（OCR.space → Gemini テキスト解析）を最優先
-  // → 画像をGeminiに直接送らないので確実・高速
+
   const runOcr = (file, onProg) => {
     if (ocrApiKey && geminiKey) {
-      // ハイブリッド: OCR.space でテキスト → Gemini で構造化
       return (async () => {
         onProg?.(5);
         const { text } = await runOCRSpace(file, ocrApiKey, (p) => onProg?.(5 + p * 0.5));
@@ -207,18 +200,15 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
     return runTesseract(file, onProg).then(r => ({ ...r, geminiData: null }));
   };
 
-  /** 品目から共有/個人の合計を計算 */
   const calcSplit = (items) => {
     const shared   = items.filter(i => (i.type || "shared") !== "personal").reduce((s, i) => s + i.amount, 0);
     const personal = items.filter(i => i.type === "personal").reduce((s, i) => s + i.amount, 0);
     return { shared, personal };
   };
 
-  /** 品目リストの type を切り替え（単一レビュー用）*/
   const toggleOcrItemType = (idx, type) =>
     setOcrItems(p => p.map((item, i) => i === idx ? { ...item, type } : item));
 
-  /** 品目リストの type を切り替え（複数レビュー用）*/
   const toggleMultiItemType = (resultIdx, itemIdx, type) =>
     setOcrResults(p => p.map((r, ri) =>
       ri !== resultIdx ? r : {
@@ -267,9 +257,7 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
         const isCSV = file.name.toLowerCase().endsWith(".csv");
 
         if (isPDF) {
-          // ── PDF ──
           if (geminiKey) {
-            // Gemini で PDF を直接解析（pdfjs不要・高精度）
             try {
               setCsvPdfLoading(true);
               const { cardName, transactions } = await analyzePDFWithGemini(file, geminiKey, () => {});
@@ -279,7 +267,6 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
               errors.push(`${file.name}: ${err.message}`);
             }
           } else {
-            // pdfjs フォールバック（Geminiキーなしの場合）
             try {
               const { transactions, format } = await parsePDF(file);
               detectedLabels.add(PDF_FORMAT_LABELS[format] || format);
@@ -289,7 +276,6 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
             }
           }
         } else if (isCSV) {
-          // ── CSV ──
           const text        = await readCSVFile(file);
           const detected    = detectCSVFormat(text);
           const formatToUse = detected !== "generic" ? detected : csvFormat;
@@ -302,7 +288,6 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
 
       if (errors.length) alert(errors.join("\n"));
 
-      // ファイル内重複を除去
       const seenKeys = new Set();
       allRows = allRows.filter(r => {
         const k = DUPLICATE_KEY(r);
@@ -325,7 +310,7 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
     }
   };
 
-  const handleCSVFile = handleFileInput; // 後方互換
+  const handleCSVFile = handleFileInput;
 
   const execCSVImport = () => {
     const toImport = csvRows.filter((_, i) => csvChecked[i]);
@@ -344,11 +329,9 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
 
   // ─── ocr ───
 
-  /** OCR登録（重複チェック付き・2件登録対応）*/
   const registerOcr = (label, amount, date, cat, items) => {
     if (!amount || !label) { alert("金額と内容を入力してください"); return; }
     onLearnRule?.(label, cat, "expense");
-    // OCR補正を学習: 元の検出名 → ユーザーが確定した名前・カテゴリ
     if (ocrOrigLabel && (ocrOrigLabel !== label || true)) {
       saveCorrection(ocrOrigLabel, label, cat);
     }
@@ -375,7 +358,6 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
       txsToAdd.push(createTransaction({ date, label, category: cat, amount: -Number(amount), type: "expense", source: "ocr" }));
     }
 
-    // 重複チェック（登録ボタン押下時）
     const firstTx = txsToAdd[0];
     const cands = findDuplicateCandidates(firstTx, existingTransactions);
     if (cands.length > 0) {
@@ -398,7 +380,6 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
     setDupModal(null);
   };
 
-  /** Gemini APIキーの疎通テスト */
   const handleTestGeminiKey = async () => {
     if (!geminiKey) { alert("Geminiキーを入力してください"); return; }
     setKeyTesting(true);
@@ -413,7 +394,6 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
     }
   };
 
-  /** テキスト貼り付けモード（Google Lens等からコピペして解析） */
   const handlePasteSubmit = (text) => {
     if (!text.trim()) return;
     const amt   = extractAmount(text);
@@ -432,12 +412,9 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
     setOcrStep("review");
   };
 
-  /** 複数枚 OCR */
-
   const startOcrMultiple = async (files) => {
     const fileArr = Array.from(files);
 
-    // ── 15枚制限チェック ──
     if (fileArr.length > 15) {
       alert(
         `一度に選択できる枚数は15枚までです。\n` +
@@ -460,7 +437,6 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
 
         let store, amt, dt, items;
         if (geminiData) {
-          // Gemini: 構造化データを直接使用（高精度）
           store = geminiData.storeName || "";
           amt   = geminiData.totalAmount || 0;
           dt    = geminiData.date || todayStr();
@@ -472,7 +448,6 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
             type: "shared",
           }));
         } else {
-          // OCR.space / Tesseract: テキストから抽出
           amt   = extractAmount(text)    || 0;
           dt    = extractDate(text)      || todayStr();
           store = extractStoreName(text) || "";
@@ -497,12 +472,11 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
           error: err.message,
         });
       }
-
     }
+
     setOcrResults(results);
     if (fileArr.length === 1) {
       const r = results[0];
-      // エラーの場合は upload 画面に戻して明確に表示
       if (!r.ok && r.error) {
         setOcrError(r.error);
         setOcrStep("upload");
@@ -516,7 +490,6 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
     }
   };
 
-  /** 1枚 OCR */
   const startOcr = async (imageFile) => {
     setOcrStep("processing"); setOcrProgress(0); setOcrError("");
     try {
@@ -543,11 +516,10 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
         items = extractReceiptItems(text).map(item => ({ ...item, type: "shared" }));
       }
 
-      // 学習補正を適用
       const correction = lookupCorrection(store);
       const finalLabel = correction?.label    || store;
       const learnedCat = correction?.category || null;
-      setOcrOrigLabel(store);  // 元のGemini検出名を保存
+      setOcrOrigLabel(store);
       setOcrAmount(amt ? String(amt) : "");
       setOcrDate(dt);
       setOcrLabel(finalLabel);
@@ -622,7 +594,6 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
   // ─── OCR 画面 ────────────────────────────────────────────
   if (mode === "ocr") return (
     <div className="pb-20">
-      {/* 重複確認モーダル */}
       {dupModal && (
         <DuplicateCheckModal
           newTx={dupModal.txs[0]} candidates={dupModal.candidates}
@@ -649,7 +620,6 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
                 </p>
               </div>
             )}
-            {/* Gemini APIキー（最優先） */}
             <div className={`rounded-xl p-3 border ${geminiKey ? "bg-emerald-50 border-emerald-300" : "bg-gray-50 border-gray-200"}`}>
               <p className="text-xs font-semibold text-gray-600 mb-1.5">🤖 Gemini APIキー（最高精度・推奨）</p>
               <input type="text" value={geminiKey}
@@ -675,7 +645,6 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
                   </p>
               }
             </div>
-            {/* OCR.space APIキー（Geminiなし時のフォールバック） */}
             {!geminiKey && (
               <div className="bg-gray-50 rounded-xl p-3 border border-gray-200">
                 <p className="text-xs font-semibold text-gray-600 mb-1.5">🔑 OCR.space APIキー（代替）</p>
@@ -704,8 +673,6 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
                 <p className="text-xs text-gray-400">最大15枚まで · Gemini使用時は自動調整</p>
               </div>
             </button>
-
-            {/* ── テキスト貼り付けボタン（推奨） ── */}
             <button onClick={() => { setPasteText(""); setOcrStep("paste"); }}
               className="w-full py-4 rounded-2xl border-2 border-emerald-300 bg-emerald-50 flex items-center gap-4 px-5">
               <span className="text-3xl">📋</span>
@@ -714,7 +681,6 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
                 <p className="text-xs text-emerald-500">Google Lens等でコピーしたテキストを使う</p>
               </div>
             </button>
-
             <div className="bg-gray-50 rounded-xl p-3 border border-gray-200 text-xs text-gray-500 space-y-1">
               <p className="font-semibold">📌 きれいに読み取るコツ</p>
               <p>・明るい場所で真正面から撮影</p>
@@ -836,8 +802,6 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
                 ))}
               </div>
             </div>
-
-            {/* 品目アコーディオン */}
             {ocrItems.length > 0 && (
               <div>
                 <label className="block text-xs font-semibold text-gray-500 mb-2">
@@ -850,7 +814,6 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
                 />
               </div>
             )}
-
             <PrimaryButton onClick={() => registerOcr(ocrLabel, ocrAmount, ocrDate, ocrCat, ocrItems)}>
               {ocrItems.length > 0 && calcSplit(ocrItems).personal > 0
                 ? `✅ 2件に分けて登録（共有+個人）`
@@ -873,7 +836,7 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
                   <div className="flex items-center justify-between px-4 pt-3 pb-1">
                     <span className="text-xs text-gray-400">{i + 1}枚目</span>
                     {r.confidence < 60 && !geminiKey && <span className="text-xs text-amber-500">⚠️ 精度低（{r.confidence}%）</span>}
-                  {r.error && <span className="text-xs text-rose-500">⚠️ {r.error.slice(0, 30)}</span>}
+                    {r.error && <span className="text-xs text-rose-500">⚠️ {r.error.slice(0, 30)}</span>}
                   </div>
                   <div className="px-4 pb-2">
                     <input type="text" value={r.label}
@@ -908,7 +871,6 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
                       ))}
                     </div>
                   </div>
-                  {/* 品目アコーディオン（複数枚） */}
                   {r.items && r.items.length > 0 && (
                     <div className="px-4 pb-3">
                       <ItemsAccordion
@@ -925,7 +887,6 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
               ocrResults.forEach(r => {
                 if (!r.amount || !r.label) return;
                 onLearnRule?.(r.label, r.cat, "expense");
-                // 元の検出名と確定名が異なれば学習
                 if (r.origLabel) saveCorrection(r.origLabel, r.label, r.cat);
                 if (r.items && r.items.length > 0) {
                   const { shared, personal } = calcSplit(r.items);
@@ -975,7 +936,6 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
 
         {csvStep === "upload" && (
           <div className="space-y-4">
-            {/* ファイル選択（メイン） */}
             <input ref={fileRef} type="file" accept=".csv,.pdf" multiple onChange={handleFileInput} className="hidden" />
             {csvPdfLoading ? (
               <div className="w-full py-10 rounded-2xl border-2 border-indigo-200 bg-indigo-50 flex flex-col items-center gap-3">
@@ -995,8 +955,6 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
                 <p className="text-xs text-indigo-400">フォーマットは自動で判定します</p>
               </button>
             )}
-
-            {/* 手動選択（折りたたみ） */}
             <button onClick={() => setCsvShowOverride(p => !p)}
               className="w-full text-xs text-gray-400 flex items-center justify-center gap-1 py-1">
               ⚙️ フォーマットを手動で選ぶ {csvShowOverride ? "▲" : "▼"}
@@ -1014,8 +972,6 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
                 ))}
               </div>
             )}
-
-            {/* 対応フォーマット一覧 */}
             <div className="bg-gray-50 rounded-xl p-3 border border-gray-200 space-y-2">
               <p className="text-xs font-semibold text-gray-500">✅ CSV自動対応</p>
               <div className="flex flex-wrap gap-1.5">
@@ -1050,7 +1006,6 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
               <p className="text-sm font-bold text-gray-700">{csvRows.length}件を読み込みました</p>
               <button onClick={() => { setCsvStep("upload"); setCsvDetected(null); }} className="text-xs text-gray-400 underline">← 戻る</button>
             </div>
-            {/* 自動判定バッジ */}
             {csvDetected && (
               <div className={`rounded-xl px-3 py-2 border flex items-center gap-2 ${csvDetected !== "generic" ? "bg-emerald-50 border-emerald-200" : "bg-amber-50 border-amber-200"}`}>
                 <span className="text-sm">{csvDetected !== "generic" ? "✅" : "⚠️"}</span>
