@@ -393,8 +393,7 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
     setOcrError("");
     try {
       await testGeminiKey(geminiKey, () => {});
-      alert("✅ Gemini APIキーが正常に動作しています！
-レシートの撮影を試してください。");
+      alert("✅ Gemini APIキーが正常に動作しています！\nレシートの撮影を試してください。");
     } catch (e) {
       setOcrError(e.message);
     } finally {
