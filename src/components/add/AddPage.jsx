@@ -8,7 +8,7 @@ import {
   runTesseract, runOCRSpace,
   extractAmount, extractDate, extractStoreName, extractReceiptItems,
 } from "../../services/ocrUtils";
-import { analyzeWithGemini, analyzePDFWithGemini } from "../../services/geminiOcr";
+import { analyzeWithGemini, analyzePDFWithGemini, testGeminiKey } from "../../services/geminiOcr";
 import { DEFAULT_CATEGORY_RULES, CSV_FORMATS, STORAGE_KEYS } from "../../constants";
 import { loadStorage, saveStorage } from "../../utils/storage";
 import { fmtCurrency } from "../../utils/format";
@@ -150,6 +150,7 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
   const [ocrOrigLabel,   setOcrOrigLabel]   = useState(""); // OCRが最初に検出した店名（学習用）
   const [geminiKey,     setGeminiKey]     = useState(() => loadStorage("GEMINI_API_KEY", "") || "");
   const [pasteText,     setPasteText]     = useState("");  // テキスト貼り付けモード
+  const [keyTesting,    setKeyTesting]    = useState(false); // APIキーテスト中
   const [dupModal,      setDupModal]      = useState(null); // {txs, candidates}
   const ocrFileRef   = useRef(null);
   const ocrCameraRef = useRef(null);
@@ -383,6 +384,22 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
       setOcrStep("upload");
     }
     setDupModal(null);
+  };
+
+  /** Gemini APIキーの疎通テスト */
+  const handleTestGeminiKey = async () => {
+    if (!geminiKey) { alert("Geminiキーを入力してください"); return; }
+    setKeyTesting(true);
+    setOcrError("");
+    try {
+      await testGeminiKey(geminiKey, () => {});
+      alert("✅ Gemini APIキーが正常に動作しています！
+レシートの撮影を試してください。");
+    } catch (e) {
+      setOcrError(e.message);
+    } finally {
+      setKeyTesting(false);
+    }
   };
 
   /** テキスト貼り付けモード（Google Lens等からコピペして解析） */
@@ -629,7 +646,18 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
                 placeholder="未設定 → OCR.space/Tesseractを使用"
                 className="w-full text-xs px-3 py-2 bg-white border border-gray-200 rounded-lg outline-none focus:ring-1 focus:ring-emerald-300" />
               {geminiKey
-                ? <p className="text-xs text-emerald-600 mt-1 font-semibold">✅ Gemini OCR有効（精度95%+）</p>
+                ? (
+                  <div className="flex items-center gap-2 mt-1">
+                    <p className="text-xs text-emerald-600 font-semibold flex-1">✅ Gemini OCR有効</p>
+                    <button
+                      onClick={handleTestGeminiKey}
+                      disabled={keyTesting}
+                      className="text-xs bg-emerald-100 text-emerald-700 px-2 py-1 rounded-lg font-medium disabled:opacity-50"
+                    >
+                      {keyTesting ? "テスト中..." : "🔍 テスト"}
+                    </button>
+                  </div>
+                )
                 : <p className="text-xs text-gray-400 mt-1">
                     💡 <a href="https://aistudio.google.com" target="_blank" rel="noopener noreferrer" className="text-indigo-500 underline">aistudio.google.com</a>
                     {" "}→ Get API Key（無料・1日1500回）
