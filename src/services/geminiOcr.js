@@ -143,7 +143,7 @@ export const testGeminiKey = async (apiKey, onProgress) => {
   return true;
 };
 
-// ─── レシート画像解析 ────────────────────────────────────────
+// ─── レシート画像解析（画像直接送信）────────────────────────
 const RECEIPT_PROMPT = `このレシート画像から情報を抽出してください。JSONのみ出力（コードブロック不要）：
 {
   "storeName": "店舗名（例: ウエルシア静岡川合店）",
@@ -163,6 +163,38 @@ export const analyzeWithGemini = async (imageFile, apiKey, onProgress) => {
   const parsed = await callGemini(apiKey, [
     { text: RECEIPT_PROMPT },
     { inline_data: { mime_type: mimeType, data: base64 } },
+  ]);
+  onProgress?.(100);
+
+  return {
+    storeName:   String(parsed.storeName   || "").trim(),
+    date:        String(parsed.date        || "").trim(),
+    totalAmount: Number(parsed.totalAmount) || 0,
+    items:       Array.isArray(parsed.items) ? parsed.items : [],
+  };
+};
+
+// ─── テキスト→構造化解析（ハイブリッド用）──────────────────
+// OCR.space でテキスト抽出後、Gemini でテキストのみを解析する
+// 画像をGeminiに送らないので高速・確実
+const TEXT_PARSE_PROMPT = (ocrText) => `以下はレシートのOCRテキストです。JSONのみ出力（コードブロック不要）：
+{
+  "storeName": "店舗名（例: ウエルシア静岡川合店）",
+  "date": "YYYY-MM-DD",
+  "totalAmount": 合計金額の整数,
+  "items": [{"name":"商品名","amount":単価整数,"quantity":数量整数}]
+}
+・totalAmount は「合計」「お会計」の税込金額
+・割引はnameに「割引」を含めamountをマイナス値
+・不明は null
+
+OCRテキスト:
+${ocrText}`;
+
+export const parseOCRTextWithGemini = async (ocrText, apiKey, onProgress) => {
+  onProgress?.(10);
+  const parsed = await callGemini(apiKey, [
+    { text: TEXT_PARSE_PROMPT(ocrText) }
   ]);
   onProgress?.(100);
 
