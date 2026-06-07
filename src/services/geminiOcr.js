@@ -154,23 +154,15 @@ const callGemini = async (apiKey, parts, maxTokens = 2048) => {
     const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
     if (!text) throw new Error("Gemini から応答が空でした");
 
-    // コードブロック（```json ... ``` など）を除去
-    const clean = text
-      .replace(/```json[\s\S]*?```/g, m => m.replace(/```json\s*/g, "").replace(/```/g, ""))
-      .replace(/```[\s\S]*?```/g, m => m.replace(/```\s*/g, ""))
-      .trim();
-
-    try {
-      return JSON.parse(clean);
-    } catch {
-      // JSONブロックを直接抽出して再試行
-      const match = clean.match(/\{[\s\S]*\}/);
-      if (match) { try { return JSON.parse(match[0]); } catch {} }
-      // テキスト全体からも試みる
-      const matchRaw = text.match(/\{[\s\S]*\}/);
-      if (matchRaw) { try { return JSON.parse(matchRaw[0]); } catch {} }
-      throw new Error(`JSON解析失敗(${model}):\n${text.slice(0, 60)}`);
+    // { ... } を直接抽出（コードブロック有無に関わらず確実に動く）
+    const jsonStart = text.indexOf("{");
+    const jsonEnd   = text.lastIndexOf("}");
+    if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
+      try {
+        return JSON.parse(text.slice(jsonStart, jsonEnd + 1));
+      } catch {}
     }
+    throw new Error(`JSON解析失敗(${model}):\n${text.slice(0, 60)}`);
   }
 
   throw new Error(
