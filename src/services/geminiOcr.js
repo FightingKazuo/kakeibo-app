@@ -1,11 +1,12 @@
 // ============================================================
-// geminiOcr.js  (v6 — OAuth Bearer 対応・AQ.キー対応)
+// geminiOcr.js  (v7 — 429詳細取得・AQ.キー認証修正)
 //
-// AQ. で始まるキーは OAuth アクセストークンのため
-// Authorization: Bearer ヘッダーで送信する必要がある
+// 変更点:
+//   - 429レスポンスのボディを取得してエラーメッセージに表示
+//   - AQ.キーをAPIキー方式でも試す（両方試してどちらか成功した方を使う）
+//   - 全モデル失敗時のエラーメッセージに詳細を含める
 // ============================================================
 
-// 2026年6月時点の現行モデル（gemini-2.0-flash は2026年3月廃止）
 const ENDPOINTS = [
   { base: "https://generativelanguage.googleapis.com/v1beta/models", model: "gemini-2.5-flash" },
   { base: "https://generativelanguage.googleapis.com/v1beta/models", model: "gemini-2.5-flash-lite" },
@@ -37,16 +38,15 @@ const fetchWithTimeout = (url, options) =>
     ),
   ]);
 
-// ─── API キーの種類を判定 ──────────────────────────────────────
-// AQ. / ya29. → OAuth Bearer Token（Authorizationヘッダー）
-// AIzaSy / その他 → API Key（URLパラメータ）
-const isOAuthToken = (key) =>
+// ─── API キーの種類を判定 ────────────────────────────────────
+// AQ. / ya29. → まずAPIキーとして試し、失敗したらBearerも試す
+// AIzaSy / その他 → APIキー（URLパラメータ）のみ
+const isOAuthLike = (key) =>
   key.startsWith("AQ.") || key.startsWith("ya29.") || key.startsWith("AQ ");
 
-// ─── Gemini API 呼び出し（認証方式を自動切替）───────────────────
+// ─── Gemini API 呼び出し ─────────────────────────────────────
 const callGemini = async (apiKey, parts, maxTokens = 2048) => {
   const errors  = [];
-  const isOAuth = isOAuthToken(apiKey);
   const body    = JSON.stringify({
     contents: [{ parts }],
     generationConfig: { temperature: 0.1, maxOutputTokens: maxTokens },
@@ -56,11 +56,12 @@ const callGemini = async (apiKey, parts, maxTokens = 2048) => {
     const urlParam  = `${base}/${model}:generateContent?key=${apiKey}`;
     const urlBearer = `${base}/${model}:generateContent`;
 
-    // 認証試行順: OAuth は Bearer 優先、APIキーは URLパラメータ優先
-    const attempts = isOAuth
+    // AQ.キーは「APIキー方式」を先に試す（v7変更点）
+    // → AI StudioのAQ.キーは実はAPIキーとして扱うべき可能性があるため
+    const attempts = isOAuthLike(apiKey)
       ? [
-          { url: urlBearer, headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` } },
           { url: urlParam,  headers: { "Content-Type": "application/json" } },
+          { url: urlBearer, headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` } },
         ]
       : [
           { url: urlParam,  headers: { "Content-Type": "application/json" } },
@@ -84,9 +85,40 @@ const callGemini = async (apiKey, parts, maxTokens = 2048) => {
 
     if (!res) { errors.push(`${model}: 認証失敗(401)`); continue; }
 
-    // 429 = レート上限
+    // ─── 429: レスポンスボディを取得して詳細を表示（v7変更点）───
     if (res.status === 429) {
-      throw new Error("⚠️ リクエスト上限（429）\n1〜2分待ってから再試行してください。");
+      let detail = "";
+      try {
+        const errBody = await res.json();
+        const msg     = errBody?.error?.message || "";
+        const status  = errBody?.error?.status  || "";
+        detail = msg ? `\n詳細: ${msg.slice(0, 120)}` : "";
+        // RESOURCE_EXHAUSTEDはQuota超過、RATE_LIMIT_EXCEEDEDはRPM超過
+        if (status === "RESOURCE_EXHAUSTED" || msg.includes("quota") || msg.includes("Quota")) {
+          throw new Error(
+            `⚠️ 本日のQuota上限に達しました（429 RESOURCE_EXHAUSTED）\n` +
+            `明日（太平洋時間の午前0時）にリセットされます。${detail}\n\n` +
+            `対処法:\n` +
+            `・明日また試す\n` +
+            `・Google AI Studioで使用量を確認する\n` +
+            `・有料プランにアップグレードする`
+          );
+        }
+        if (msg.includes("rate") || msg.includes("Rate") || status === "RATE_LIMIT_EXCEEDED") {
+          throw new Error(
+            `⚠️ レート上限（429 RATE_LIMIT_EXCEEDED）\n` +
+            `1〜2分待ってから再試行してください。${detail}`
+          );
+        }
+      } catch (e) {
+        // すでにErrorをthrowしていればそのまま再throw
+        if (e.message.includes("429") || e.message.includes("Quota") || e.message.includes("レート")) throw e;
+      }
+      // 詳細不明の429
+      throw new Error(
+        `⚠️ リクエスト上限（429）${detail}\n` +
+        `1〜2分待っても続く場合は本日のQuota上限の可能性があります。`
+      );
     }
 
     // 404 = モデル未対応 → 次を試す
@@ -137,9 +169,7 @@ const callGemini = async (apiKey, parts, maxTokens = 2048) => {
   throw new Error(
     `❌ すべてのモデルで失敗\n\n` +
     `${errors.map(e => `・${e}`).join("\n")}\n\n` +
-    `キーの種類を確認してください:\n` +
-    `AQ.から始まる → OAuth Token ✅ (検出済み)\n` +
-    `AIzaSyから始まる → API Key`
+    `キーの種類: ${isOAuthLike(apiKey) ? "AQ.形式（APIキーとして送信）" : "AIzaSy形式（標準APIキー）"}`
   );
 };
 
