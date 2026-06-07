@@ -8,7 +8,7 @@ import {
   runTesseract, runOCRSpace,
   extractAmount, extractDate, extractStoreName, extractReceiptItems,
 } from "../../services/ocrUtils";
-import { analyzeWithGemini, analyzePDFWithGemini, testGeminiKey } from "../../services/geminiOcr";
+import { analyzeWithGemini, analyzePDFWithGemini, testGeminiKey, parseOCRTextWithGemini } from "../../services/geminiOcr";
 import { DEFAULT_CATEGORY_RULES, CSV_FORMATS, STORAGE_KEYS } from "../../constants";
 import { loadStorage, saveStorage } from "../../utils/storage";
 import { fmtCurrency } from "../../utils/format";
@@ -184,14 +184,26 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
     setOcrCorrections(updated);
     saveStorage(STORAGE_KEYS.OCR_CORRECTIONS, updated);
   };
-  // Gemini → OCR.space → Tesseract の優先順で使用
+  // ハイブリッド方式（OCR.space → Gemini テキスト解析）を最優先
+  // → 画像をGeminiに直接送らないので確実・高速
   const runOcr = (file, onProg) => {
+    if (ocrApiKey && geminiKey) {
+      // ハイブリッド: OCR.space でテキスト → Gemini で構造化
+      return (async () => {
+        onProg?.(5);
+        const { text } = await runOCRSpace(file, ocrApiKey, (p) => onProg?.(5 + p * 0.5));
+        onProg?.(55);
+        const geminiData = await parseOCRTextWithGemini(text, geminiKey, (p) => onProg?.(55 + p * 0.45));
+        onProg?.(100);
+        return { text, confidence: 92, geminiData };
+      })();
+    }
+    if (ocrApiKey) return runOCRSpace(file, ocrApiKey, onProg).then(r => ({ ...r, geminiData: null }));
     if (geminiKey) return analyzeWithGemini(file, geminiKey, onProg).then(r => ({
       text: `${r.storeName}\n${r.date}\n合計 ${r.totalAmount}`,
       confidence: 99,
-      geminiData: r,   // 構造化データをそのまま渡す
+      geminiData: r,
     }));
-    if (ocrApiKey) return runOCRSpace(file, ocrApiKey, onProg).then(r => ({ ...r, geminiData: null }));
     return runTesseract(file, onProg).then(r => ({ ...r, geminiData: null }));
   };
 
