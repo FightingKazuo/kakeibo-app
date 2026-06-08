@@ -3,11 +3,19 @@
 // ============================================================
 
 export const STORAGE_KEYS = {
-  TRANSACTIONS: "kakeibo_integrated_tx",
-  CATEGORIES:   "kakeibo_integrated_cats",
-  RULES:        "kakeibo_integrated_rules",
-  OCR_HISTORY:  "kakeibo_ocr_history",
+  TRANSACTIONS:  "kakeibo_integrated_tx",
+  CATEGORIES:    "kakeibo_integrated_cats",
+  RULES:         "kakeibo_integrated_rules",
+  OCR_HISTORY:   "kakeibo_ocr_history",
+  OCR_CORRECTIONS: "kakeibo_ocr_corrections",
+  MEMBERS:       "kakeibo_members",
 };
+
+// デフォルトメンバー（2人）
+export const DEFAULT_MEMBERS = [
+  { id: "m1", name: "自分" },
+  { id: "m2", name: "パートナー" },
+];
 
 export const DEFAULT_CATS = [
   {id:"c1", name:"食費",    emoji:"🍱", type:"expense"},
@@ -49,21 +57,20 @@ export const DEFAULT_CATEGORY_RULES = [
   {id:"r090",keywords:["給与","給料","月給"],category:"給料",type:"income",priority:95},
   {id:"r091",keywords:["ボーナス","賞与"],category:"ボーナス",type:"income",priority:95},
   {id:"r092",keywords:["フリーランス","業務委託","報酬"],category:"副業",type:"income",priority:90},
-  // ── 新規追加（サンプルレシート分析より）──
-  {id:"r100",keywords:["ニトリ","nitori"],                            category:"日用品",  type:"expense",priority:92},
-  {id:"r101",keywords:["カインズ","cainz"],                           category:"日用品",  type:"expense",priority:92},
-  {id:"r102",keywords:["ウエルシア","welcia"],                        category:"日用品",  type:"expense",priority:92},
-  {id:"r103",keywords:["プレム","plein","ﾌﾟﾚﾑ"],                    category:"食費",    type:"expense",priority:90},
-  {id:"r104",keywords:["エブリビッグデイ","bigday","ビッグデイ"],     category:"食費",    type:"expense",priority:90},
-  {id:"r105",keywords:["マックスバリュ","maxvalu","イオン","aeon"],   category:"食費",    type:"expense",priority:88},
-  {id:"r106",keywords:["セルバ","selva"],                            category:"食費",    type:"expense",priority:88},
-  {id:"r107",keywords:["100えんハウス","レモン","100円"],             category:"日用品",  type:"expense",priority:88},
-  {id:"r108",keywords:["オーシマ","oshima","ドーナツ"],              category:"外食",    type:"expense",priority:88},
-  {id:"r109",keywords:["sbi証券","sbi","投信積立"],                  category:"投資",    type:"expense",priority:95},
-  {id:"r110",keywords:["楽天モバイル","rakuten mobile"],              category:"通信費",  type:"expense",priority:92},
-  {id:"r111",keywords:["レンタカー","ニコニコレンタカー"],           category:"交通費",  type:"expense",priority:88},
-  {id:"r112",keywords:["google play","googleplay"],                   category:"娯楽",    type:"expense",priority:93},
-  {id:"r113",keywords:["プレミアム商品券","商品券"],                  category:"その他",  type:"expense",priority:70},
+  {id:"r100",keywords:["ニトリ","nitori"],category:"日用品",type:"expense",priority:92},
+  {id:"r101",keywords:["カインズ","cainz"],category:"日用品",type:"expense",priority:92},
+  {id:"r102",keywords:["ウエルシア","welcia"],category:"日用品",type:"expense",priority:92},
+  {id:"r103",keywords:["プレム","plein","ﾌﾟﾚﾑ"],category:"食費",type:"expense",priority:90},
+  {id:"r104",keywords:["エブリビッグデイ","bigday","ビッグデイ"],category:"食費",type:"expense",priority:90},
+  {id:"r105",keywords:["マックスバリュ","maxvalu","イオン","aeon"],category:"食費",type:"expense",priority:88},
+  {id:"r106",keywords:["セルバ","selva"],category:"食費",type:"expense",priority:88},
+  {id:"r107",keywords:["100えんハウス","レモン","100円"],category:"日用品",type:"expense",priority:88},
+  {id:"r108",keywords:["オーシマ","oshima","ドーナツ"],category:"外食",type:"expense",priority:88},
+  {id:"r109",keywords:["sbi証券","sbi","投信積立"],category:"投資",type:"expense",priority:95},
+  {id:"r110",keywords:["楽天モバイル","rakuten mobile"],category:"通信費",type:"expense",priority:92},
+  {id:"r111",keywords:["レンタカー","ニコニコレンタカー"],category:"交通費",type:"expense",priority:88},
+  {id:"r112",keywords:["google play","googleplay"],category:"娯楽",type:"expense",priority:93},
+  {id:"r113",keywords:["プレミアム商品券","商品券"],category:"その他",type:"expense",priority:70},
 ];
 
 export const CSV_FORMATS = {
@@ -97,8 +104,6 @@ export const CSV_FORMATS = {
       };
     },
   },
-
-  // ── 住信SBIネット銀行 ──────────────────────────────────
   sbi: {
     label: "住信SBIネット銀行",
     sampleColumns: ["日付","内容","出金金額(円)","入金金額(円)"],
@@ -113,20 +118,14 @@ export const CSV_FORMATS = {
       const out = parseFloat(outStr) || 0;
       const inc = parseFloat(inStr)  || 0;
       if (!out && !inc) return null;
-      return {
-        date, label, category: "その他",
-        amount: out > 0 ? -out : inc,
-        type:   out > 0 ? "expense" : "income",
-      };
+      return { date, label, category: "その他", amount: out > 0 ? -out : inc, type: out > 0 ? "expense" : "income" };
     },
   },
-  // ── PayPay ──────────────────────────────────────────────
   paypay: {
     label: "PayPay",
     sampleColumns: ["取引日","出金金額（円）","取引先","取引内容"],
     normalize: (r) => {
       const content = (r["取引内容"] || "").trim();
-      // 送金・ポイント獲得はスキップ
       if (["送った金額","ポイント、残高の獲得"].includes(content)) return null;
       const dateRaw = (r["取引日"] || "").slice(0, 10);
       const date    = dateRaw.replace(/\//g, "-");
@@ -137,14 +136,9 @@ export const CSV_FORMATS = {
       const out = parseFloat(outStr) || 0;
       const inc = parseFloat(inStr)  || 0;
       if (!out && !inc) return null;
-      return {
-        date, label, category: "その他",
-        amount: out > 0 ? -out : inc,
-        type:   out > 0 ? "expense" : "income",
-      };
+      return { date, label, category: "その他", amount: out > 0 ? -out : inc, type: out > 0 ? "expense" : "income" };
     },
   },
-  // ── リクルートカード ─────────────────────────────────────
   recruit: {
     label: "リクルートカード",
     sampleColumns: ["ご利用日","ご利用先など","ご利用金額(￥)"],
@@ -155,36 +149,24 @@ export const CSV_FORMATS = {
       const amtStr = String(r["ご利用金額(￥)"] || r["お支払い金額(￥)"] || "0").replace(/[,，]/g, "");
       const amount = parseFloat(amtStr) || 0;
       if (!amount) return null;
-      return {
-        date, label, category: "その他",
-        amount: -Math.abs(amount), type: "expense",
-      };
+      return { date, label, category: "その他", amount: -Math.abs(amount), type: "expense" };
     },
   },
-  // ── エポスカード（CSVエクスポート版）────────────────────
   epos: {
     label: "エポスカード",
     sampleColumns: ["ご利用日","ご利用先など","ご利用金額(円)"],
     normalize: (r) => {
-      // 日付: "26 04 26" 形式 or "2026/04/26" 形式
       let dateRaw = (r["ご利用日"] || "").trim();
       let date;
       const m1 = dateRaw.match(/^(\d{2})\s+(\d{2})\s+(\d{2})$/);
-      if (m1) {
-        date = `20${m1[1]}-${m1[2]}-${m1[3]}`;
-      } else {
-        date = dateRaw.replace(/\//g, "-");
-      }
+      if (m1) { date = `20${m1[1]}-${m1[2]}-${m1[3]}`; }
+      else { date = dateRaw.replace(/\//g, "-"); }
       if (!date.match(/^\d{4}-\d{2}-\d{2}$/)) return null;
-      const label  = (r["ご利用先など"] || "不明").trim()
-        .replace(/^[A-Z]{2}\//,"").replace(/　+/g," ").trim();
+      const label  = (r["ご利用先など"] || "不明").trim().replace(/^[A-Z]{2}\//,"").replace(/　+/g," ").trim();
       const amtStr = String(r["ご利用金額(円)"] || r["お支払金額(円)"] || "0").replace(/[,，]/g,"");
       const amount = parseFloat(amtStr) || 0;
       if (!amount) return null;
-      return {
-        date, label, category: "その他",
-        amount: -Math.abs(amount), type: "expense",
-      };
+      return { date, label, category: "その他", amount: -Math.abs(amount), type: "expense" };
     },
   },
 };
