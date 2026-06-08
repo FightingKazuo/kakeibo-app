@@ -5,11 +5,13 @@ import { BalanceCard } from "./BalanceCard";
 import { RecentExpenseCard } from "./RecentExpenseCard";
 import { TransactionItem } from "../transactions/TransactionItem";
 
+// ─── アプリバージョン ────────────────────────────────────────
+const APP_VERSION = "v1.3.0";
+
 export function HomePage({ transactions, categories, onNavigate }) {
   const now       = new Date();
   const currentYM = now.toISOString().slice(0, 7);
 
-  // ④ 中間配列をメモ化して重複filterを防ぐ
   const incomeTxs       = useMemo(() => transactions.filter(t => t.type==="income"),  [transactions]);
   const expenseTxs      = useMemo(() => transactions.filter(t => t.type==="expense"), [transactions]);
   const currentMonthTxs = useMemo(() => transactions.filter(t => t.date.slice(0,7)===currentYM), [transactions, currentYM]);
@@ -48,6 +50,12 @@ export function HomePage({ transactions, categories, onNavigate }) {
 
   return (
     <div className="pb-20">
+      {/* ── ヘッダー（バージョン表示付き）── */}
+      <div className="bg-white px-4 pt-12 pb-3 border-b border-gray-100 flex items-center justify-between">
+        <h1 className="text-xl font-bold text-gray-900">ホーム</h1>
+        <span className="text-xs text-gray-300 font-mono">{APP_VERSION}</span>
+      </div>
+
       <BalanceCard
         totalIncome={totalIncome}
         totalExpense={totalExpense}
