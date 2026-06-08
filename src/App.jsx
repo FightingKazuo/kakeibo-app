@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { STORAGE_KEYS, DEFAULT_CATS, DEFAULT_CATEGORY_RULES } from "./constants";
+import { STORAGE_KEYS, DEFAULT_CATS, DEFAULT_CATEGORY_RULES, DEFAULT_MEMBERS } from "./constants";
 import { SAMPLE_TX } from "./data/sampleData";
 import { loadStorage, saveStorage, clearAllStorage } from "./utils/storage";
 import { learnCategoryRule } from "./services/categoryPredictor";
@@ -13,7 +13,6 @@ import { AnalysisPage }        from "./components/analysis/AnalysisPage";
 import { SettingsPage }        from "./components/settings/SettingsPage";
 import { BottomNav }           from "./components/layout/BottomNav";
 
-// ─── PC用サイドバーナビ ──────────────────────────────────────
 const NAV_ITEMS = [
   { id: "home",     icon: "🏠", label: "ホーム"   },
   { id: "list",     icon: "📋", label: "一覧"     },
@@ -25,12 +24,10 @@ const NAV_ITEMS = [
 function SideNav({ currentPage, onNavigate }) {
   return (
     <aside className="hidden md:flex flex-col w-56 min-h-screen bg-white border-r border-gray-200 fixed left-0 top-0 z-40">
-      {/* ロゴ */}
       <div className="px-6 py-6 border-b border-gray-100">
         <p className="text-lg font-bold text-indigo-600">💰 家計簿</p>
         <p className="text-xs text-gray-400 mt-0.5">kakeibo app</p>
       </div>
-      {/* ナビ */}
       <nav className="flex-1 px-3 py-4 space-y-1">
         {NAV_ITEMS.map(item => (
           <button
@@ -59,14 +56,15 @@ export default function App() {
       .map(normalizeTransaction)
       .filter(Boolean)
   );
-
   const [categories,   setCategories]   = useState(() => loadStorage(STORAGE_KEYS.CATEGORIES, DEFAULT_CATS));
   const [learnedRules, setLearnedRules] = useState(() => loadStorage(STORAGE_KEYS.RULES, []));
+  const [members,      setMembers]      = useState(() => loadStorage(STORAGE_KEYS.MEMBERS, DEFAULT_MEMBERS));
   const [editingTx,    setEditingTx]    = useState(null);
 
   useEffect(() => { saveStorage(STORAGE_KEYS.TRANSACTIONS, transactions); }, [transactions]);
   useEffect(() => { saveStorage(STORAGE_KEYS.CATEGORIES,   categories);   }, [categories]);
   useEffect(() => { saveStorage(STORAGE_KEYS.RULES,        learnedRules); }, [learnedRules]);
+  useEffect(() => { saveStorage(STORAGE_KEYS.MEMBERS,      members);      }, [members]);
 
   const handleAdd        = (tx) => setTransactions(p => [normalizeTransaction(tx), ...p]);
   const handleDelete     = (id) => setTransactions(p => p.filter(t => t.id !== id));
@@ -84,17 +82,19 @@ export default function App() {
   };
 
   if (editingTx) return (
-    <div className="md:ml-56">
-      <div className="max-w-2xl mx-auto min-h-screen bg-gray-50">
-        <SideNav currentPage={currentPage} onNavigate={navigate} />
-        <EditPage
-          transaction={editingTx}
-          categories={categories}
-          allRules={DEFAULT_CATEGORY_RULES}
-          learnedRules={learnedRules}
-          onSave={handleUpdate}
-          onCancel={() => setEditingTx(null)}
-        />
+    <div className="min-h-screen bg-gray-50">
+      <SideNav currentPage={currentPage} onNavigate={navigate} />
+      <div className="md:ml-56">
+        <div className="max-w-2xl mx-auto min-h-screen bg-gray-50">
+          <EditPage
+            transaction={editingTx}
+            categories={categories}
+            allRules={DEFAULT_CATEGORY_RULES}
+            learnedRules={learnedRules}
+            onSave={handleUpdate}
+            onCancel={() => setEditingTx(null)}
+          />
+        </div>
       </div>
     </div>
   );
@@ -112,13 +112,14 @@ export default function App() {
             existingTransactions={transactions}
             allRules={DEFAULT_CATEGORY_RULES}
             learnedRules={learnedRules}
+            members={members}
             onAdd={handleAdd}
             onDelete={handleDelete}
             onLearnRule={handleLearn}
           />
         );
       case "analysis":
-        return <AnalysisPage transactions={transactions} categories={categories} />;
+        return <AnalysisPage transactions={transactions} categories={categories} members={members} />;
       case "settings":
         return (
           <SettingsPage
@@ -131,6 +132,10 @@ export default function App() {
             transactions={transactions}
             onAdd={handleAdd}
             onReset={handleReset}
+            members={members}
+            onUpdateMember={(m) => setMembers(p => p.map(x => x.id === m.id ? m : x))}
+            onAddMember={(m)    => setMembers(p => [...p, m])}
+            onDeleteMember={(id)=> setMembers(p => p.filter(x => x.id !== id))}
           />
         );
       default:
@@ -140,12 +145,8 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* PC用サイドバー */}
       <SideNav currentPage={currentPage} onNavigate={navigate} />
-
-      {/* メインコンテンツ（PC時はサイドバー分ずらす） */}
       <div className="md:ml-56">
-        {/* PC時: ページごとに適切な最大幅 */}
         <div className={`mx-auto min-h-screen bg-gray-50 relative
           ${currentPage === "home"     ? "max-w-4xl" : ""}
           ${currentPage === "list"     ? "max-w-4xl" : ""}
@@ -154,7 +155,6 @@ export default function App() {
           ${currentPage === "settings" ? "max-w-2xl" : ""}
         `}>
           <main>{renderPage()}</main>
-          {/* モバイル用BottomNav */}
           <BottomNav currentPage={currentPage} onNavigate={navigate} />
         </div>
       </div>
