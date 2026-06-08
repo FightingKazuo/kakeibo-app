@@ -54,7 +54,6 @@ function ItemsAccordion({ items, onToggleType, totalAmount }) {
 
   return (
     <div className="border border-gray-100 rounded-xl overflow-hidden">
-      {/* ヘッダー */}
       <button
         onClick={() => setOpen(p => !p)}
         className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 text-sm"
@@ -68,8 +67,6 @@ function ItemsAccordion({ items, onToggleType, totalAmount }) {
           <span className="text-gray-400">{open ? "▲" : "▼"}</span>
         </div>
       </button>
-
-      {/* 品目リスト */}
       {open && (
         <div className="divide-y divide-gray-50">
           {items.map((item, i) => (
@@ -88,8 +85,6 @@ function ItemsAccordion({ items, onToggleType, totalAmount }) {
           ))}
         </div>
       )}
-
-      {/* サマリー */}
       {hasPersonal && (
         <div className="px-4 py-2.5 bg-indigo-50 border-t border-indigo-100 flex justify-between text-xs">
           <span className="text-indigo-600 font-medium">登録内訳</span>
@@ -102,8 +97,66 @@ function ItemsAccordion({ items, onToggleType, totalAmount }) {
   );
 }
 
+// ─── CSV-OCR重複確認モーダル ─────────────────────────────────
+function CsvOcrDupModal({ ocrTxs, csvCandidates, onDecide }) {
+  const ocrAmt  = Math.abs(ocrTxs[0]?.amount || 0);
+  const csvAmt  = Math.abs(csvCandidates[0]?.amount || 0);
+  const ocrDate = ocrTxs[0]?.date || "";
+  const ocrLabel = ocrTxs[0]?.label || "";
+  const csvLabel = csvCandidates[0]?.label || "";
+  const csvDate  = csvCandidates[0]?.date || "";
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-end">
+      <div className="bg-white rounded-t-2xl w-full p-5 space-y-4">
+        <div>
+          <p className="text-sm font-bold text-gray-900">🔍 同じ支出かもしれません</p>
+          <p className="text-xs text-gray-500 mt-1">日付と金額が近いCSVデータが見つかりました。どうしますか？</p>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="bg-indigo-50 rounded-xl p-3 border border-indigo-200">
+            <p className="text-xs font-bold text-indigo-600 mb-1">📷 OCR（品目あり）</p>
+            <p className="text-xs font-semibold text-gray-800 truncate">{ocrLabel}</p>
+            <p className="text-xs text-gray-500">{ocrDate}</p>
+            <p className="text-sm font-bold text-rose-500 mt-1">¥{ocrAmt.toLocaleString()}</p>
+            {ocrTxs[0]?.items?.length > 0 && (
+              <p className="text-xs text-indigo-500 mt-1">品目 {ocrTxs[0].items.length}件</p>
+            )}
+          </div>
+          <div className="bg-gray-50 rounded-xl p-3 border border-gray-200">
+            <p className="text-xs font-bold text-gray-500 mb-1">📊 CSV（品目なし）</p>
+            <p className="text-xs font-semibold text-gray-800 truncate">{csvLabel}</p>
+            <p className="text-xs text-gray-500">{csvDate}</p>
+            <p className="text-sm font-bold text-rose-500 mt-1">¥{csvAmt.toLocaleString()}</p>
+          </div>
+        </div>
+        <div className="space-y-2">
+          <button
+            onClick={() => onDecide("ocr-win")}
+            className="w-full py-3 bg-indigo-500 text-white rounded-xl text-sm font-bold"
+          >
+            ✅ OCRを残してCSVを削除
+          </button>
+          <button
+            onClick={() => onDecide("both")}
+            className="w-full py-3 bg-white border border-gray-300 text-gray-700 rounded-xl text-sm font-medium"
+          >
+            両方残す
+          </button>
+          <button
+            onClick={() => onDecide("skip")}
+            className="w-full py-2 text-gray-400 text-xs"
+          >
+            キャンセル（登録しない）
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── メインコンポーネント ────────────────────────────────────
-export function AddPage({ categories, existingTransactions, allRules, learnedRules, onAdd, onLearnRule }) {
+export function AddPage({ categories, existingTransactions, allRules, learnedRules, onAdd, onDelete, onLearnRule }) {
   const [mode, setMode] = useState("select");
 
   // manual
@@ -141,7 +194,7 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
   const [ocrItems,      setOcrItems]      = useState([]);
   const [ocrQueue,      setOcrQueue]      = useState([]);
   const [ocrQueueIdx,   setOcrQueueIdx]   = useState(0);
-  const [ocrWaitSec,    setOcrWaitSec]    = useState(0); // ← 追加: 未定義エラー修正
+  const [ocrWaitSec,    setOcrWaitSec]    = useState(0);
   const [ocrResults,    setOcrResults]    = useState([]);
   const [ocrApiKey,     setOcrApiKey]     = useState(() => loadStorage("OCR_API_KEY", "") || "");
   const [ocrCorrections, setOcrCorrections] = useState(
@@ -329,6 +382,19 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
 
   // ─── ocr ───
 
+  /** CSV重複候補を検索（同日付 ＋ 金額±5%以内） */
+  const findCsvDuplicates = (date, amount) => {
+    const amt = Math.abs(Number(amount));
+    return existingTransactions.filter(tx => {
+      if (tx.source !== "csv") return false;
+      if (tx.date !== date) return false;
+      const txAmt = Math.abs(tx.amount);
+      if (txAmt === 0 || amt === 0) return false;
+      const diff = Math.abs(txAmt - amt) / Math.max(txAmt, amt);
+      return diff <= 0.05; // ±5%以内
+    });
+  };
+
   const registerOcr = (label, amount, date, cat, items) => {
     if (!amount || !label) { alert("金額と内容を入力してください"); return; }
     onLearnRule?.(label, cat, "expense");
@@ -358,10 +424,18 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
       txsToAdd.push(createTransaction({ date, label, category: cat, amount: -Number(amount), type: "expense", source: "ocr" }));
     }
 
+    // ── CSV重複チェック（日付＋金額±5%）──
+    const csvDups = findCsvDuplicates(date, amount);
+    if (csvDups.length > 0) {
+      setDupModal({ txs: txsToAdd, candidates: csvDups, type: "csv-ocr" });
+      return;
+    }
+
+    // ── 完全重複チェック ──
     const firstTx = txsToAdd[0];
     const cands = findDuplicateCandidates(firstTx, existingTransactions);
     if (cands.length > 0) {
-      setDupModal({ txs: txsToAdd, candidates: cands });
+      setDupModal({ txs: txsToAdd, candidates: cands, type: "exact" });
     } else {
       txsToAdd.forEach(tx => onAdd(tx));
       setOcrStep("done");
@@ -370,7 +444,18 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
   };
 
   const handleDupModalDecide = (d) => {
-    if (d !== "skip" && dupModal?.txs) {
+    if (d === "ocr-win" && dupModal?.txs) {
+      // OCRを残してCSVを削除
+      dupModal.candidates.forEach(tx => onDelete?.(tx.id));
+      dupModal.txs.forEach(tx => onAdd(tx));
+      setOcrStep("done");
+      setTimeout(() => { setOcrStep("upload"); setMode("select"); }, 1500);
+    } else if (d === "both" && dupModal?.txs) {
+      // 両方残す
+      dupModal.txs.forEach(tx => onAdd(tx));
+      setOcrStep("done");
+      setTimeout(() => { setOcrStep("upload"); setMode("select"); }, 1500);
+    } else if (d !== "skip" && dupModal?.txs && dupModal.type === "exact") {
       dupModal.txs.forEach(tx => onAdd(tx));
       setOcrStep("done");
       setTimeout(() => { setOcrStep("upload"); setMode("select"); }, 1500);
@@ -594,7 +679,16 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
   // ─── OCR 画面 ────────────────────────────────────────────
   if (mode === "ocr") return (
     <div className="pb-20">
-      {dupModal && (
+      {/* CSV-OCR重複モーダル */}
+      {dupModal?.type === "csv-ocr" && (
+        <CsvOcrDupModal
+          ocrTxs={dupModal.txs}
+          csvCandidates={dupModal.candidates}
+          onDecide={handleDupModalDecide}
+        />
+      )}
+      {/* 通常重複モーダル */}
+      {dupModal?.type === "exact" && (
         <DuplicateCheckModal
           newTx={dupModal.txs[0]} candidates={dupModal.candidates}
           categories={categories} onDecide={handleDupModalDecide}
@@ -712,12 +806,6 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
                 Google Lens・iOS Live Text等でレシートのテキストをコピーして貼り付けてください。<br/>
                 PDFは「テキスト選択 → コピー」でそのまま使えます。
               </p>
-            </div>
-            <div className="bg-blue-50 rounded-xl p-3 border border-blue-100 text-xs text-blue-600 space-y-1">
-              <p className="font-semibold">おすすめツール</p>
-              <p>📱 Google Lens → レシートを写真で撮る → テキストをコピー</p>
-              <p>📱 iOSカメラ → 写真でLive Text → 全選択コピー</p>
-              <p>📄 PDF → 文字を選択してコピー（そのまま貼り付けOK）</p>
             </div>
             <textarea
               value={pasteText}
