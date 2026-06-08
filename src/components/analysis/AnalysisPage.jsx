@@ -5,64 +5,130 @@ import { PIE_COLORS } from "../../constants";
 import { MonthSelector } from "../common/MonthSelector";
 import { EmptyState } from "../ui/EmptyState";
 
-export function AnalysisPage({ transactions, categories }) {
+export function AnalysisPage({ transactions, categories, members }) {
+  const [tab,      setTab]      = useState("analysis");
   const [selMonth, setSelMonth] = useState("all");
 
+  // ── 精算用 期間指定 ──
+  const today = new Date().toISOString().split("T")[0];
+  const firstDay = useMemo(() => {
+    if (!transactions.length) return today.slice(0, 7) + "-01";
+    const sorted = [...transactions].sort((a, b) => a.date.localeCompare(b.date));
+    return sorted[0].date.slice(0, 7) + "-01";
+  }, [transactions]);
+  const [settleDateFrom, setSettleDateFrom] = useState(today.slice(0, 7) + "-01");
+  const [settleDateTo,   setSettleDateTo]   = useState(today);
+
   const months = useMemo(
-    () => [...new Set(transactions.map(t=>toYM(t.date)))].sort().reverse(),
+    () => [...new Set(transactions.map(t => toYM(t.date)))].sort().reverse(),
     [transactions]
   );
 
   const filtered = useMemo(
-    () => selMonth==="all" ? transactions : transactions.filter(t=>toYM(t.date)===selMonth),
+    () => selMonth === "all" ? transactions : transactions.filter(t => toYM(t.date) === selMonth),
     [transactions, selMonth]
   );
 
-  // ④ useMemo 化して重複 filter を排除
-  const totalIncome  = useMemo(() => filtered.filter(t=>t.type==="income").reduce((s,t)=>s+t.amount,0),            [filtered]);
-  const totalExpense = useMemo(() => filtered.filter(t=>t.type==="expense").reduce((s,t)=>s+Math.abs(t.amount),0), [filtered]);
+  const totalIncome  = useMemo(() => filtered.filter(t => t.type === "income").reduce((s, t) => s + t.amount, 0), [filtered]);
+  const totalExpense = useMemo(() => filtered.filter(t => t.type === "expense").reduce((s, t) => s + Math.abs(t.amount), 0), [filtered]);
 
   const catData = useMemo(() => {
-    const bycat = filtered.filter(t=>t.type==="expense")
-      .reduce((acc,t) => { acc[t.category]=(acc[t.category]||0)+Math.abs(t.amount); return acc; }, {});
+    const bycat = filtered.filter(t => t.type === "expense")
+      .reduce((acc, t) => { acc[t.category] = (acc[t.category] || 0) + Math.abs(t.amount); return acc; }, {});
     return Object.entries(bycat)
-      .sort((a,b)=>b[1]-a[1])
-      .map(([name,value]) => ({ name, value, emoji:categories.find(c=>c.name===name)?.emoji||"📦" }));
+      .sort((a, b) => b[1] - a[1])
+      .map(([name, value]) => ({ name, value, emoji: categories.find(c => c.name === name)?.emoji || "📦" }));
   }, [filtered, categories]);
 
   const chartData = useMemo(() => {
-    const ms = [...new Set(transactions.map(t=>toYM(t.date)))].sort();
+    const ms = [...new Set(transactions.map(t => toYM(t.date)))].sort();
     return ms.map(m => {
-      const mt = transactions.filter(t=>toYM(t.date)===m);
-      const inc = mt.filter(t=>t.type==="income").reduce((s,t)=>s+t.amount,0);
-      const exp = mt.filter(t=>t.type==="expense").reduce((s,t)=>s+Math.abs(t.amount),0);
-      return { month:m.slice(5)+"月", income:inc, expense:exp };
+      const mt  = transactions.filter(t => toYM(t.date) === m);
+      const inc = mt.filter(t => t.type === "income").reduce((s, t) => s + t.amount, 0);
+      const exp = mt.filter(t => t.type === "expense").reduce((s, t) => s + Math.abs(t.amount), 0);
+      return { month: m.slice(5) + "月", income: inc, expense: exp };
     });
   }, [transactions]);
 
-  // 1日平均支出
   const dailyAvg = useMemo(() => {
     if (!totalExpense) return 0;
-    const days = selMonth==="all" ? 30
-      : new Date(parseInt(selMonth.slice(0,4)), parseInt(selMonth.slice(5,7)), 0).getDate();
+    const days = selMonth === "all" ? 30
+      : new Date(parseInt(selMonth.slice(0, 4)), parseInt(selMonth.slice(5, 7)), 0).getDate();
     return Math.floor(totalExpense / days);
   }, [totalExpense, selMonth]);
 
-  // 前月比較
   const prevMonthComparison = useMemo(() => {
-    if (selMonth==="all") return null;
-    const [y,m] = selMonth.split("-").map(Number);
-    const prev  = new Date(y, m-2, 1);
-    const prevYM = `${prev.getFullYear()}-${String(prev.getMonth()+1).padStart(2,"0")}`;
+    if (selMonth === "all") return null;
+    const [y, m] = selMonth.split("-").map(Number);
+    const prev   = new Date(y, m - 2, 1);
+    const prevYM = `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, "0")}`;
     const prevExp = transactions
-      .filter(t=>t.date.slice(0,7)===prevYM && t.type==="expense")
-      .reduce((s,t)=>s+Math.abs(t.amount),0);
+      .filter(t => t.date.slice(0, 7) === prevYM && t.type === "expense")
+      .reduce((s, t) => s + Math.abs(t.amount), 0);
     const diff    = totalExpense - prevExp;
-    const diffPct = prevExp>0 ? Math.round((diff/prevExp)*100) : null;
+    const diffPct = prevExp > 0 ? Math.round((diff / prevExp) * 100) : null;
     return { prevExp, diff, diffPct };
   }, [transactions, selMonth, totalExpense]);
 
-  if (transactions.length===0) return (
+  // ── 精算計算 ──────────────────────────────────────────────
+  const settlementData = useMemo(() => {
+    if (!members || members.length < 2) return null;
+
+    // 期間内の共有支出のみ対象
+    const target = transactions.filter(t =>
+      t.type === "expense" &&
+      (t.shareType === "shared" || !t.shareType) &&
+      t.date >= settleDateFrom &&
+      t.date <= settleDateTo &&
+      t.paidBy
+    );
+
+    // メンバーごとの支払合計
+    const paidMap = {};
+    members.forEach(m => { paidMap[m.id] = 0; });
+    target.forEach(t => {
+      if (paidMap[t.paidBy] !== undefined) {
+        paidMap[t.paidBy] += Math.abs(t.amount);
+      }
+    });
+
+    const totalShared = Object.values(paidMap).reduce((s, v) => s + v, 0);
+    const perPerson   = totalShared / members.length;
+
+    // 精算額（正=もらう側、負=払う側）
+    const balances = members.map(m => ({
+      ...m,
+      paid:    paidMap[m.id] || 0,
+      balance: (paidMap[m.id] || 0) - perPerson,
+    }));
+
+    // 精算メッセージ生成
+    const payers    = balances.filter(b => b.balance < 0).sort((a, b) => a.balance - b.balance);
+    const receivers = balances.filter(b => b.balance > 0).sort((a, b) => b.balance - a.balance);
+    const settlements = [];
+    const payersClone    = payers.map(p => ({ ...p, remaining: Math.abs(p.balance) }));
+    const receiversClone = receivers.map(r => ({ ...r, remaining: r.balance }));
+
+    let pi = 0, ri = 0;
+    while (pi < payersClone.length && ri < receiversClone.length) {
+      const amount = Math.min(payersClone[pi].remaining, receiversClone[ri].remaining);
+      if (amount > 0) {
+        settlements.push({
+          from: payersClone[pi].name,
+          to:   receiversClone[ri].name,
+          amount: Math.round(amount),
+        });
+      }
+      payersClone[pi].remaining    -= amount;
+      receiversClone[ri].remaining -= amount;
+      if (payersClone[pi].remaining    < 1) pi++;
+      if (receiversClone[ri].remaining < 1) ri++;
+    }
+
+    return { balances, totalShared, perPerson, settlements, txCount: target.length };
+  }, [transactions, members, settleDateFrom, settleDateTo]);
+
+  if (transactions.length === 0) return (
     <div className="pb-20">
       <div className="bg-white px-4 pt-12 pb-3 border-b border-gray-100">
         <h1 className="text-xl font-bold text-gray-900">分析</h1>
@@ -75,113 +141,237 @@ export function AnalysisPage({ transactions, categories }) {
     <div className="pb-20">
       <div className="bg-white px-4 pt-12 pb-3 border-b border-gray-100">
         <h1 className="text-xl font-bold text-gray-900 mb-3">分析</h1>
-        <MonthSelector months={months} selected={selMonth} onChange={setSelMonth} />
+        {/* タブ */}
+        <div className="flex gap-2 mb-3">
+          {[
+            { id: "analysis",   label: "📊 分析"   },
+            { id: "settlement", label: "💸 精算"   },
+          ].map(t => (
+            <button key={t.id} onClick={() => setTab(t.id)}
+              className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-all ${
+                tab === t.id ? "bg-indigo-500 text-white" : "bg-gray-100 text-gray-500"
+              }`}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+        {tab === "analysis" && (
+          <MonthSelector months={months} selected={selMonth} onChange={setSelMonth} />
+        )}
       </div>
 
-      <div className="px-4 py-5 space-y-5">
-        {/* 収支サマリー */}
-        <div className="grid grid-cols-2 gap-3">
-          <div className="bg-emerald-50 rounded-2xl p-4 border border-emerald-100">
-            <p className="text-xs text-emerald-600 font-semibold">収入</p>
-            <p className="text-xl font-bold text-emerald-700 mt-1">{fmtCurrency(totalIncome)}</p>
-          </div>
-          <div className="bg-rose-50 rounded-2xl p-4 border border-rose-100">
-            <p className="text-xs text-rose-600 font-semibold">支出</p>
-            <p className="text-xl font-bold text-rose-700 mt-1">{fmtCurrency(totalExpense)}</p>
-          </div>
-        </div>
-
-        {/* 1日平均支出 */}
-        {totalExpense > 0 && (
-          <div className="bg-blue-50 rounded-2xl p-4 border border-blue-100 flex items-center justify-between">
-            <div>
-              <p className="text-xs font-semibold text-blue-500 uppercase tracking-wide">1日平均支出</p>
-              <p className="text-xl font-bold text-blue-700 mt-1">{fmtCurrency(dailyAvg)}</p>
+      {/* ── 分析タブ ── */}
+      {tab === "analysis" && (
+        <div className="px-4 py-5 space-y-5">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="bg-emerald-50 rounded-2xl p-4 border border-emerald-100">
+              <p className="text-xs text-emerald-600 font-semibold">収入</p>
+              <p className="text-xl font-bold text-emerald-700 mt-1">{fmtCurrency(totalIncome)}</p>
             </div>
-            <span className="text-3xl">📉</span>
+            <div className="bg-rose-50 rounded-2xl p-4 border border-rose-100">
+              <p className="text-xs text-rose-600 font-semibold">支出</p>
+              <p className="text-xl font-bold text-rose-700 mt-1">{fmtCurrency(totalExpense)}</p>
+            </div>
           </div>
-        )}
 
-        {/* 前月比較 */}
-        {prevMonthComparison && (
-          <div className="bg-white rounded-2xl p-4 border border-gray-100">
-            <p className="text-xs font-semibold text-gray-500 mb-3 uppercase tracking-wide">前月比較（支出）</p>
-            <div className="grid grid-cols-2 gap-3 mb-3">
-              <div className="bg-gray-50 rounded-xl p-3 text-center">
-                <p className="text-xs text-gray-400">今月</p>
-                <p className="text-sm font-bold text-gray-800 mt-1">{fmtCurrency(totalExpense)}</p>
+          {totalExpense > 0 && (
+            <div className="bg-blue-50 rounded-2xl p-4 border border-blue-100 flex items-center justify-between">
+              <div>
+                <p className="text-xs font-semibold text-blue-500 uppercase tracking-wide">1日平均支出</p>
+                <p className="text-xl font-bold text-blue-700 mt-1">{fmtCurrency(dailyAvg)}</p>
               </div>
-              <div className="bg-gray-50 rounded-xl p-3 text-center">
-                <p className="text-xs text-gray-400">前月</p>
-                <p className="text-sm font-bold text-gray-800 mt-1">{fmtCurrency(prevMonthComparison.prevExp)}</p>
-              </div>
+              <span className="text-3xl">📉</span>
             </div>
-            <div className={`rounded-xl p-3 text-center ${prevMonthComparison.diff>0?"bg-rose-50":"bg-emerald-50"}`}>
-              <p className="text-xs text-gray-400 mb-1">増減</p>
-              <p className={`text-lg font-bold ${prevMonthComparison.diff>0?"text-rose-600":"text-emerald-600"}`}>
-                {prevMonthComparison.diff>0?"+":""}{fmtCurrency(prevMonthComparison.diff)}
-                <span className="text-xs font-normal ml-1.5">
-                  {prevMonthComparison.diffPct!==null ? `(${prevMonthComparison.diff>0?"+":""}${prevMonthComparison.diffPct}%)` : "(–)"}
-                </span>
-              </p>
-            </div>
-          </div>
-        )}
+          )}
 
-        {/* トップカテゴリ */}
-        {catData.length > 0 && (
-          <div className="bg-indigo-50 rounded-2xl p-4 border border-indigo-100 flex items-center gap-4">
-            <span className="text-4xl">{catData[0].emoji}</span>
-            <div>
-              <p className="text-xs text-indigo-500 font-semibold">トップ支出カテゴリ</p>
-              <p className="text-base font-bold text-gray-900 mt-0.5">{catData[0].name}</p>
-              <p className="text-rose-500 font-bold text-sm">{fmtCurrency(catData[0].value)}</p>
-            </div>
-          </div>
-        )}
-
-        {/* 月別グラフ */}
-        <div className="bg-white rounded-2xl p-4 border border-gray-100">
-          <p className="text-xs font-semibold text-gray-500 mb-3 uppercase tracking-wide">月別収支推移</p>
-          <ResponsiveContainer width="100%" height={180}>
-            <LineChart data={chartData} margin={{top:4,right:8,left:0,bottom:0}}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-              <XAxis dataKey="month" tick={{fontSize:10}} />
-              <YAxis tick={{fontSize:9}} tickFormatter={v=>`${(v/10000).toFixed(0)}万`} width={32} />
-              <Tooltip formatter={(v,n)=>[`¥${v.toLocaleString()}`,{income:"収入",expense:"支出"}[n]]} />
-              <Line type="monotone" dataKey="income"  stroke="#10b981" strokeWidth={2} dot={{r:3}} />
-              <Line type="monotone" dataKey="expense" stroke="#f43f5e" strokeWidth={2} dot={{r:3}} />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-
-        {/* 円グラフ */}
-        {catData.length > 0 && (
-          <div className="bg-white rounded-2xl p-4 border border-gray-100">
-            <p className="text-xs font-semibold text-gray-500 mb-3 uppercase tracking-wide">カテゴリ別支出</p>
-            <ResponsiveContainer width="100%" height={160}>
-              <PieChart>
-                <Pie data={catData} cx="50%" cy="50%" innerRadius={40} outerRadius={70} dataKey="value"
-                  label={({name,percent})=>`${name} ${Math.round(percent*100)}%`} labelLine={false}>
-                  {catData.map((_,i)=><Cell key={i} fill={PIE_COLORS[i%PIE_COLORS.length]} />)}
-                </Pie>
-                <Tooltip formatter={v=>`¥${v.toLocaleString()}`} />
-              </PieChart>
-            </ResponsiveContainer>
-            <div className="mt-3 space-y-1">
-              {catData.map((d,i)=>(
-                <div key={d.name} className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <div className="w-3 h-3 rounded-full flex-shrink-0" style={{background:PIE_COLORS[i%PIE_COLORS.length]}} />
-                    <span className="text-xs text-gray-600">{d.emoji} {d.name}</span>
-                  </div>
-                  <span className="text-xs font-semibold text-gray-700">{fmtCurrency(d.value)}</span>
+          {prevMonthComparison && (
+            <div className="bg-white rounded-2xl p-4 border border-gray-100">
+              <p className="text-xs font-semibold text-gray-500 mb-3 uppercase tracking-wide">前月比較（支出）</p>
+              <div className="grid grid-cols-2 gap-3 mb-3">
+                <div className="bg-gray-50 rounded-xl p-3 text-center">
+                  <p className="text-xs text-gray-400">今月</p>
+                  <p className="text-sm font-bold text-gray-800 mt-1">{fmtCurrency(totalExpense)}</p>
                 </div>
+                <div className="bg-gray-50 rounded-xl p-3 text-center">
+                  <p className="text-xs text-gray-400">前月</p>
+                  <p className="text-sm font-bold text-gray-800 mt-1">{fmtCurrency(prevMonthComparison.prevExp)}</p>
+                </div>
+              </div>
+              <div className={`rounded-xl p-3 text-center ${prevMonthComparison.diff > 0 ? "bg-rose-50" : "bg-emerald-50"}`}>
+                <p className="text-xs text-gray-400 mb-1">増減</p>
+                <p className={`text-lg font-bold ${prevMonthComparison.diff > 0 ? "text-rose-600" : "text-emerald-600"}`}>
+                  {prevMonthComparison.diff > 0 ? "+" : ""}{fmtCurrency(prevMonthComparison.diff)}
+                  <span className="text-xs font-normal ml-1.5">
+                    {prevMonthComparison.diffPct !== null ? `(${prevMonthComparison.diff > 0 ? "+" : ""}${prevMonthComparison.diffPct}%)` : "(–)"}
+                  </span>
+                </p>
+              </div>
+            </div>
+          )}
+
+          {catData.length > 0 && (
+            <div className="bg-indigo-50 rounded-2xl p-4 border border-indigo-100 flex items-center gap-4">
+              <span className="text-4xl">{catData[0].emoji}</span>
+              <div>
+                <p className="text-xs text-indigo-500 font-semibold">トップ支出カテゴリ</p>
+                <p className="text-base font-bold text-gray-900 mt-0.5">{catData[0].name}</p>
+                <p className="text-rose-500 font-bold text-sm">{fmtCurrency(catData[0].value)}</p>
+              </div>
+            </div>
+          )}
+
+          <div className="bg-white rounded-2xl p-4 border border-gray-100">
+            <p className="text-xs font-semibold text-gray-500 mb-3 uppercase tracking-wide">月別収支推移</p>
+            <ResponsiveContainer width="100%" height={180}>
+              <LineChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                <XAxis dataKey="month" tick={{ fontSize: 10 }} />
+                <YAxis tick={{ fontSize: 9 }} tickFormatter={v => `${(v / 10000).toFixed(0)}万`} width={32} />
+                <Tooltip formatter={(v, n) => [`¥${v.toLocaleString()}`, { income: "収入", expense: "支出" }[n]]} />
+                <Line type="monotone" dataKey="income"  stroke="#10b981" strokeWidth={2} dot={{ r: 3 }} />
+                <Line type="monotone" dataKey="expense" stroke="#f43f5e" strokeWidth={2} dot={{ r: 3 }} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+
+          {catData.length > 0 && (
+            <div className="bg-white rounded-2xl p-4 border border-gray-100">
+              <p className="text-xs font-semibold text-gray-500 mb-3 uppercase tracking-wide">カテゴリ別支出</p>
+              <ResponsiveContainer width="100%" height={160}>
+                <PieChart>
+                  <Pie data={catData} cx="50%" cy="50%" innerRadius={40} outerRadius={70} dataKey="value"
+                    label={({ name, percent }) => `${name} ${Math.round(percent * 100)}%`} labelLine={false}>
+                    {catData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
+                  </Pie>
+                  <Tooltip formatter={v => `¥${v.toLocaleString()}`} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="mt-3 space-y-1">
+                {catData.map((d, i) => (
+                  <div key={d.name} className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: PIE_COLORS[i % PIE_COLORS.length] }} />
+                      <span className="text-xs text-gray-600">{d.emoji} {d.name}</span>
+                    </div>
+                    <span className="text-xs font-semibold text-gray-700">{fmtCurrency(d.value)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── 精算タブ ── */}
+      {tab === "settlement" && (
+        <div className="px-4 py-5 space-y-4">
+
+          {/* 期間選択 */}
+          <div className="bg-white rounded-2xl p-4 border border-gray-100 space-y-3">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">📅 精算期間</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <p className="text-xs text-gray-400 mb-1">開始日</p>
+                <input type="date" value={settleDateFrom} onChange={e => setSettleDateFrom(e.target.value)}
+                  className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-300" />
+              </div>
+              <div>
+                <p className="text-xs text-gray-400 mb-1">終了日</p>
+                <input type="date" value={settleDateTo} onChange={e => setSettleDateTo(e.target.value)}
+                  className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-300" />
+              </div>
+            </div>
+            {/* クイック選択 */}
+            <div className="flex gap-2 flex-wrap">
+              {[
+                { label: "今月", from: today.slice(0, 7) + "-01", to: today },
+                { label: "先月", from: (() => { const d = new Date(); d.setMonth(d.getMonth()-1); return d.toISOString().slice(0,7)+"-01"; })(),
+                  to: (() => { const d = new Date(); d.setDate(0); return d.toISOString().slice(0,10); })() },
+                { label: "全期間", from: firstDay, to: today },
+              ].map(q => (
+                <button key={q.label}
+                  onClick={() => { setSettleDateFrom(q.from); setSettleDateTo(q.to); }}
+                  className="px-3 py-1 bg-indigo-50 text-indigo-600 rounded-full text-xs font-semibold">
+                  {q.label}
+                </button>
               ))}
             </div>
           </div>
-        )}
-      </div>
+
+          {/* 精算結果 */}
+          {!settlementData ? (
+            <div className="bg-amber-50 rounded-2xl p-5 border border-amber-200 text-center">
+              <p className="text-sm font-bold text-amber-700">メンバーを設定してください</p>
+              <p className="text-xs text-amber-500 mt-1">設定 → メンバー で名前を登録できます</p>
+            </div>
+          ) : settlementData.txCount === 0 ? (
+            <div className="bg-gray-50 rounded-2xl p-5 border border-gray-200 text-center">
+              <p className="text-2xl mb-2">🔍</p>
+              <p className="text-sm font-bold text-gray-600">対象の取引がありません</p>
+              <p className="text-xs text-gray-400 mt-1">支払者が設定された共有支出が対象です</p>
+            </div>
+          ) : (
+            <>
+              {/* 合計サマリー */}
+              <div className="bg-white rounded-2xl p-4 border border-gray-100">
+                <p className="text-xs font-semibold text-gray-500 mb-3 uppercase tracking-wide">共有支出合計</p>
+                <p className="text-2xl font-bold text-gray-900">{fmtCurrency(settlementData.totalShared)}</p>
+                <p className="text-xs text-gray-400 mt-1">
+                  {settlementData.txCount}件 ÷ {members.length}人 = 1人あたり {fmtCurrency(Math.round(settlementData.perPerson))}
+                </p>
+              </div>
+
+              {/* メンバー別支払額 */}
+              <div className="bg-white rounded-2xl p-4 border border-gray-100 space-y-3">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">メンバー別支払額</p>
+                {settlementData.balances.map(b => (
+                  <div key={b.id} className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xl">👤</span>
+                      <div>
+                        <p className="text-sm font-medium text-gray-800">{b.name}</p>
+                        <p className="text-xs text-gray-400">支払済: {fmtCurrency(b.paid)}</p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className={`text-sm font-bold ${b.balance >= 0 ? "text-emerald-600" : "text-rose-600"}`}>
+                        {b.balance >= 0 ? "+" : ""}{fmtCurrency(Math.round(b.balance))}
+                      </p>
+                      <p className="text-xs text-gray-400">
+                        {b.balance >= 0 ? "受け取り" : "支払い"}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* 精算内容 */}
+              {settlementData.settlements.length > 0 ? (
+                <div className="bg-indigo-50 rounded-2xl p-4 border border-indigo-200 space-y-3">
+                  <p className="text-xs font-semibold text-indigo-600 uppercase tracking-wide">💸 精算内容</p>
+                  {settlementData.settlements.map((s, i) => (
+                    <div key={i} className="bg-white rounded-xl p-3 flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-bold text-gray-800">
+                          {s.from} → {s.to}
+                        </p>
+                        <p className="text-xs text-gray-400 mt-0.5">が支払う</p>
+                      </div>
+                      <p className="text-lg font-bold text-indigo-600">{fmtCurrency(s.amount)}</p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="bg-emerald-50 rounded-2xl p-4 border border-emerald-200 text-center">
+                  <p className="text-2xl mb-2">✅</p>
+                  <p className="text-sm font-bold text-emerald-700">精算不要です！</p>
+                  <p className="text-xs text-emerald-500 mt-1">支払いが均等になっています</p>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }
