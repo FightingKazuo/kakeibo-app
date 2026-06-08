@@ -13,10 +13,47 @@ import { AnalysisPage }        from "./components/analysis/AnalysisPage";
 import { SettingsPage }        from "./components/settings/SettingsPage";
 import { BottomNav }           from "./components/layout/BottomNav";
 
+// ─── PC用サイドバーナビ ──────────────────────────────────────
+const NAV_ITEMS = [
+  { id: "home",     icon: "🏠", label: "ホーム"   },
+  { id: "list",     icon: "📋", label: "一覧"     },
+  { id: "add",      icon: "➕", label: "追加"     },
+  { id: "analysis", icon: "📊", label: "分析"     },
+  { id: "settings", icon: "⚙️", label: "設定"     },
+];
+
+function SideNav({ currentPage, onNavigate }) {
+  return (
+    <aside className="hidden md:flex flex-col w-56 min-h-screen bg-white border-r border-gray-200 fixed left-0 top-0 z-40">
+      {/* ロゴ */}
+      <div className="px-6 py-6 border-b border-gray-100">
+        <p className="text-lg font-bold text-indigo-600">💰 家計簿</p>
+        <p className="text-xs text-gray-400 mt-0.5">kakeibo app</p>
+      </div>
+      {/* ナビ */}
+      <nav className="flex-1 px-3 py-4 space-y-1">
+        {NAV_ITEMS.map(item => (
+          <button
+            key={item.id}
+            onClick={() => onNavigate(item.id)}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200
+              ${currentPage === item.id
+                ? "bg-indigo-50 text-indigo-600 font-semibold"
+                : "text-gray-500 hover:bg-gray-50 hover:text-gray-700"
+              }`}
+          >
+            <span className="text-xl">{item.icon}</span>
+            <span>{item.label}</span>
+          </button>
+        ))}
+      </nav>
+    </aside>
+  );
+}
+
 export default function App() {
   const [currentPage,  setCurrentPage]  = useState("home");
 
-  // ② normalizeTransaction を適用して旧データを新構造に自動変換
   const [transactions, setTransactions] = useState(() =>
     (loadStorage(STORAGE_KEYS.TRANSACTIONS, SAMPLE_TX) || [])
       .map(normalizeTransaction)
@@ -47,15 +84,18 @@ export default function App() {
   };
 
   if (editingTx) return (
-    <div className="max-w-md mx-auto min-h-screen bg-gray-50">
-      <EditPage
-        transaction={editingTx}
-        categories={categories}
-        allRules={DEFAULT_CATEGORY_RULES}
-        learnedRules={learnedRules}
-        onSave={handleUpdate}
-        onCancel={() => setEditingTx(null)}
-      />
+    <div className="md:ml-56">
+      <div className="max-w-2xl mx-auto min-h-screen bg-gray-50">
+        <SideNav currentPage={currentPage} onNavigate={navigate} />
+        <EditPage
+          transaction={editingTx}
+          categories={categories}
+          allRules={DEFAULT_CATEGORY_RULES}
+          learnedRules={learnedRules}
+          onSave={handleUpdate}
+          onCancel={() => setEditingTx(null)}
+        />
+      </div>
     </div>
   );
 
@@ -73,6 +113,7 @@ export default function App() {
             allRules={DEFAULT_CATEGORY_RULES}
             learnedRules={learnedRules}
             onAdd={handleAdd}
+            onDelete={handleDelete}
             onLearnRule={handleLearn}
           />
         );
@@ -98,9 +139,25 @@ export default function App() {
   };
 
   return (
-    <div className="max-w-md mx-auto min-h-screen bg-gray-50 relative">
-      <main>{renderPage()}</main>
-      <BottomNav currentPage={currentPage} onNavigate={navigate} />
+    <div className="min-h-screen bg-gray-50">
+      {/* PC用サイドバー */}
+      <SideNav currentPage={currentPage} onNavigate={navigate} />
+
+      {/* メインコンテンツ（PC時はサイドバー分ずらす） */}
+      <div className="md:ml-56">
+        {/* PC時: ページごとに適切な最大幅 */}
+        <div className={`mx-auto min-h-screen bg-gray-50 relative
+          ${currentPage === "home"     ? "max-w-4xl" : ""}
+          ${currentPage === "list"     ? "max-w-4xl" : ""}
+          ${currentPage === "add"      ? "max-w-2xl" : ""}
+          ${currentPage === "analysis" ? "max-w-4xl" : ""}
+          ${currentPage === "settings" ? "max-w-2xl" : ""}
+        `}>
+          <main>{renderPage()}</main>
+          {/* モバイル用BottomNav */}
+          <BottomNav currentPage={currentPage} onNavigate={navigate} />
+        </div>
+      </div>
     </div>
   );
 }
