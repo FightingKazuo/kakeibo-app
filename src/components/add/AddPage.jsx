@@ -8,7 +8,7 @@ import {
   runTesseract, runOCRSpace,
   extractAmount, extractDate, extractStoreName, extractReceiptItems,
 } from "../../services/ocrUtils";
-import { analyzeWithGemini, analyzePDFWithGemini, testGeminiKey, parseOCRTextWithGemini, GEMINI_OCR_VERSION } from "../../services/geminiOcr";
+import { analyzeWithGemini, analyzePDFWithGemini, testGeminiKey, parseOCRTextWithGemini } from "../../services/geminiOcr";
 import { DEFAULT_CATEGORY_RULES, CSV_FORMATS, STORAGE_KEYS } from "../../constants";
 import { loadStorage, saveStorage } from "../../utils/storage";
 import { fmtCurrency } from "../../utils/format";
@@ -743,7 +743,7 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
               {geminiKey
                 ? (
                   <div className="flex items-center gap-2 mt-1">
-                    <p className="text-xs text-emerald-600 font-semibold flex-1">✅ Gemini OCR有効 <span className="text-emerald-400 font-normal">{GEMINI_OCR_VERSION}</span></p>
+                    <p className="text-xs text-emerald-600 font-semibold flex-1">✅ Gemini OCR有効</p>
                     <button
                       onClick={handleTestGeminiKey}
                       disabled={keyTesting}
