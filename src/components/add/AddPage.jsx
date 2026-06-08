@@ -8,7 +8,7 @@ import {
   runTesseract, runOCRSpace,
   extractAmount, extractDate, extractStoreName, extractReceiptItems,
 } from "../../services/ocrUtils";
-import { analyzeWithGemini, analyzePDFWithGemini, testGeminiKey, parseOCRTextWithGemini } from "../../services/geminiOcr";
+import { analyzeWithGemini, analyzePDFWithGemini, testGeminiKey, parseOCRTextWithGemini, GEMINI_OCR_VERSION } from "../../services/geminiOcr";
 import { DEFAULT_CATEGORY_RULES, CSV_FORMATS, STORAGE_KEYS } from "../../constants";
 import { loadStorage, saveStorage } from "../../utils/storage";
 import { fmtCurrency } from "../../utils/format";
@@ -108,7 +108,7 @@ function CsvOcrDupModal({ ocrTxs, csvCandidates, onDecide }) {
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-end">
-      <div className="bg-white rounded-t-2xl w-full p-5 space-y-4">
+      <div className="bg-white rounded-t-2xl w-full p-5 space-y-4 max-h-[85vh] overflow-y-auto">
         <div>
           <p className="text-sm font-bold text-gray-900">🔍 同じ支出かもしれません</p>
           <p className="text-xs text-gray-500 mt-1">日付と金額が近いCSVデータが見つかりました。どうしますか？</p>
@@ -156,7 +156,7 @@ function CsvOcrDupModal({ ocrTxs, csvCandidates, onDecide }) {
 }
 
 // ─── メインコンポーネント ────────────────────────────────────
-export function AddPage({ categories, existingTransactions, allRules, learnedRules, onAdd, onDelete, onLearnRule }) {
+export function AddPage({ categories, existingTransactions, allRules, learnedRules, members, onAdd, onDelete, onLearnRule }) {
   const [mode, setMode] = useState("select");
 
   // manual
@@ -195,6 +195,7 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
   const [ocrQueue,      setOcrQueue]      = useState([]);
   const [ocrQueueIdx,   setOcrQueueIdx]   = useState(0);
   const [ocrWaitSec,    setOcrWaitSec]    = useState(0);
+  const [ocrPaidBy,     setOcrPaidBy]     = useState(""); // 誰が払ったか
   const [ocrResults,    setOcrResults]    = useState([]);
   const [ocrApiKey,     setOcrApiKey]     = useState(() => loadStorage("OCR_API_KEY", "") || "");
   const [ocrCorrections, setOcrCorrections] = useState(
@@ -270,6 +271,8 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
       }
     ));
 
+  const [manualPaidBy, setManualPaidBy] = useState("");
+
   // ─── manual ───
   const checkAndAdd = (tx) => {
     const cands = findDuplicateCandidates(tx, existingTransactions);
@@ -289,7 +292,7 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
 
   const handleManualSubmit = () => {
     if (!amount || !category || !label) { alert("すべて入力してください"); return; }
-    const tx = createTransaction({ date, label, category, amount: type === "expense" ? -Number(amount) : Number(amount), type, source: "manual" });
+    const tx = createTransaction({ date, label, category, amount: type === "expense" ? -Number(amount) : Number(amount), type, source: "manual", paidBy: manualPaidBy || null });
     checkAndAdd(tx);
   };
 
@@ -412,16 +415,18 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
       const personalItems = items.filter(i => i.type === "personal");
       if (shared   > 0) txsToAdd.push(createTransaction({
         date, label, category: cat, amount: -shared, type: "expense", source: "ocr",
+        paidBy: ocrPaidBy || null,
         items: sharedItems.map(({ name, amount: a, quantity }) => ({ name, amount: a, quantity, type: "shared" })),
       }));
       if (personal > 0) txsToAdd.push(createTransaction({
         date, label: `${label}（個人）`, category: cat, amount: -personal, type: "expense", source: "ocr",
+        paidBy: ocrPaidBy || null,
         items: personalItems.map(({ name, amount: a, quantity }) => ({ name, amount: a, quantity, type: "personal" })),
       }));
     }
 
     if (txsToAdd.length === 0) {
-      txsToAdd.push(createTransaction({ date, label, category: cat, amount: -Number(amount), type: "expense", source: "ocr" }));
+      txsToAdd.push(createTransaction({ date, label, category: cat, amount: -Number(amount), type: "expense", source: "ocr", paidBy: ocrPaidBy || null }));
     }
 
     // ── CSV重複チェック（日付＋金額±5%）──
@@ -667,6 +672,21 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
           categories={categories}
           allRules={allRules || DEFAULT_CATEGORY_RULES} learnedRules={learnedRules || []}
         />
+        {members && members.length > 0 && (
+          <div className="mt-4">
+            <label className="block text-xs font-semibold text-gray-500 mb-2">支払者</label>
+            <div className="flex gap-2">
+              {members.map(m => (
+                <button key={m.id} onClick={() => setManualPaidBy(manualPaidBy === m.id ? "" : m.id)}
+                  className={`flex-1 py-2.5 rounded-xl text-sm font-medium border transition-all ${
+                    manualPaidBy === m.id ? "bg-indigo-500 text-white border-indigo-500" : "bg-white text-gray-600 border-gray-200"
+                  }`}>
+                  👤 {m.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         <div className="mt-5">
           <PrimaryButton onClick={handleManualSubmit} variant={done ? "success" : "primary"}>
             {done ? "✅ 保存しました！" : "追加して保存"}
@@ -723,7 +743,7 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
               {geminiKey
                 ? (
                   <div className="flex items-center gap-2 mt-1">
-                    <p className="text-xs text-emerald-600 font-semibold flex-1">✅ Gemini OCR有効</p>
+                    <p className="text-xs text-emerald-600 font-semibold flex-1">✅ Gemini OCR有効 <span className="text-emerald-400 font-normal">{GEMINI_OCR_VERSION}</span></p>
                     <button
                       onClick={handleTestGeminiKey}
                       disabled={keyTesting}
@@ -900,6 +920,24 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
                   onToggleType={toggleOcrItemType}
                   totalAmount={Number(ocrAmount)}
                 />
+              </div>
+            )}
+            {/* 支払者選択 */}
+            {members && members.length > 0 && (
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 mb-2">支払者</label>
+                <div className="flex gap-2">
+                  {members.map(m => (
+                    <button key={m.id} onClick={() => setOcrPaidBy(ocrPaidBy === m.id ? "" : m.id)}
+                      className={`flex-1 py-2.5 rounded-xl text-sm font-medium border transition-all ${
+                        ocrPaidBy === m.id
+                          ? "bg-indigo-500 text-white border-indigo-500"
+                          : "bg-white text-gray-600 border-gray-200"
+                      }`}>
+                      👤 {m.name}
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
             <PrimaryButton onClick={() => registerOcr(ocrLabel, ocrAmount, ocrDate, ocrCat, ocrItems)}>
