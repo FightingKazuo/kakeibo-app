@@ -197,7 +197,7 @@ export const analyzeWithGemini = async (imageFile, apiKey, onProgress) => {
   const parsed = await callGemini(apiKey, [
     { text: RECEIPT_PROMPT },
     { inline_data: { mime_type: mimeType, data: base64 } },
-  ]);
+  ], 4096); // ウエルシア等品目が多いレシート対応
   onProgress?.(100);
   return {
     storeName:   String(parsed.storeName   || "").trim(),
@@ -245,7 +245,7 @@ export const analyzePDFWithGemini = async (file, apiKey, onProgress) => {
 ・date はYYYY-MM-DD形式・amountは正の整数・合計行除外` },
       { inline_data: { mime_type: "application/pdf", data: base64 } },
     ],
-    4096
+    8192  // PDFは取引件数が多いため大きめに設定
   );
   onProgress?.(90);
   const transactions = (parsed.transactions || [])
