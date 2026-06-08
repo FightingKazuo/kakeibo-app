@@ -10,6 +10,7 @@ export function SettingsPage({
   learnedRules, onDeleteRule,
   transactions, onAdd,
   onReset,
+  members, onUpdateMember, onAddMember, onDeleteMember,
 }) {
   const [tab,        setTab]       = useState("categories");
   const [showAdd,    setShowAdd]   = useState(false);
@@ -20,6 +21,13 @@ export function SettingsPage({
   const [editName,   setEditName]  = useState("");
   const [editEmoji,  setEditEmoji] = useState("");
   const [restoreMsg, setRestoreMsg]= useState("");
+
+  // メンバー編集用
+  const [editingMemberId,  setEditingMemberId]  = useState(null);
+  const [editingMemberName,setEditingMemberName]= useState("");
+  const [showAddMember,    setShowAddMember]    = useState(false);
+  const [newMemberName,    setNewMemberName]    = useState("");
+
   const backupFileRef = useRef(null);
 
   const handleAdd = () => {
@@ -28,24 +36,17 @@ export function SettingsPage({
     setNewName(""); setNewEmoji("📦"); setShowAdd(false);
   };
 
-  // ── JSON バックアップ ─────────────────────────────────────
   const exportJSON = () => {
     if (!transactions?.length) { alert("エクスポートするデータがありません"); return; }
     const backup = {
-      version:     "2.0",
-      exportedAt:  new Date().toISOString(),
-      count:       transactions.length,
-      transactions,
-      categories,
-      learnedRules,
+      version: "2.0", exportedAt: new Date().toISOString(),
+      count: transactions.length, transactions, categories, learnedRules,
     };
     const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement("a");
-    a.href = url;
-    a.download = `kakeibo_backup_${new Date().toISOString().slice(0, 10)}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+    a.href = url; a.download = `kakeibo_backup_${new Date().toISOString().slice(0, 10)}.json`;
+    a.click(); URL.revokeObjectURL(url);
   };
 
   const importJSON = (e) => {
@@ -59,56 +60,50 @@ export function SettingsPage({
           alert("バックアップファイルの形式が正しくありません"); return;
         }
         const ok = window.confirm(
-          `バックアップを復元します。\n\n` +
-          `取引: ${data.transactions.length}件\n` +
-          `バックアップ日時: ${(data.exportedAt || "").slice(0, 10) || "不明"}\n\n` +
-          `⚠️ 現在のデータは上書きされます。続けますか？`
+          `バックアップを復元します。\n\n取引: ${data.transactions.length}件\nバックアップ日時: ${(data.exportedAt || "").slice(0, 10) || "不明"}\n\n⚠️ 現在のデータは上書きされます。続けますか？`
         );
         if (!ok) return;
         data.transactions.forEach(tx => onAdd?.(tx));
         setRestoreMsg(`✅ ${data.transactions.length}件を復元しました`);
         setTimeout(() => setRestoreMsg(""), 4000);
-      } catch {
-        alert("ファイルの読み込みに失敗しました");
-      }
+      } catch { alert("ファイルの読み込みに失敗しました"); }
     };
     reader.readAsText(file);
     e.target.value = "";
   };
 
-  // ── CSV エクスポート ──────────────────────────────────────
   const exportCSV = () => {
     if (!transactions?.length) { alert("エクスポートするデータがありません"); return; }
-    const header = "日付,種別,カテゴリ,内容,金額,登録元";
+    const header = "日付,種別,カテゴリ,内容,金額,登録元,支払者";
     const rows = transactions.map(t => [
-      t.date,
-      t.type === "income" ? "収入" : "支出",
-      t.category,
+      t.date, t.type === "income" ? "収入" : "支出", t.category,
       `"${(t.label || "").replace(/"/g, '""')}"`,
-      t.amount,
-      t.source || "manual",
+      t.amount, t.source || "manual", t.paidBy || "",
     ].join(","));
     const csv  = "\uFEFF" + [header, ...rows].join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement("a");
-    a.href = url;
-    a.download = `kakeibo_${new Date().toISOString().split("T")[0]}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    a.href = url; a.download = `kakeibo_${new Date().toISOString().split("T")[0]}.csv`;
+    a.click(); URL.revokeObjectURL(url);
   };
 
-  // ── localStorage 使用量 ───────────────────────────────────
   const storageUsed = (() => {
     try {
       let total = 0;
-      for (const key of Object.keys(localStorage)) {
-        total += (localStorage.getItem(key) || "").length * 2; // UTF-16
-      }
+      for (const key of Object.keys(localStorage)) total += (localStorage.getItem(key) || "").length * 2;
       return (total / 1024 / 1024).toFixed(2);
     } catch { return "?"; }
   })();
   const storageRatio = Math.min(100, Math.round((parseFloat(storageUsed) / 5) * 100));
+
+  const TABS = [
+    { id:"categories", label:"カテゴリ"   },
+    { id:"members",    label:"メンバー"   },
+    { id:"rules",      label:"学習ルール"  },
+    { id:"backup",     label:"バックアップ" },
+    { id:"data",       label:"データ"      },
+  ];
 
   return (
     <div className="pb-24">
@@ -118,12 +113,7 @@ export function SettingsPage({
 
       {/* タブ */}
       <div className="flex gap-1 px-4 py-3 overflow-x-auto">
-        {[
-          { id:"categories", label:"カテゴリ"   },
-          { id:"rules",      label:"学習ルール"  },
-          { id:"backup",     label:"バックアップ" },
-          { id:"data",       label:"データ"      },
-        ].map(t => (
+        {TABS.map(t => (
           <button key={t.id} onClick={() => setTab(t.id)}
             className={`px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all ${
               tab === t.id ? "bg-indigo-500 text-white" : "bg-gray-100 text-gray-500"
@@ -133,11 +123,71 @@ export function SettingsPage({
         ))}
       </div>
 
+      {/* ── メンバー タブ ── */}
+      {tab === "members" && (
+        <div className="px-4 py-4 space-y-4">
+          <div className="flex justify-between items-center">
+            <p className="text-sm font-bold text-gray-700">メンバー一覧</p>
+            <button onClick={() => setShowAddMember(p => !p)}
+              className="text-xs font-semibold text-indigo-500 bg-indigo-50 px-3 py-1.5 rounded-full">
+              {showAddMember ? "キャンセル" : "+ 追加"}
+            </button>
+          </div>
+
+          {showAddMember && (
+            <div className="bg-indigo-50 rounded-2xl p-4 border border-indigo-100 space-y-3">
+              <input
+                type="text" value={newMemberName}
+                onChange={e => setNewMemberName(e.target.value)}
+                placeholder="名前を入力"
+                className="w-full px-3 py-2 bg-white border border-indigo-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-300"
+              />
+              <PrimaryButton onClick={() => {
+                if (!newMemberName.trim()) return;
+                onAddMember({ id: `m_${Date.now()}`, name: newMemberName.trim() });
+                setNewMemberName(""); setShowAddMember(false);
+              }}>追加する</PrimaryButton>
+            </div>
+          )}
+
+          <div className="bg-white rounded-2xl overflow-hidden border border-gray-100">
+            {(members || []).map((m) => (
+              <div key={m.id} className="flex items-center gap-3 px-4 py-3 border-b border-gray-50 last:border-b-0">
+                {editingMemberId === m.id ? (
+                  <>
+                    <input
+                      type="text" value={editingMemberName}
+                      onChange={e => setEditingMemberName(e.target.value)}
+                      className="flex-1 text-sm px-2 py-1 bg-gray-50 border border-gray-200 rounded-lg outline-none"
+                    />
+                    <button onClick={() => {
+                      if (editingMemberName.trim()) onUpdateMember({ ...m, name: editingMemberName.trim() });
+                      setEditingMemberId(null);
+                    }} className="text-xs text-indigo-500 font-semibold">保存</button>
+                    <button onClick={() => setEditingMemberId(null)} className="text-xs text-gray-400">×</button>
+                  </>
+                ) : (
+                  <>
+                    <span className="text-xl">👤</span>
+                    <p className="flex-1 text-sm font-medium text-gray-800">{m.name}</p>
+                    <button onClick={() => { setEditingMemberId(m.id); setEditingMemberName(m.name); }}
+                      className="text-xs text-gray-400 hover:text-indigo-500 px-2">✏️</button>
+                    {(members || []).length > 2 && (
+                      <button onClick={() => { if (window.confirm(`「${m.name}」を削除しますか？`)) onDeleteMember(m.id); }}
+                        className="text-gray-300 hover:text-rose-400 text-xl">×</button>
+                    )}
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+          <p className="text-xs text-gray-400 text-center">※ メンバーは精算機能で使用されます</p>
+        </div>
+      )}
+
       {/* ── バックアップ タブ ── */}
       {tab === "backup" && (
         <div className="px-4 py-4 space-y-4">
-
-          {/* localStorage 使用量 */}
           <div className="bg-white rounded-2xl p-4 border border-gray-100">
             <p className="text-xs font-semibold text-gray-500 mb-3">📊 ストレージ使用量</p>
             <div className="flex items-center justify-between mb-2">
@@ -147,30 +197,20 @@ export function SettingsPage({
               </span>
             </div>
             <div className="w-full bg-gray-100 rounded-full h-2">
-              <div
-                className={`h-2 rounded-full transition-all ${storageRatio > 70 ? "bg-rose-400" : storageRatio > 40 ? "bg-amber-400" : "bg-emerald-400"}`}
-                style={{ width: `${storageRatio}%` }}
-              />
+              <div className={`h-2 rounded-full transition-all ${storageRatio > 70 ? "bg-rose-400" : storageRatio > 40 ? "bg-amber-400" : "bg-emerald-400"}`}
+                style={{ width: `${storageRatio}%` }} />
             </div>
-            {storageRatio > 70 && (
-              <p className="text-xs text-rose-500 mt-2">⚠️ ストレージが残り少ないです。バックアップを取り、Supabase連携を検討してください。</p>
-            )}
           </div>
-
-          {/* バックアップ */}
           <div className="bg-white rounded-2xl overflow-hidden border border-gray-100">
             <div className="px-4 py-3 border-b border-gray-50">
               <p className="text-xs font-bold text-gray-600 uppercase tracking-wide">💾 JSONバックアップ（推奨）</p>
-              <p className="text-xs text-gray-400 mt-0.5">取引・カテゴリ・学習ルールをすべて保存</p>
             </div>
             <div className="p-4 space-y-3">
-              <button onClick={exportJSON}
-                className="w-full py-3 bg-indigo-500 text-white rounded-xl text-sm font-semibold flex items-center justify-center gap-2">
+              <button onClick={exportJSON} className="w-full py-3 bg-indigo-500 text-white rounded-xl text-sm font-semibold flex items-center justify-center gap-2">
                 📥 JSONでバックアップ（{transactions?.length || 0}件）
               </button>
               <input ref={backupFileRef} type="file" accept=".json" onChange={importJSON} className="hidden" />
-              <button onClick={() => backupFileRef.current?.click()}
-                className="w-full py-3 bg-white border border-gray-200 text-gray-600 rounded-xl text-sm font-semibold flex items-center justify-center gap-2">
+              <button onClick={() => backupFileRef.current?.click()} className="w-full py-3 bg-white border border-gray-200 text-gray-600 rounded-xl text-sm font-semibold flex items-center justify-center gap-2">
                 📤 JSONから復元
               </button>
               {restoreMsg && (
@@ -178,27 +218,14 @@ export function SettingsPage({
                   <p className="text-sm font-semibold text-emerald-700">{restoreMsg}</p>
                 </div>
               )}
-              <div className="bg-blue-50 rounded-xl p-3 border border-blue-100">
-                <p className="text-xs font-semibold text-blue-600 mb-1">📌 バックアップのタイミング</p>
-                <p className="text-xs text-blue-500 leading-relaxed">
-                  ・アプリ更新前<br/>
-                  ・月に1回の定期バックアップ<br/>
-                  ・機種変更前<br/>
-                  ・Safariの「履歴とデータを削除」前
-                </p>
-              </div>
             </div>
           </div>
-
-          {/* CSV エクスポート */}
           <div className="bg-white rounded-2xl overflow-hidden border border-gray-100">
             <div className="px-4 py-3 border-b border-gray-50">
               <p className="text-xs font-bold text-gray-600 uppercase tracking-wide">📄 CSVエクスポート</p>
-              <p className="text-xs text-gray-400 mt-0.5">Excelで開ける形式（復元には使えません）</p>
             </div>
             <div className="p-4">
-              <button onClick={exportCSV}
-                className="w-full py-3 bg-white border border-gray-200 text-gray-600 rounded-xl text-sm font-semibold flex items-center justify-center gap-2">
+              <button onClick={exportCSV} className="w-full py-3 bg-white border border-gray-200 text-gray-600 rounded-xl text-sm font-semibold flex items-center justify-center gap-2">
                 📊 CSVでダウンロード
               </button>
             </div>
@@ -211,8 +238,7 @@ export function SettingsPage({
         <div className="px-4 py-4 space-y-4">
           <div className="flex justify-between items-center">
             <p className="text-sm font-bold text-gray-700">カテゴリ一覧</p>
-            <button onClick={() => setShowAdd(p => !p)}
-              className="text-xs font-semibold text-indigo-500 bg-indigo-50 px-3 py-1.5 rounded-full">
+            <button onClick={() => setShowAdd(p => !p)} className="text-xs font-semibold text-indigo-500 bg-indigo-50 px-3 py-1.5 rounded-full">
               {showAdd ? "キャンセル" : "+ 追加"}
             </button>
           </div>
@@ -221,8 +247,7 @@ export function SettingsPage({
               <div className="flex gap-2">
                 <input type="text" value={newEmoji} onChange={e => setNewEmoji(e.target.value)} maxLength={2}
                   className="w-12 text-center text-2xl bg-white border border-indigo-200 rounded-xl py-2 outline-none" />
-                <input type="text" value={newName} onChange={e => setNewName(e.target.value)}
-                  placeholder="カテゴリ名"
+                <input type="text" value={newName} onChange={e => setNewName(e.target.value)} placeholder="カテゴリ名"
                   className="flex-1 px-3 py-2 bg-white border border-indigo-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-300" />
               </div>
               <div className="flex gap-2">
@@ -237,7 +262,7 @@ export function SettingsPage({
             </div>
           )}
           <div className="bg-white rounded-2xl overflow-hidden border border-gray-100">
-            {categories.map((cat, i) => (
+            {categories.map((cat) => (
               <div key={cat.id} className="flex items-center gap-3 px-4 py-3 border-b border-gray-50 last:border-b-0">
                 {editingId === cat.id ? (
                   <>
@@ -257,9 +282,9 @@ export function SettingsPage({
                       <p className="text-xs text-gray-400">{cat.type === "expense" ? "支出" : "収入"}</p>
                     </div>
                     <button onClick={() => { setEditingId(cat.id); setEditName(cat.name); setEditEmoji(cat.emoji); }}
-                      className="text-xs text-gray-400 hover:text-indigo-500 transition-colors px-2">✏️</button>
+                      className="text-xs text-gray-400 hover:text-indigo-500 px-2">✏️</button>
                     <button onClick={() => { if(window.confirm(`「${cat.name}」を削除しますか？`)) onDeleteCat(cat.id); }}
-                      className="text-gray-300 hover:text-rose-400 text-xl transition-colors">×</button>
+                      className="text-gray-300 hover:text-rose-400 text-xl">×</button>
                   </>
                 )}
               </div>
@@ -285,7 +310,7 @@ export function SettingsPage({
                       <p className="text-xs text-gray-400">→ {r.category}</p>
                     </div>
                   </div>
-                  <button onClick={() => onDeleteRule(r.id)} className="text-gray-300 hover:text-rose-400 text-xl transition-colors">×</button>
+                  <button onClick={() => onDeleteRule(r.id)} className="text-gray-300 hover:text-rose-400 text-xl">×</button>
                 </div>
               ))}
             </div>
@@ -309,27 +334,17 @@ export function SettingsPage({
               </div>
             </div>
           </div>
-
           <div className="rounded-2xl overflow-hidden border border-rose-200">
             <div className="bg-rose-50 px-4 py-3 border-b border-rose-200">
               <p className="text-xs font-bold text-rose-600 uppercase tracking-wide">⚠️ 危険な操作</p>
             </div>
             <div className="bg-white divide-y divide-gray-50">
-              <button
-                onClick={() => { if (window.confirm("OCR読み取り履歴を削除しますか？")) removeStorage(STORAGE_KEYS.OCR_HISTORY); }}
-                className="w-full px-4 py-3.5 text-left text-sm text-rose-500 hover:bg-rose-50 transition-all">
-                OCR履歴を削除
-              </button>
-              <button
-                onClick={() => { if (window.confirm(`学習ルール ${learnedRules.length}件をすべて削除しますか？`)) learnedRules.forEach(r => onDeleteRule(r.id)); }}
-                className="w-full px-4 py-3.5 text-left text-sm text-rose-500 hover:bg-rose-50 transition-all">
-                学習ルールをすべて削除（{learnedRules.length}件）
-              </button>
-              <button
-                onClick={() => { if (window.confirm("⚠️ すべてのデータを削除します。取り消せません。本当に削除しますか？")) onReset?.(); }}
-                className="w-full px-4 py-3.5 text-left text-sm font-semibold text-rose-700 hover:bg-rose-100 transition-all">
-                全データを削除してリセット
-              </button>
+              <button onClick={() => { if (window.confirm("OCR読み取り履歴を削除しますか？")) removeStorage(STORAGE_KEYS.OCR_HISTORY); }}
+                className="w-full px-4 py-3.5 text-left text-sm text-rose-500 hover:bg-rose-50">OCR履歴を削除</button>
+              <button onClick={() => { if (window.confirm(`学習ルール ${learnedRules.length}件をすべて削除しますか？`)) learnedRules.forEach(r => onDeleteRule(r.id)); }}
+                className="w-full px-4 py-3.5 text-left text-sm text-rose-500 hover:bg-rose-50">学習ルールをすべて削除（{learnedRules.length}件）</button>
+              <button onClick={() => { if (window.confirm("⚠️ すべてのデータを削除します。取り消せません。本当に削除しますか？")) onReset?.(); }}
+                className="w-full px-4 py-3.5 text-left text-sm font-semibold text-rose-700 hover:bg-rose-100">全データを削除してリセット</button>
             </div>
           </div>
         </div>
