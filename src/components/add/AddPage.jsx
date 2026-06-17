@@ -16,6 +16,7 @@ import { TransactionFormFields } from "../common/TransactionFormFields";
 import { DuplicateCheckModal } from "../common/DuplicateCheckModal";
 import { CategorySuggestion } from "../common/CategorySuggestion";
 import { PrimaryButton } from "../ui/PrimaryButton";
+import { learnTaxRule, describeTaxDiff } from "../../services/taxLearning";
 
 // ─── 品目タイプトグルボタン ──────────────────────────────────
 function ItemTypeToggle({ type, onChange }) {
@@ -463,6 +464,13 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
     if (ocrOrigLabel && (ocrOrigLabel !== label || true)) {
       saveCorrection(ocrOrigLabel, label, cat);
     }
+
+    // ── 消費税学習 ──
+    if (items && items.length > 0) {
+      const itemsTotal = items.reduce((s, i) => s + i.amount, 0);
+      learnTaxRule(label, itemsTotal, Number(amount));
+    }
+
     const hist = [{ label, amount, date, cat }, ...ocrHistory].slice(0, 5);
     setOcrHistory(hist); saveStorage(STORAGE_KEYS.OCR_HISTORY, hist);
 
@@ -1049,6 +1057,17 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
                 ))}
               </div>
             </div>
+            {/* 消費税差額表示 */}
+            {ocrItems.length > 0 && (() => {
+              const itemsTotal = ocrItems.reduce((s, i) => s + i.amount, 0);
+              const desc = describeTaxDiff(ocrLabel, itemsTotal, Number(ocrAmount));
+              return desc ? (
+                <div className="bg-amber-50 rounded-xl p-3 border border-amber-100">
+                  <p className="text-xs font-semibold text-amber-600">🧾 {desc}</p>
+                  <p className="text-xs text-amber-400 mt-0.5">この差額を学習して次回から自動表示します</p>
+                </div>
+              ) : null;
+            })()}
             <PrimaryButton onClick={() => registerOcr(ocrLabel, ocrAmount, ocrDate, ocrCat, ocrItems)}>
               {ocrItems.length > 0 && calcSplit(ocrItems).personal > 0
                 ? `✅ 2件に分けて登録（共有+個人）`
