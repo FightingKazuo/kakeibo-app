@@ -183,14 +183,19 @@ export const testGeminiKey = async (apiKey) => {
 // ─── レシート画像解析（画像直接送信）────────────────────────
 const RECEIPT_PROMPT = `このレシート画像から情報を抽出してください。JSONのみ出力（コードブロック不要）：
 {
-  "storeName": "店舗名（例: ウエルシア静岡川合店）",
+  "storeName": "店舗名（例: ダイソー静岡川合店）",
   "date": "YYYY-MM-DD",
-  "totalAmount": 合計金額の整数,
-  "items": [{"name":"商品名","amount":単価整数,"quantity":数量整数}]
+  "totalAmount": 税込合計金額の整数,
+  "items": [{"name":"商品名","unitPrice":単価整数,"quantity":数量整数,"amount":単価×数量の合計整数}]
 }
-・totalAmount は税込合計
+
+抽出ルール：
+・totalAmountは税込合計（レシート最下部の合計金額）
+・各品目のamountは必ず「単価×数量」の合計金額（例: 単価200円×2個→amount:400）
+・数量が1の場合もamountはunitPriceと同じ値
 ・割引はnameに「割引」を含めamountをマイナス値
-・不明は null`;
+・消費税行・合計行は除外
+・不明な値はnullではなく0を使用`;
 
 export const analyzeWithGemini = async (imageFile, apiKey, onProgress) => {
   onProgress?.(10);
@@ -199,13 +204,22 @@ export const analyzeWithGemini = async (imageFile, apiKey, onProgress) => {
   const parsed = await callGemini(apiKey, [
     { text: RECEIPT_PROMPT },
     { inline_data: { mime_type: mimeType, data: base64 } },
-  ], 4096); // ウエルシア等品目が多いレシート対応
+  ], 4096);
   onProgress?.(100);
+
+  const items = Array.isArray(parsed.items) ? parsed.items.map(item => {
+    const unitPrice = Math.abs(Number(item.unitPrice) || Number(item.amount) || 0);
+    const quantity  = Math.max(1, Number(item.quantity) || 1);
+    // amountが明示されていれば優先、なければ単価×数量
+    const amount    = Number(item.amount) || (unitPrice * quantity);
+    return { ...item, unitPrice, quantity, amount };
+  }) : [];
+
   return {
     storeName:   String(parsed.storeName   || "").trim(),
     date:        String(parsed.date        || "").trim(),
     totalAmount: Number(parsed.totalAmount) || 0,
-    items:       Array.isArray(parsed.items) ? parsed.items : [],
+    items,
   };
 };
 
