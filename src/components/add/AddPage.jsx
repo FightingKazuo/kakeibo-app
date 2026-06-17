@@ -43,7 +43,7 @@ function ItemTypeToggle({ type, onChange }) {
 }
 
 // ─── 品目リスト（アコーディオン）────────────────────────────
-function ItemsAccordion({ items, onToggleType, onEditAmount, totalAmount }) {
+function ItemsAccordion({ items, onToggleType, onEditAmount, onEditQuantity, totalAmount }) {
   const [open, setOpen] = useState(false);
   if (!items || items.length === 0) return null;
 
@@ -71,25 +71,39 @@ function ItemsAccordion({ items, onToggleType, onEditAmount, totalAmount }) {
       {open && (
         <div className="divide-y divide-gray-50">
           {items.map((item, i) => (
-            <div key={i} className={`flex items-center gap-2 px-4 py-2.5 ${item.type === "personal" ? "bg-rose-50" : "bg-white"}`}>
-              <div className="flex-1 min-w-0">
-                <p className="text-xs font-medium text-gray-800 truncate">{item.name}</p>
-                {item.quantity > 1 && (
-                  <p className="text-xs text-gray-400">×{item.quantity} @¥{item.unitPrice?.toLocaleString()}</p>
-                )}
+            <div key={i} className={`px-4 py-2.5 ${item.type === "personal" ? "bg-rose-50" : "bg-white"}`}>
+              <div className="flex items-center gap-2 mb-1.5">
+                <p className="text-xs font-medium text-gray-800 flex-1 truncate">{item.name}</p>
+                <ItemTypeToggle type={item.type || "shared"} onChange={t => onToggleType(i, t)} />
               </div>
-              {/* 品目金額編集 */}
-              {onEditAmount ? (
+              {/* 単価×数量編集 */}
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-gray-400">単価</span>
                 <input
                   type="number"
-                  value={item.amount}
-                  onChange={e => onEditAmount(i, Number(e.target.value))}
-                  className="w-20 text-xs font-bold text-gray-700 text-right bg-gray-50 border border-gray-200 rounded-lg px-2 py-1 outline-none focus:ring-1 focus:ring-indigo-300"
+                  value={item.unitPrice || item.amount}
+                  onChange={e => {
+                    const newUnitPrice = Number(e.target.value);
+                    const newAmount    = newUnitPrice * (item.quantity || 1);
+                    onEditAmount?.(i, newAmount, newUnitPrice);
+                  }}
+                  className="w-16 text-xs font-bold text-gray-700 text-right bg-gray-50 border border-gray-200 rounded-lg px-1.5 py-1 outline-none focus:ring-1 focus:ring-indigo-300"
                 />
-              ) : (
-                <p className="text-xs font-bold text-gray-700 flex-shrink-0">¥{item.amount.toLocaleString()}</p>
-              )}
-              <ItemTypeToggle type={item.type || "shared"} onChange={t => onToggleType(i, t)} />
+                <span className="text-xs text-gray-400">×</span>
+                <input
+                  type="number"
+                  value={item.quantity || 1}
+                  min={1}
+                  onChange={e => {
+                    const newQty    = Math.max(1, Number(e.target.value));
+                    const newAmount = (item.unitPrice || item.amount) * newQty;
+                    onEditQuantity?.(i, newQty, newAmount);
+                  }}
+                  className="w-12 text-xs font-bold text-gray-700 text-center bg-gray-50 border border-gray-200 rounded-lg px-1.5 py-1 outline-none focus:ring-1 focus:ring-indigo-300"
+                />
+                <span className="text-xs text-gray-400">=</span>
+                <span className="text-xs font-bold text-gray-700">¥{item.amount.toLocaleString()}</span>
+              </div>
             </div>
           ))}
           {/* 消費税等の差額表示 */}
@@ -291,8 +305,11 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
   const toggleOcrItemType = (idx, type) =>
     setOcrItems(p => p.map((item, i) => i === idx ? { ...item, type } : item));
 
-  const editOcrItemAmount = (idx, amount) =>
-    setOcrItems(p => p.map((item, i) => i === idx ? { ...item, amount } : item));
+  const editOcrItemAmount = (idx, amount, unitPrice) =>
+    setOcrItems(p => p.map((item, i) => i === idx ? { ...item, amount, unitPrice: unitPrice ?? amount } : item));
+
+  const editOcrItemQuantity = (idx, quantity, amount) =>
+    setOcrItems(p => p.map((item, i) => i === idx ? { ...item, quantity, amount } : item));
 
   const toggleMultiItemType = (resultIdx, itemIdx, type) =>
     setOcrResults(p => p.map((r, ri) =>
@@ -1038,6 +1055,7 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
                   items={ocrItems}
                   onToggleType={toggleOcrItemType}
                   onEditAmount={editOcrItemAmount}
+                  onEditQuantity={editOcrItemQuantity}
                   totalAmount={Number(ocrAmount)}
                 />
               </div>
