@@ -1,0 +1,81 @@
+// ============================================================
+// components/common/EmojiPicker.jsx
+// 絵文字ピッカー（カテゴリ設定用）
+// ============================================================
+import { useState } from "react";
+
+const EMOJI_CATEGORIES = {
+  "食事・食品": ["🍱","🍜","🍣","🍕","🍔","🍰","🥗","🥩","🍱","🥪","🍙","🍚","🥘","🫕","🍲","🥗","🫙","🧁","🍩","☕","🧃","🥤","🍺","🍷"],
+  "日用品・家": ["🏠","🛒","🧴","🧹","🧺","🪣","🛁","🚿","🪥","🧻","🧼","🪒","💡","🔌","🔧","🪛","🔨","🛋️","🪑","🛏️"],
+  "交通": ["🚃","🚗","🚕","✈️","🚢","🚲","🛵","⛽","🅿️","🚌","🚄","🚁"],
+  "お金・投資": ["💴","💰","💳","🏦","📈","📉","💹","🪙","💸","🏧"],
+  "医療・健康": ["🏥","💊","💉","🩺","🩹","🦷","👁️","🏋️","🧘","🚑"],
+  "娯楽・趣味": ["🎬","🎮","🎵","🎸","📚","🎨","✏️","🎭","🎪","🎡","🎢","🎠","🎯","🎳","⚽","🏀","🎾","⛳","🎿","🏊"],
+  "通信・IT": ["📱","💻","🖥️","⌨️","🖨️","📡","📶","🔋","💾","📷","🎥"],
+  "ファッション": ["👗","👔","👠","👒","🕶️","💍","👜","🎒","🛍️","💄"],
+  "その他": ["📦","🎁","🏷️","📋","📝","📌","🔖","⭐","✅","❤️","🔴","🟠","🟡","🟢","🔵","🟣","⚫","⚪"],
+};
+
+export function EmojiPicker({ value, onChange, onClose }) {
+  const [activeTab, setActiveTab] = useState(Object.keys(EMOJI_CATEGORIES)[0]);
+  const [search,    setSearch]    = useState("");
+
+  const allEmojis = Object.values(EMOJI_CATEGORIES).flat();
+  const displayEmojis = search
+    ? allEmojis.filter((_, i) => i < 100) // 検索時は全表示
+    : EMOJI_CATEGORIES[activeTab] || [];
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-end" onClick={onClose}>
+      <div className="bg-white rounded-t-2xl w-full max-h-[70vh] overflow-hidden flex flex-col"
+        onClick={e => e.stopPropagation()}>
+        {/* ヘッダー */}
+        <div className="flex items-center justify-between px-4 pt-4 pb-2 border-b border-gray-100">
+          <p className="text-sm font-bold text-gray-700">絵文字を選択</p>
+          <button onClick={onClose} className="text-gray-400 text-xl">×</button>
+        </div>
+
+        {/* 検索 */}
+        <div className="px-4 py-2">
+          <input type="text" value={search} onChange={e => setSearch(e.target.value)}
+            placeholder="絵文字を検索..."
+            className="w-full px-3 py-2 bg-gray-100 rounded-xl text-sm outline-none" />
+        </div>
+
+        {/* タブ */}
+        {!search && (
+          <div className="flex gap-1 px-4 pb-2 overflow-x-auto">
+            {Object.keys(EMOJI_CATEGORIES).map(cat => (
+              <button key={cat} onClick={() => setActiveTab(cat)}
+                className={`px-2.5 py-1 rounded-full text-xs whitespace-nowrap transition-all ${
+                  activeTab === cat ? "bg-indigo-500 text-white" : "bg-gray-100 text-gray-500"
+                }`}>
+                {cat}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* 絵文字グリッド */}
+        <div className="overflow-y-auto flex-1 px-4 pb-4">
+          <div className="grid grid-cols-8 gap-1">
+            {(search ? allEmojis : displayEmojis).map((emoji, i) => (
+              <button key={i} onClick={() => { onChange(emoji); onClose(); }}
+                className={`text-2xl p-2 rounded-xl hover:bg-gray-100 transition-all ${
+                  value === emoji ? "bg-indigo-100 ring-2 ring-indigo-400" : ""
+                }`}>
+                {emoji}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* 現在の選択 */}
+        <div className="px-4 py-3 border-t border-gray-100 flex items-center gap-3 bg-gray-50">
+          <span className="text-3xl">{value}</span>
+          <p className="text-sm text-gray-500">選択中の絵文字</p>
+        </div>
+      </div>
+    </div>
+  );
+}
