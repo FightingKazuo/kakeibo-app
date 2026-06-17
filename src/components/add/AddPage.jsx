@@ -164,7 +164,6 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
   const [amount,           setAmount]         = useState("");
   const [label,            setLabel]          = useState("");
   const [manualPayMethod,  setManualPayMethod] = useState("cash"); // 支払方法
-  const [label,         setLabel]        = useState("");
   const [date,          setDate]         = useState(todayStr());
   const [category,      setCategory]     = useState("");
   const [pendingTx,     setPendingTx]    = useState(null);
