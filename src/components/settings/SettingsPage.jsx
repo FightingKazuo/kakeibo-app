@@ -1,6 +1,6 @@
 import { useState, useRef } from "react";
 import { DEFAULT_CATEGORY_RULES, STORAGE_KEYS } from "../../constants";
-import { removeStorage, clearAllStorage } from "../../utils/storage";
+import { removeStorage } from "../../utils/storage";
 import { fmtCurrency } from "../../utils/format";
 import { PrimaryButton } from "../ui/PrimaryButton";
 import { EmptyState } from "../ui/EmptyState";
@@ -11,6 +11,7 @@ export function SettingsPage({
   transactions, onAdd,
   onReset,
   members, onUpdateMember, onAddMember, onDeleteMember,
+  pointAccounts, onAddPointAccount, onUpdatePointAccount, onDeletePointAccount,
 }) {
   const [tab,        setTab]       = useState("categories");
   const [showAdd,    setShowAdd]   = useState(false);
@@ -23,10 +24,20 @@ export function SettingsPage({
   const [restoreMsg, setRestoreMsg]= useState("");
 
   // メンバー編集用
-  const [editingMemberId,  setEditingMemberId]  = useState(null);
-  const [editingMemberName,setEditingMemberName]= useState("");
-  const [showAddMember,    setShowAddMember]    = useState(false);
-  const [newMemberName,    setNewMemberName]    = useState("");
+  const [editingMemberId,   setEditingMemberId]   = useState(null);
+  const [editingMemberName, setEditingMemberName] = useState("");
+  const [showAddMember,     setShowAddMember]     = useState(false);
+  const [newMemberName,     setNewMemberName]     = useState("");
+
+  // ポイント口座編集用
+  const [editingPointId,   setEditingPointId]   = useState(null);
+  const [editingPointName, setEditingPointName] = useState("");
+  const [editingPointIcon, setEditingPointIcon] = useState("");
+  const [editingPointUnit, setEditingPointUnit] = useState("");
+  const [showAddPoint,     setShowAddPoint]     = useState(false);
+  const [newPointName,     setNewPointName]     = useState("");
+  const [newPointIcon,     setNewPointIcon]     = useState("⭐");
+  const [newPointUnit,     setNewPointUnit]     = useState("pt");
 
   const backupFileRef = useRef(null);
 
@@ -74,11 +85,12 @@ export function SettingsPage({
 
   const exportCSV = () => {
     if (!transactions?.length) { alert("エクスポートするデータがありません"); return; }
-    const header = "日付,種別,カテゴリ,内容,金額,登録元,支払者";
+    const header = "日付,種別,カテゴリ,内容,金額,登録元,支払者,支払方法";
     const rows = transactions.map(t => [
       t.date, t.type === "income" ? "収入" : "支出", t.category,
       `"${(t.label || "").replace(/"/g, '""')}"`,
       t.amount, t.source || "manual", t.paidBy || "",
+      t.paymentMethod || "cash",
     ].join(","));
     const csv  = "\uFEFF" + [header, ...rows].join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
@@ -98,11 +110,12 @@ export function SettingsPage({
   const storageRatio = Math.min(100, Math.round((parseFloat(storageUsed) / 5) * 100));
 
   const TABS = [
-    { id:"categories", label:"カテゴリ"   },
-    { id:"members",    label:"メンバー"   },
-    { id:"rules",      label:"学習ルール"  },
-    { id:"backup",     label:"バックアップ" },
-    { id:"data",       label:"データ"      },
+    { id:"categories",    label:"カテゴリ"    },
+    { id:"members",       label:"メンバー"    },
+    { id:"points",        label:"ポイント口座" },
+    { id:"rules",         label:"学習ルール"   },
+    { id:"backup",        label:"バックアップ" },
+    { id:"data",          label:"データ"       },
   ];
 
   return (
@@ -123,6 +136,90 @@ export function SettingsPage({
         ))}
       </div>
 
+      {/* ── ポイント口座 タブ ── */}
+      {tab === "points" && (
+        <div className="px-4 py-4 space-y-4">
+          <div className="flex justify-between items-center">
+            <p className="text-sm font-bold text-gray-700">ポイント口座一覧</p>
+            <button onClick={() => setShowAddPoint(p => !p)}
+              className="text-xs font-semibold text-indigo-500 bg-indigo-50 px-3 py-1.5 rounded-full">
+              {showAddPoint ? "キャンセル" : "+ 追加"}
+            </button>
+          </div>
+
+          {showAddPoint && (
+            <div className="bg-indigo-50 rounded-2xl p-4 border border-indigo-100 space-y-3">
+              <div className="flex gap-2">
+                <input type="text" value={newPointIcon} onChange={e => setNewPointIcon(e.target.value)} maxLength={2}
+                  className="w-12 text-center text-2xl bg-white border border-indigo-200 rounded-xl py-2 outline-none" />
+                <input type="text" value={newPointName} onChange={e => setNewPointName(e.target.value)}
+                  placeholder="口座名（例: Tポイント）"
+                  className="flex-1 px-3 py-2 bg-white border border-indigo-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-300" />
+              </div>
+              <div className="flex gap-2 items-center">
+                <p className="text-xs text-gray-500">単位：</p>
+                {["pt", "円"].map(u => (
+                  <button key={u} onClick={() => setNewPointUnit(u)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${newPointUnit === u ? "bg-indigo-500 text-white border-indigo-500" : "bg-white text-gray-500 border-gray-200"}`}>
+                    {u}
+                  </button>
+                ))}
+              </div>
+              <PrimaryButton onClick={() => {
+                if (!newPointName.trim()) return;
+                onAddPointAccount({ id: `pa_${Date.now()}`, name: newPointName.trim(), icon: newPointIcon, unit: newPointUnit, balance: 0 });
+                setNewPointName(""); setNewPointIcon("⭐"); setNewPointUnit("pt"); setShowAddPoint(false);
+              }}>追加する</PrimaryButton>
+            </div>
+          )}
+
+          <div className="bg-white rounded-2xl overflow-hidden border border-gray-100">
+            {(pointAccounts || []).map(a => (
+              <div key={a.id} className="flex items-center gap-3 px-4 py-3 border-b border-gray-50 last:border-b-0">
+                {editingPointId === a.id ? (
+                  <>
+                    <input type="text" value={editingPointIcon} onChange={e => setEditingPointIcon(e.target.value)} maxLength={2}
+                      className="w-10 text-center text-xl bg-gray-50 border border-gray-200 rounded-lg outline-none" />
+                    <input type="text" value={editingPointName} onChange={e => setEditingPointName(e.target.value)}
+                      className="flex-1 text-sm px-2 py-1 bg-gray-50 border border-gray-200 rounded-lg outline-none" />
+                    <button onClick={() => {
+                      if (editingPointName.trim()) onUpdatePointAccount({ ...a, name: editingPointName.trim(), icon: editingPointIcon, unit: editingPointUnit });
+                      setEditingPointId(null);
+                    }} className="text-xs text-indigo-500 font-semibold">保存</button>
+                    <button onClick={() => setEditingPointId(null)} className="text-xs text-gray-400">×</button>
+                  </>
+                ) : (
+                  <>
+                    <span className="text-xl">{a.icon}</span>
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-gray-800">{a.name}</p>
+                      <p className="text-xs text-gray-400">
+                        残高：
+                        <span className={`font-semibold ${a.balance >= 0 ? "text-emerald-600" : "text-rose-600"}`}>
+                          {a.balance.toLocaleString()}{a.unit}
+                        </span>
+                      </p>
+                    </div>
+                    <button onClick={() => { setEditingPointId(a.id); setEditingPointName(a.name); setEditingPointIcon(a.icon); setEditingPointUnit(a.unit); }}
+                      className="text-xs text-gray-400 hover:text-indigo-500 px-2">✏️</button>
+                    <button onClick={() => { if (window.confirm(`「${a.name}」を削除しますか？`)) onDeletePointAccount(a.id); }}
+                      className="text-gray-300 hover:text-rose-400 text-xl">×</button>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* 残高調整の説明 */}
+          <div className="bg-amber-50 rounded-xl p-3 border border-amber-100">
+            <p className="text-xs font-semibold text-amber-600 mb-1">📌 残高調整について</p>
+            <p className="text-xs text-amber-500 leading-relaxed">
+              実際の残高と差がある場合は、取引追加から「残高調整」として収入/支出を記録してください。
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* ── メンバー タブ ── */}
       {tab === "members" && (
         <div className="px-4 py-4 space-y-4">
@@ -133,15 +230,10 @@ export function SettingsPage({
               {showAddMember ? "キャンセル" : "+ 追加"}
             </button>
           </div>
-
           {showAddMember && (
             <div className="bg-indigo-50 rounded-2xl p-4 border border-indigo-100 space-y-3">
-              <input
-                type="text" value={newMemberName}
-                onChange={e => setNewMemberName(e.target.value)}
-                placeholder="名前を入力"
-                className="w-full px-3 py-2 bg-white border border-indigo-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-300"
-              />
+              <input type="text" value={newMemberName} onChange={e => setNewMemberName(e.target.value)} placeholder="名前を入力"
+                className="w-full px-3 py-2 bg-white border border-indigo-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-300" />
               <PrimaryButton onClick={() => {
                 if (!newMemberName.trim()) return;
                 onAddMember({ id: `m_${Date.now()}`, name: newMemberName.trim() });
@@ -149,21 +241,15 @@ export function SettingsPage({
               }}>追加する</PrimaryButton>
             </div>
           )}
-
           <div className="bg-white rounded-2xl overflow-hidden border border-gray-100">
-            {(members || []).map((m) => (
+            {(members || []).map(m => (
               <div key={m.id} className="flex items-center gap-3 px-4 py-3 border-b border-gray-50 last:border-b-0">
                 {editingMemberId === m.id ? (
                   <>
-                    <input
-                      type="text" value={editingMemberName}
-                      onChange={e => setEditingMemberName(e.target.value)}
-                      className="flex-1 text-sm px-2 py-1 bg-gray-50 border border-gray-200 rounded-lg outline-none"
-                    />
-                    <button onClick={() => {
-                      if (editingMemberName.trim()) onUpdateMember({ ...m, name: editingMemberName.trim() });
-                      setEditingMemberId(null);
-                    }} className="text-xs text-indigo-500 font-semibold">保存</button>
+                    <input type="text" value={editingMemberName} onChange={e => setEditingMemberName(e.target.value)}
+                      className="flex-1 text-sm px-2 py-1 bg-gray-50 border border-gray-200 rounded-lg outline-none" />
+                    <button onClick={() => { if (editingMemberName.trim()) onUpdateMember({ ...m, name: editingMemberName.trim() }); setEditingMemberId(null); }}
+                      className="text-xs text-indigo-500 font-semibold">保存</button>
                     <button onClick={() => setEditingMemberId(null)} className="text-xs text-gray-400">×</button>
                   </>
                 ) : (
@@ -181,7 +267,6 @@ export function SettingsPage({
               </div>
             ))}
           </div>
-          <p className="text-xs text-gray-400 text-center">※ メンバーは精算機能で使用されます</p>
         </div>
       )}
 
@@ -192,13 +277,10 @@ export function SettingsPage({
             <p className="text-xs font-semibold text-gray-500 mb-3">📊 ストレージ使用量</p>
             <div className="flex items-center justify-between mb-2">
               <span className="text-sm font-bold text-gray-800">{storageUsed} MB / 5 MB</span>
-              <span className={`text-xs font-semibold ${storageRatio > 70 ? "text-rose-500" : storageRatio > 40 ? "text-amber-500" : "text-emerald-500"}`}>
-                {storageRatio}%
-              </span>
+              <span className={`text-xs font-semibold ${storageRatio > 70 ? "text-rose-500" : storageRatio > 40 ? "text-amber-500" : "text-emerald-500"}`}>{storageRatio}%</span>
             </div>
             <div className="w-full bg-gray-100 rounded-full h-2">
-              <div className={`h-2 rounded-full transition-all ${storageRatio > 70 ? "bg-rose-400" : storageRatio > 40 ? "bg-amber-400" : "bg-emerald-400"}`}
-                style={{ width: `${storageRatio}%` }} />
+              <div className={`h-2 rounded-full transition-all ${storageRatio > 70 ? "bg-rose-400" : storageRatio > 40 ? "bg-amber-400" : "bg-emerald-400"}`} style={{ width: `${storageRatio}%` }} />
             </div>
           </div>
           <div className="bg-white rounded-2xl overflow-hidden border border-gray-100">
@@ -262,7 +344,7 @@ export function SettingsPage({
             </div>
           )}
           <div className="bg-white rounded-2xl overflow-hidden border border-gray-100">
-            {categories.map((cat) => (
+            {categories.map(cat => (
               <div key={cat.id} className="flex items-center gap-3 px-4 py-3 border-b border-gray-50 last:border-b-0">
                 {editingId === cat.id ? (
                   <>
@@ -270,8 +352,7 @@ export function SettingsPage({
                       className="w-10 text-center text-xl bg-gray-50 border border-gray-200 rounded-lg outline-none" />
                     <input type="text" value={editName} onChange={e => setEditName(e.target.value)}
                       className="flex-1 text-sm px-2 py-1 bg-gray-50 border border-gray-200 rounded-lg outline-none" />
-                    <button onClick={() => { onUpdateCat({...cat, name:editName, emoji:editEmoji}); setEditingId(null); }}
-                      className="text-xs text-indigo-500 font-semibold">保存</button>
+                    <button onClick={() => { onUpdateCat({...cat, name:editName, emoji:editEmoji}); setEditingId(null); }} className="text-xs text-indigo-500 font-semibold">保存</button>
                     <button onClick={() => setEditingId(null)} className="text-xs text-gray-400">×</button>
                   </>
                 ) : (
@@ -281,10 +362,8 @@ export function SettingsPage({
                       <p className="text-sm font-medium text-gray-800">{cat.name}</p>
                       <p className="text-xs text-gray-400">{cat.type === "expense" ? "支出" : "収入"}</p>
                     </div>
-                    <button onClick={() => { setEditingId(cat.id); setEditName(cat.name); setEditEmoji(cat.emoji); }}
-                      className="text-xs text-gray-400 hover:text-indigo-500 px-2">✏️</button>
-                    <button onClick={() => { if(window.confirm(`「${cat.name}」を削除しますか？`)) onDeleteCat(cat.id); }}
-                      className="text-gray-300 hover:text-rose-400 text-xl">×</button>
+                    <button onClick={() => { setEditingId(cat.id); setEditName(cat.name); setEditEmoji(cat.emoji); }} className="text-xs text-gray-400 hover:text-indigo-500 px-2">✏️</button>
+                    <button onClick={() => { if(window.confirm(`「${cat.name}」を削除しますか？`)) onDeleteCat(cat.id); }} className="text-gray-300 hover:text-rose-400 text-xl">×</button>
                   </>
                 )}
               </div>
