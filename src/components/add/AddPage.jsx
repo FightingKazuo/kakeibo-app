@@ -156,12 +156,14 @@ function CsvOcrDupModal({ ocrTxs, csvCandidates, onDecide }) {
 }
 
 // ─── メインコンポーネント ────────────────────────────────────
-export function AddPage({ categories, existingTransactions, allRules, learnedRules, members, onAdd, onDelete, onLearnRule }) {
+export function AddPage({ categories, existingTransactions, allRules, learnedRules, members, pointAccounts, onAdd, onDelete, onLearnRule }) {
   const [mode, setMode] = useState("select");
 
   // manual
-  const [type,          setType]         = useState("expense");
-  const [amount,        setAmount]       = useState("");
+  const [type,             setType]           = useState("expense");
+  const [amount,           setAmount]         = useState("");
+  const [label,            setLabel]          = useState("");
+  const [manualPayMethod,  setManualPayMethod] = useState("cash"); // 支払方法
   const [label,         setLabel]        = useState("");
   const [date,          setDate]         = useState(todayStr());
   const [category,      setCategory]     = useState("");
@@ -196,6 +198,7 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
   const [ocrQueueIdx,   setOcrQueueIdx]   = useState(0);
   const [ocrWaitSec,    setOcrWaitSec]    = useState(0);
   const [ocrPaidBy,     setOcrPaidBy]     = useState(""); // 誰が払ったか
+  const [ocrPayMethod,  setOcrPayMethod]  = useState("cash"); // 支払方法
   const [ocrResults,    setOcrResults]    = useState([]);
   const [ocrApiKey,     setOcrApiKey]     = useState(() => loadStorage("OCR_API_KEY", "") || "");
   const [ocrCorrections, setOcrCorrections] = useState(
@@ -292,7 +295,14 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
 
   const handleManualSubmit = () => {
     if (!amount || !category || !label) { alert("すべて入力してください"); return; }
-    const tx = createTransaction({ date, label, category, amount: type === "expense" ? -Number(amount) : Number(amount), type, source: "manual", paidBy: manualPaidBy || null });
+    const tx = createTransaction({
+      date, label, category,
+      amount: type === "expense" ? -Number(amount) : Number(amount),
+      type, source: "manual",
+      paidBy: manualPaidBy || null,
+      paymentMethod: manualPayMethod,
+      pointAccountId: manualPayMethod !== "cash" ? manualPayMethod : null,
+    });
     checkAndAdd(tx);
   };
 
@@ -416,17 +426,26 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
       if (shared   > 0) txsToAdd.push(createTransaction({
         date, label, category: cat, amount: -shared, type: "expense", source: "ocr",
         paidBy: ocrPaidBy || null,
+        paymentMethod: ocrPayMethod,
+        pointAccountId: ocrPayMethod !== "cash" ? ocrPayMethod : null,
         items: sharedItems.map(({ name, amount: a, quantity }) => ({ name, amount: a, quantity, type: "shared" })),
       }));
       if (personal > 0) txsToAdd.push(createTransaction({
         date, label: `${label}（個人）`, category: cat, amount: -personal, type: "expense", source: "ocr",
         paidBy: ocrPaidBy || null,
+        paymentMethod: ocrPayMethod,
+        pointAccountId: ocrPayMethod !== "cash" ? ocrPayMethod : null,
         items: personalItems.map(({ name, amount: a, quantity }) => ({ name, amount: a, quantity, type: "personal" })),
       }));
     }
 
     if (txsToAdd.length === 0) {
-      txsToAdd.push(createTransaction({ date, label, category: cat, amount: -Number(amount), type: "expense", source: "ocr", paidBy: ocrPaidBy || null }));
+      txsToAdd.push(createTransaction({
+        date, label, category: cat, amount: -Number(amount), type: "expense", source: "ocr",
+        paidBy: ocrPaidBy || null,
+        paymentMethod: ocrPayMethod,
+        pointAccountId: ocrPayMethod !== "cash" ? ocrPayMethod : null,
+      }));
     }
 
     // ── CSV重複チェック（日付＋金額±5%）──
@@ -687,6 +706,23 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
             </div>
           </div>
         )}
+        {/* 支払方法 */}
+        <div className="mt-4">
+          <label className="block text-xs font-semibold text-gray-500 mb-2">支払方法</label>
+          <div className="flex flex-wrap gap-2">
+            <button onClick={() => setManualPayMethod("cash")}
+              className={`px-3 py-2 rounded-xl text-xs font-medium border transition-all ${manualPayMethod === "cash" ? "bg-indigo-500 text-white border-indigo-500" : "bg-white text-gray-600 border-gray-200"}`}>
+              💳 現金/カード
+            </button>
+            {(pointAccounts || []).map(a => (
+              <button key={a.id} onClick={() => setManualPayMethod(a.id)}
+                className={`px-3 py-2 rounded-xl text-xs font-medium border transition-all ${manualPayMethod === a.id ? "bg-amber-500 text-white border-amber-500" : "bg-white text-gray-600 border-gray-200"}`}>
+                {a.icon} {a.name}
+                <span className="ml-1 opacity-70">({a.balance.toLocaleString()}{a.unit})</span>
+              </button>
+            ))}
+          </div>
+        </div>
         <div className="mt-5">
           <PrimaryButton onClick={handleManualSubmit} variant={done ? "success" : "primary"}>
             {done ? "✅ 保存しました！" : "追加して保存"}
@@ -930,9 +966,7 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
                   {members.map(m => (
                     <button key={m.id} onClick={() => setOcrPaidBy(ocrPaidBy === m.id ? "" : m.id)}
                       className={`flex-1 py-2.5 rounded-xl text-sm font-medium border transition-all ${
-                        ocrPaidBy === m.id
-                          ? "bg-indigo-500 text-white border-indigo-500"
-                          : "bg-white text-gray-600 border-gray-200"
+                        ocrPaidBy === m.id ? "bg-indigo-500 text-white border-indigo-500" : "bg-white text-gray-600 border-gray-200"
                       }`}>
                       👤 {m.name}
                     </button>
@@ -940,6 +974,23 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
                 </div>
               </div>
             )}
+            {/* 支払方法 */}
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 mb-2">支払方法</label>
+              <div className="flex flex-wrap gap-2">
+                <button onClick={() => setOcrPayMethod("cash")}
+                  className={`px-3 py-2 rounded-xl text-xs font-medium border transition-all ${ocrPayMethod === "cash" ? "bg-indigo-500 text-white border-indigo-500" : "bg-white text-gray-600 border-gray-200"}`}>
+                  💳 現金/カード
+                </button>
+                {(pointAccounts || []).map(a => (
+                  <button key={a.id} onClick={() => setOcrPayMethod(a.id)}
+                    className={`px-3 py-2 rounded-xl text-xs font-medium border transition-all ${ocrPayMethod === a.id ? "bg-amber-500 text-white border-amber-500" : "bg-white text-gray-600 border-gray-200"}`}>
+                    {a.icon} {a.name}
+                    <span className="ml-1 opacity-70">({a.balance.toLocaleString()}{a.unit})</span>
+                  </button>
+                ))}
+              </div>
+            </div>
             <PrimaryButton onClick={() => registerOcr(ocrLabel, ocrAmount, ocrDate, ocrCat, ocrItems)}>
               {ocrItems.length > 0 && calcSplit(ocrItems).personal > 0
                 ? `✅ 2件に分けて登録（共有+個人）`
