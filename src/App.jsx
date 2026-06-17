@@ -91,13 +91,8 @@ export default function App() {
         if (txs && txs.length > 0) {
           setTransactions(txs.map(normalizeTransaction).filter(Boolean));
         } else {
-          // 初回：localStorageからマイグレーション
-          const localTxs = (loadStorage(STORAGE_KEYS.TRANSACTIONS, SAMPLE_TX) || [])
-            .map(normalizeTransaction).filter(Boolean);
-          setTransactions(localTxs);
-          if (localTxs.length > 0) {
-            await upsertTransactions(shareId, localTxs);
-          }
+          // Supabaseが空なら空で開始（サンプルデータは投入しない）
+          setTransactions([]);
         }
 
         setCategories(cats    || loadStorage(STORAGE_KEYS.CATEGORIES, DEFAULT_CATS));
