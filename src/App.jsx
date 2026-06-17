@@ -247,6 +247,8 @@ export default function App() {
             categories={categories}
             allRules={DEFAULT_CATEGORY_RULES}
             learnedRules={learnedRules}
+            members={members}
+            pointAccounts={pointAccountsWithBalance}
             onSave={handleUpdate}
             onCancel={() => setEditingTx(null)}
           />
