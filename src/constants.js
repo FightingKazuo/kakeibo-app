@@ -3,12 +3,13 @@
 // ============================================================
 
 export const STORAGE_KEYS = {
-  TRANSACTIONS:  "kakeibo_integrated_tx",
-  CATEGORIES:    "kakeibo_integrated_cats",
-  RULES:         "kakeibo_integrated_rules",
-  OCR_HISTORY:   "kakeibo_ocr_history",
+  TRANSACTIONS:    "kakeibo_integrated_tx",
+  CATEGORIES:      "kakeibo_integrated_cats",
+  RULES:           "kakeibo_integrated_rules",
+  OCR_HISTORY:     "kakeibo_ocr_history",
   OCR_CORRECTIONS: "kakeibo_ocr_corrections",
-  MEMBERS:       "kakeibo_members",
+  MEMBERS:         "kakeibo_members",
+  POINT_ACCOUNTS:  "kakeibo_point_accounts",
 };
 
 // デフォルトメンバー（2人）
@@ -16,6 +17,18 @@ export const DEFAULT_MEMBERS = [
   { id: "m1", name: "自分" },
   { id: "m2", name: "パートナー" },
 ];
+
+// デフォルトポイント口座
+export const DEFAULT_POINT_ACCOUNTS = [
+  { id: "pa1", name: "Tポイント",   icon: "🟡", unit: "pt", balance: 0 },
+  { id: "pa2", name: "WAON",        icon: "🔵", unit: "円", balance: 0 },
+  { id: "pa3", name: "楽天ポイント", icon: "🔴", unit: "pt", balance: 0 },
+];
+
+// 支払方法（現金 + ポイント口座）
+export const PAYMENT_METHODS = {
+  cash: { id: "cash", name: "現金/カード", icon: "💳" },
+};
 
 export const DEFAULT_CATS = [
   {id:"c1", name:"食費",    emoji:"🍱", type:"expense"},
