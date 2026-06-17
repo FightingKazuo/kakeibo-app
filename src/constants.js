@@ -23,6 +23,7 @@ export const DEFAULT_POINT_ACCOUNTS = [
   { id: "pa1", name: "Tポイント",   icon: "🟡", unit: "pt", balance: 0 },
   { id: "pa2", name: "WAON",        icon: "🔵", unit: "円", balance: 0 },
   { id: "pa3", name: "楽天ポイント", icon: "🔴", unit: "pt", balance: 0 },
+  { id: "pa4", name: "PayPay",      icon: "💛", unit: "円", balance: 0 },
 ];
 
 // 支払方法（現金 + ポイント口座）
@@ -179,6 +180,42 @@ export const CSV_FORMATS = {
       const amtStr = String(r["ご利用金額(円)"] || r["お支払金額(円)"] || "0").replace(/[,，]/g,"");
       const amount = parseFloat(amtStr) || 0;
       if (!amount) return null;
+      return { date, label, category: "その他", amount: -Math.abs(amount), type: "expense" };
+    },
+  },
+
+  // ── 三井住友カード・Amazonマスター（共通フォーマット）──────
+  // 形式: YYYY/MM/DD,店舗名（全角）,金額,支払回数,今回回数,今回支払額,摘要
+  // 1行目: カード名（ヘッダーなし）
+  // 最終行: ,,,,,合計金額, （スキップ）
+  smbc: {
+    label: "三井住友カード / Amazonマスター",
+    sampleColumns: ["日付（1行目カード名）","店舗名","金額"],
+    normalize: (r) => {
+      // Papa.parseでヘッダーなしの場合、フィールド名は0,1,2...
+      const raw = r;
+      // キー名が数字の場合とカラム名の場合両対応
+      const col0 = raw[0] || raw["0"] || "";
+      const col1 = raw[1] || raw["1"] || "";
+      const col5 = raw[5] || raw["5"] || ""; // 今回支払額
+
+      // 日付バリデーション
+      const dateRaw = String(col0).trim();
+      if (!dateRaw.match(/^\d{4}\/\d{2}\/\d{2}$/)) return null;
+      const date = dateRaw.replace(/\//g, "-");
+
+      // 店舗名（全角→半角変換）
+      const label = String(col1 || "不明")
+        .replace(/[Ａ-Ｚａ-ｚ０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
+        .replace(/　/g, " ")
+        .trim();
+      if (!label) return null;
+
+      // 金額（今回支払額を優先）
+      const amtStr = String(col5 || "0").replace(/[,，\s]/g, "");
+      const amount = parseFloat(amtStr) || 0;
+      if (!amount) return null;
+
       return { date, label, category: "その他", amount: -Math.abs(amount), type: "expense" };
     },
   },
