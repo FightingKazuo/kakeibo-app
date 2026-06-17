@@ -475,30 +475,48 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
     setOcrHistory(hist); saveStorage(STORAGE_KEYS.OCR_HISTORY, hist);
 
     const txsToAdd = [];
+    const receiptTotal = Number(amount);
 
     if (items && items.length > 0) {
+      const itemsTotal    = items.reduce((s, i) => s + i.amount, 0);
+      const taxDiff       = receiptTotal - itemsTotal; // 消費税等の差額
       const { shared, personal } = calcSplit(items);
       const sharedItems   = items.filter(i => (i.type || "shared") !== "personal");
       const personalItems = items.filter(i => i.type === "personal");
-      if (shared   > 0) txsToAdd.push(createTransaction({
-        date, label, category: cat, amount: -shared, type: "expense", source: "ocr",
+
+      // 消費税差額をsharedに按分（全額共有扱い）
+      const sharedTotal   = shared + (personal === 0 ? taxDiff : Math.round(taxDiff * shared / itemsTotal));
+      const personalTotal = personal + (personal > 0 ? Math.round(taxDiff * personal / itemsTotal) : 0);
+
+      // 合計がreceiptTotalと一致するよう調整
+      const adjustedShared   = personal > 0 ? sharedTotal : receiptTotal;
+      const adjustedPersonal = personal > 0 ? receiptTotal - adjustedShared : 0;
+
+      if (adjustedShared > 0) txsToAdd.push(createTransaction({
+        date, label, category: cat, amount: -adjustedShared, type: "expense", source: "ocr",
         paidBy: ocrPaidBy || null,
         paymentMethod: ocrPayMethod,
         pointAccountId: ocrPayMethod !== "cash" ? ocrPayMethod : null,
-        items: sharedItems.map(({ name, amount: a, quantity }) => ({ name, amount: a, quantity, type: "shared" })),
+        items: [
+          ...sharedItems.map(({ name, amount: a, quantity }) => ({ name, amount: a, quantity, type: "shared" })),
+          ...(taxDiff !== 0 ? [{ name: taxDiff > 0 ? "消費税等" : "値引き等", amount: taxDiff > 0 ? taxDiff : Math.round(taxDiff * shared / itemsTotal), quantity: 1, type: "shared" }] : []),
+        ],
       }));
-      if (personal > 0) txsToAdd.push(createTransaction({
-        date, label: `${label}（個人）`, category: cat, amount: -personal, type: "expense", source: "ocr",
+      if (adjustedPersonal > 0) txsToAdd.push(createTransaction({
+        date, label: `${label}（個人）`, category: cat, amount: -adjustedPersonal, type: "expense", source: "ocr",
         paidBy: ocrPaidBy || null,
         paymentMethod: ocrPayMethod,
         pointAccountId: ocrPayMethod !== "cash" ? ocrPayMethod : null,
-        items: personalItems.map(({ name, amount: a, quantity }) => ({ name, amount: a, quantity, type: "personal" })),
+        items: [
+          ...personalItems.map(({ name, amount: a, quantity }) => ({ name, amount: a, quantity, type: "personal" })),
+          ...(taxDiff !== 0 && personal > 0 ? [{ name: taxDiff > 0 ? "消費税等" : "値引き等", amount: Math.round(taxDiff * personal / itemsTotal), quantity: 1, type: "personal" }] : []),
+        ],
       }));
     }
 
     if (txsToAdd.length === 0) {
       txsToAdd.push(createTransaction({
-        date, label, category: cat, amount: -Number(amount), type: "expense", source: "ocr",
+        date, label, category: cat, amount: -receiptTotal, type: "expense", source: "ocr",
         paidBy: ocrPaidBy || null,
         paymentMethod: ocrPayMethod,
         pointAccountId: ocrPayMethod !== "cash" ? ocrPayMethod : null,
