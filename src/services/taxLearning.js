@@ -1,44 +1,69 @@
 // ============================================================
 // services/taxLearning.js
-// 消費税学習システム
+// 消費税計算システム v2
 //
-// 店舗ごとの税率（8%/10%）を学習・記憶する
-// OCRで品目合計とレシート合計の差額から自動推定
+// 方針：
+//   差額がある（税抜き表示）→ 全品目8%で税込計算
+//   残差は「消費税等」にまとめる（最小化）
+//   差額なし（税込み表示）→ そのまま
 // ============================================================
 
 const TAX_STORAGE_KEY = "kakeibo_tax_rules";
 
-// ─── 税率の推定 ──────────────────────────────────────────────
+// ─── 税込み変換 ──────────────────────────────────────────────
 /**
- * 品目合計とレシート合計から税率を推定する
- * @returns { rate: 0.08 | 0.10 | null, type: "inclusive" | "exclusive" | null }
+ * 品目合計とレシート合計の差から税抜き表示か判定し、
+ * 税込み価格に変換した品目リストと残差を返す
+ *
+ * @returns {{
+ *   items: Array,           // 税込み価格に変換された品目
+ *   tax8: number,           // 8%消費税合計
+ *   remainder: number,      // 残差（消費税等）
+ *   isTaxExclusive: boolean // 税抜き表示かどうか
+ * }}
  */
-export const estimateTaxRate = (itemsTotal, receiptTotal) => {
-  if (!itemsTotal || !receiptTotal) return { rate: null, type: null };
-  const diff = receiptTotal - itemsTotal;
-  if (Math.abs(diff) < 2) return { rate: null, type: "inclusive" }; // 差なし=税込み表示
+export const calcTaxInclusive = (items, receiptTotal) => {
+  if (!items || items.length === 0) {
+    return { items, tax8: 0, remainder: 0, isTaxExclusive: false };
+  }
 
-  const ratio = diff / itemsTotal;
-  if (Math.abs(ratio - 0.10) < 0.005) return { rate: 0.10, type: "exclusive" };
-  if (Math.abs(ratio - 0.08) < 0.005) return { rate: 0.08, type: "exclusive" };
+  const itemsTotal = items.reduce((s, i) => s + i.amount, 0);
+  const diff       = receiptTotal - itemsTotal;
 
-  // 混在（軽減税率あり）
-  if (ratio > 0.07 && ratio < 0.11) return { rate: ratio, type: "mixed" };
+  // 差額が品目合計の3%未満 → 税込み表示とみなす
+  const diffRatio = itemsTotal > 0 ? diff / itemsTotal : 0;
+  if (Math.abs(diffRatio) < 0.03) {
+    return { items, tax8: 0, remainder: 0, isTaxExclusive: false };
+  }
 
-  return { rate: null, type: null };
+  // 税抜き表示 → 全品目8%で税込み計算
+  const tax8     = Math.floor(itemsTotal * 0.08);
+  const tax8Total = itemsTotal + tax8;
+  const remainder = Math.round(receiptTotal - tax8Total); // 残差（10%品目の2%分等）
+
+  // 各品目を8%税込みに変換
+  const convertedItems = items.map(item => ({
+    ...item,
+    amountExclTax: item.amount,                               // 税抜き価格を保存
+    amount:        Math.round(item.amount * 1.08),            // 8%税込みに変換
+    taxRate:       8,
+  }));
+
+  return { items: convertedItems, tax8, remainder, isTaxExclusive: true };
 };
 
 // ─── 学習 ────────────────────────────────────────────────────
 export const learnTaxRule = (storeName, itemsTotal, receiptTotal) => {
-  if (!storeName) return;
-  const { rate, type } = estimateTaxRate(itemsTotal, receiptTotal);
-  if (!rate && type !== "inclusive") return;
+  if (!storeName || !itemsTotal || !receiptTotal) return;
+  const diff      = receiptTotal - itemsTotal;
+  const diffRatio = diff / itemsTotal;
+  const type      = Math.abs(diffRatio) < 0.03 ? "inclusive" : "exclusive";
 
   try {
     const rules = JSON.parse(localStorage.getItem(TAX_STORAGE_KEY) || "{}");
     rules[storeName] = {
-      rate:      rate || 0,
-      type:      type || "inclusive",
+      type,
+      diffRatio: Math.round(diffRatio * 1000) / 1000,
       learnedAt: new Date().toISOString(),
       samples:   (rules[storeName]?.samples || 0) + 1,
     };
@@ -46,21 +71,17 @@ export const learnTaxRule = (storeName, itemsTotal, receiptTotal) => {
   } catch {}
 };
 
-// ─── 取得 ────────────────────────────────────────────────────
-export const getTaxRule = (storeName) => {
-  try {
-    const rules = JSON.parse(localStorage.getItem(TAX_STORAGE_KEY) || "{}");
-    return rules[storeName] || null;
-  } catch { return null; }
+export const getTaxRule     = (storeName) => {
+  try { return JSON.parse(localStorage.getItem(TAX_STORAGE_KEY) || "{}")[storeName] || null; }
+  catch { return null; }
 };
 
 export const getAllTaxRules = () => {
-  try {
-    return JSON.parse(localStorage.getItem(TAX_STORAGE_KEY) || "{}");
-  } catch { return {}; }
+  try { return JSON.parse(localStorage.getItem(TAX_STORAGE_KEY) || "{}"); }
+  catch { return {}; }
 };
 
-export const removeTaxRule = (storeName) => {
+export const removeTaxRule  = (storeName) => {
   try {
     const rules = JSON.parse(localStorage.getItem(TAX_STORAGE_KEY) || "{}");
     delete rules[storeName];
@@ -68,16 +89,11 @@ export const removeTaxRule = (storeName) => {
   } catch {}
 };
 
-// ─── 消費税差額の説明文を生成 ─────────────────────────────────
+// ─── 差額の説明文 ────────────────────────────────────────────
 export const describeTaxDiff = (storeName, itemsTotal, receiptTotal) => {
   const diff = receiptTotal - itemsTotal;
   if (Math.abs(diff) < 2) return null;
-
-  const rule = getTaxRule(storeName);
-  if (diff > 0) {
-    const rateStr = rule?.rate ? `（${Math.round(rule.rate * 100)}%）` : "";
-    return `消費税等${rateStr} +¥${diff.toLocaleString()}`;
-  } else {
-    return `値引き等 -¥${Math.abs(diff).toLocaleString()}`;
-  }
+  const ratio = diff / itemsTotal;
+  if (diff > 0) return `消費税等 +¥${diff.toLocaleString()}（差額率${Math.round(ratio*100)}%）`;
+  return `値引き等 -¥${Math.abs(diff).toLocaleString()}`;
 };
