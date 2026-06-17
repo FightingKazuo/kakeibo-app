@@ -16,7 +16,7 @@ import { TransactionFormFields } from "../common/TransactionFormFields";
 import { DuplicateCheckModal } from "../common/DuplicateCheckModal";
 import { CategorySuggestion } from "../common/CategorySuggestion";
 import { PrimaryButton } from "../ui/PrimaryButton";
-import { learnTaxRule, describeTaxDiff } from "../../services/taxLearning";
+import { learnTaxRule, describeTaxDiff, calcTaxInclusive } from "../../services/taxLearning";
 
 // ─── 品目タイプトグルボタン ──────────────────────────────────
 function ItemTypeToggle({ type, onChange }) {
@@ -38,6 +38,14 @@ function ItemTypeToggle({ type, onChange }) {
       >
         個人
       </button>
+      <button
+        onClick={() => onChange("partner")}
+        className={`px-2 py-1 text-xs font-medium transition-all ${
+          type === "partner" ? "bg-purple-400 text-white" : "bg-white text-gray-400"
+        }`}
+      >
+        相手
+      </button>
     </div>
   );
 }
@@ -47,9 +55,11 @@ function ItemsAccordion({ items, onToggleType, onEditAmount, onEditQuantity, tot
   const [open, setOpen] = useState(false);
   if (!items || items.length === 0) return null;
 
-  const sharedTotal   = items.filter(i => (i.type || "shared") !== "personal").reduce((s, i) => s + i.amount, 0);
+  const sharedTotal   = items.filter(i => (i.type || "shared") === "shared").reduce((s, i) => s + i.amount, 0);
   const personalTotal = items.filter(i => i.type === "personal").reduce((s, i) => s + i.amount, 0);
+  const partnerTotal  = items.filter(i => i.type === "partner").reduce((s, i) => s + i.amount, 0);
   const hasPersonal   = personalTotal > 0;
+  const hasPartner    = partnerTotal > 0;
   const itemsSum      = items.reduce((s, i) => s + i.amount, 0);
   const diff          = totalAmount ? Math.round(totalAmount - itemsSum) : 0;
   const hasDiff       = Math.abs(diff) >= 2;
@@ -63,6 +73,7 @@ function ItemsAccordion({ items, onToggleType, onEditAmount, onEditQuantity, tot
         <span className="font-medium text-gray-700">品目 {items.length}件</span>
         <div className="flex items-center gap-3">
           {hasPersonal && <span className="text-xs text-rose-500 font-medium">個人 {fmtCurrency(personalTotal)}</span>}
+          {hasPartner  && <span className="text-xs text-purple-500 font-medium">相手 {fmtCurrency(partnerTotal)}</span>}
           <span className="text-xs text-indigo-500 font-medium">共有 {fmtCurrency(sharedTotal)}</span>
           {hasDiff && <span className="text-xs text-amber-500 font-medium">差額 ¥{Math.abs(diff)}</span>}
           <span className="text-gray-400">{open ? "▲" : "▼"}</span>
@@ -71,7 +82,10 @@ function ItemsAccordion({ items, onToggleType, onEditAmount, onEditQuantity, tot
       {open && (
         <div className="divide-y divide-gray-50">
           {items.map((item, i) => (
-            <div key={i} className={`px-4 py-2.5 ${item.type === "personal" ? "bg-rose-50" : "bg-white"}`}>
+            <div key={i} className={`px-4 py-2.5 ${
+              item.type === "personal" ? "bg-rose-50" :
+              item.type === "partner"  ? "bg-purple-50" : "bg-white"
+            }`}>
               <div className="flex items-center gap-2 mb-1.5">
                 <p className="text-xs font-medium text-gray-800 flex-1 truncate">{item.name}</p>
                 <ItemTypeToggle type={item.type || "shared"} onChange={t => onToggleType(i, t)} />
@@ -119,12 +133,16 @@ function ItemsAccordion({ items, onToggleType, onEditAmount, onEditQuantity, tot
           )}
         </div>
       )}
-      {hasPersonal && (
-        <div className="px-4 py-2.5 bg-indigo-50 border-t border-indigo-100 flex justify-between text-xs">
-          <span className="text-indigo-600 font-medium">登録内訳</span>
-          <span className="text-indigo-600">
-            共有 {fmtCurrency(sharedTotal)} ＋ 個人 {fmtCurrency(personalTotal)} → 2件登録
-          </span>
+      {(hasPersonal || hasPartner) && (
+        <div className="px-4 py-2.5 bg-indigo-50 border-t border-indigo-100 text-xs">
+          <div className="flex justify-between">
+            <span className="text-indigo-600 font-medium">登録内訳</span>
+            <span className="text-indigo-600">
+              共有 {fmtCurrency(sharedTotal)}
+              {hasPersonal && ` ＋ 個人 ${fmtCurrency(personalTotal)}`}
+              {hasPartner  && ` ＋ 相手 ${fmtCurrency(partnerTotal)}`}
+            </span>
+          </div>
         </div>
       )}
     </div>
@@ -482,52 +500,78 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
       saveCorrection(ocrOrigLabel, label, cat);
     }
 
-    // ── 消費税学習 ──
+    const receiptTotal = Number(amount);
+
+    // ── 消費税学習＆8%税込み変換 ──
     if (items && items.length > 0) {
       const itemsTotal = items.reduce((s, i) => s + i.amount, 0);
-      learnTaxRule(label, itemsTotal, Number(amount));
+      learnTaxRule(label, itemsTotal, receiptTotal);
     }
 
     const hist = [{ label, amount, date, cat }, ...ocrHistory].slice(0, 5);
     setOcrHistory(hist); saveStorage(STORAGE_KEYS.OCR_HISTORY, hist);
 
+    // ── 8%税込み変換処理 ──
+    let finalItems  = items || [];
+    let remainder   = 0;
+    if (finalItems.length > 0) {
+      const { items: converted, remainder: rem, isTaxExclusive } = calcTaxInclusive(finalItems, receiptTotal);
+      if (isTaxExclusive) {
+        finalItems = converted;
+        remainder  = rem;
+      }
+    }
+
     const txsToAdd = [];
-    const receiptTotal = Number(amount);
 
-    if (items && items.length > 0) {
-      const itemsTotal    = items.reduce((s, i) => s + i.amount, 0);
-      const taxDiff       = receiptTotal - itemsTotal; // 消費税等の差額
-      const { shared, personal } = calcSplit(items);
-      const sharedItems   = items.filter(i => (i.type || "shared") !== "personal");
-      const personalItems = items.filter(i => i.type === "personal");
+    if (finalItems.length > 0) {
+      // 残差（消費税等）を品目に追加
+      const allItems = remainder !== 0
+        ? [...finalItems, {
+            name:      remainder > 0 ? "消費税等" : "値引き等",
+            amount:    remainder,
+            quantity:  1,
+            unitPrice: remainder,
+            type:      "shared",
+          }]
+        : finalItems;
 
-      // 消費税差額をsharedに按分（全額共有扱い）
-      const sharedTotal   = shared + (personal === 0 ? taxDiff : Math.round(taxDiff * shared / itemsTotal));
-      const personalTotal = personal + (personal > 0 ? Math.round(taxDiff * personal / itemsTotal) : 0);
+      const itemsTotal2   = allItems.reduce((s, i) => s + i.amount, 0);
+      const sharedItems   = allItems.filter(i => (i.type || "shared") !== "personal" && i.type !== "partner");
+      const personalItems = allItems.filter(i => i.type === "personal");
+      const partnerItems  = allItems.filter(i => i.type === "partner");
 
-      // 合計がreceiptTotalと一致するよう調整
-      const adjustedShared   = personal > 0 ? sharedTotal : receiptTotal;
-      const adjustedPersonal = personal > 0 ? receiptTotal - adjustedShared : 0;
+      const sharedAmt  = sharedItems.reduce((s, i) => s + i.amount, 0);
+      const personAmt  = personalItems.reduce((s, i) => s + i.amount, 0);
+      const partnerAmt = partnerItems.reduce((s, i) => s + i.amount, 0);
 
-      if (adjustedShared > 0) txsToAdd.push(createTransaction({
-        date, label, category: cat, amount: -adjustedShared, type: "expense", source: "ocr",
+      // 合計をreceiptTotalに合わせる調整
+      const totalCalc   = sharedAmt + personAmt + partnerAmt;
+      const adjustment  = receiptTotal - totalCalc;
+
+      // 調整分をsharedに加算
+      const finalSharedAmt = sharedAmt + adjustment;
+
+      if (finalSharedAmt > 0) txsToAdd.push(createTransaction({
+        date, label, category: cat, amount: -finalSharedAmt, type: "expense", source: "ocr",
         paidBy: ocrPaidBy || null,
         paymentMethod: ocrPayMethod,
         pointAccountId: ocrPayMethod !== "cash" ? ocrPayMethod : null,
-        items: [
-          ...sharedItems.map(({ name, amount: a, quantity }) => ({ name, amount: a, quantity, type: "shared" })),
-          ...(taxDiff !== 0 ? [{ name: taxDiff > 0 ? "消費税等" : "値引き等", amount: taxDiff > 0 ? taxDiff : Math.round(taxDiff * shared / itemsTotal), quantity: 1, type: "shared" }] : []),
-        ],
+        items: sharedItems.map(({ name, amount: a, quantity, taxRate }) => ({ name, amount: a, quantity, type: "shared", taxRate })),
       }));
-      if (adjustedPersonal > 0) txsToAdd.push(createTransaction({
-        date, label: `${label}（個人）`, category: cat, amount: -adjustedPersonal, type: "expense", source: "ocr",
+      if (personAmt > 0) txsToAdd.push(createTransaction({
+        date, label: `${label}（個人）`, category: cat, amount: -personAmt, type: "expense", source: "ocr",
         paidBy: ocrPaidBy || null,
         paymentMethod: ocrPayMethod,
         pointAccountId: ocrPayMethod !== "cash" ? ocrPayMethod : null,
-        items: [
-          ...personalItems.map(({ name, amount: a, quantity }) => ({ name, amount: a, quantity, type: "personal" })),
-          ...(taxDiff !== 0 && personal > 0 ? [{ name: taxDiff > 0 ? "消費税等" : "値引き等", amount: Math.round(taxDiff * personal / itemsTotal), quantity: 1, type: "personal" }] : []),
-        ],
+        items: personalItems.map(({ name, amount: a, quantity, taxRate }) => ({ name, amount: a, quantity, type: "personal", taxRate })),
+      }));
+      if (partnerAmt > 0) txsToAdd.push(createTransaction({
+        date, label: `${label}（パートナー負担）`, category: cat, amount: -partnerAmt, type: "expense", source: "ocr",
+        paidBy: ocrPaidBy || null,
+        paymentMethod: ocrPayMethod,
+        pointAccountId: ocrPayMethod !== "cash" ? ocrPayMethod : null,
+        items: partnerItems.map(({ name, amount: a, quantity, taxRate }) => ({ name, amount: a, quantity, type: "partner", taxRate })),
       }));
     }
 
