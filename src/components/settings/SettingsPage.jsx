@@ -5,6 +5,7 @@ import { fmtCurrency } from "../../utils/format";
 import { PrimaryButton } from "../ui/PrimaryButton";
 import { EmptyState } from "../ui/EmptyState";
 import { getTransferKeywords, learnTransferKeyword, removeTransferKeyword } from "../../services/csvParser";
+import { EmojiPicker } from "../common/EmojiPicker";
 
 export function SettingsPage({
   categories, onAddCat, onUpdateCat, onDeleteCat,
@@ -43,6 +44,10 @@ export function SettingsPage({
 
   // 共有設定用
   const [inviteInput, setInviteInput] = useState("");
+
+  // 絵文字ピッカー
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [emojiPickerFor,  setEmojiPickerFor]  = useState(null); // "new" | catId
 
   // 振替キーワード管理用
   const [transferKws,    setTransferKws]    = useState(() => getTransferKeywords());
@@ -590,8 +595,11 @@ export function SettingsPage({
           {showAdd && (
             <div className="bg-indigo-50 rounded-2xl p-4 border border-indigo-100 space-y-3">
               <div className="flex gap-2">
-                <input type="text" value={newEmoji} onChange={e => setNewEmoji(e.target.value)} maxLength={2}
-                  className="w-12 text-center text-2xl bg-white border border-indigo-200 rounded-xl py-2 outline-none" />
+                <button
+                  onClick={() => { setEmojiPickerFor("new"); setShowEmojiPicker(true); }}
+                  className="w-12 h-12 text-2xl bg-white border border-indigo-200 rounded-xl flex items-center justify-center hover:bg-indigo-100 transition-all">
+                  {newEmoji}
+                </button>
                 <input type="text" value={newName} onChange={e => setNewName(e.target.value)} placeholder="カテゴリ名"
                   className="flex-1 px-3 py-2 bg-white border border-indigo-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-300" />
               </div>
@@ -611,8 +619,11 @@ export function SettingsPage({
               <div key={cat.id} className="flex items-center gap-3 px-4 py-3 border-b border-gray-50 last:border-b-0">
                 {editingId === cat.id ? (
                   <>
-                    <input type="text" value={editEmoji} onChange={e => setEditEmoji(e.target.value)} maxLength={2}
-                      className="w-10 text-center text-xl bg-gray-50 border border-gray-200 rounded-lg outline-none" />
+                    <button
+                      onClick={() => { setEmojiPickerFor(cat.id); setShowEmojiPicker(true); }}
+                      className="w-10 h-10 text-xl bg-gray-50 border border-gray-200 rounded-lg flex items-center justify-center hover:bg-gray-100">
+                      {editEmoji}
+                    </button>
                     <input type="text" value={editName} onChange={e => setEditName(e.target.value)}
                       className="flex-1 text-sm px-2 py-1 bg-gray-50 border border-gray-200 rounded-lg outline-none" />
                     <button onClick={() => { onUpdateCat({...cat, name:editName, emoji:editEmoji}); setEditingId(null); }} className="text-xs text-indigo-500 font-semibold">保存</button>
@@ -690,6 +701,18 @@ export function SettingsPage({
             </div>
           </div>
         </div>
+      )}
+
+      {/* ── 絵文字ピッカーモーダル ── */}
+      {showEmojiPicker && (
+        <EmojiPicker
+          value={emojiPickerFor === "new" ? newEmoji : editEmoji}
+          onChange={(emoji) => {
+            if (emojiPickerFor === "new") setNewEmoji(emoji);
+            else setEditEmoji(emoji);
+          }}
+          onClose={() => { setShowEmojiPicker(false); setEmojiPickerFor(null); }}
+        />
       )}
     </div>
   );
