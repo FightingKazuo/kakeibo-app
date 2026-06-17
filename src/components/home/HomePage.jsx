@@ -57,7 +57,7 @@ function CategoryBar({ catExpenses, categories, maxAmt }) {
   );
 }
 
-export function HomePage({ transactions, categories, onNavigate }) {
+export function HomePage({ transactions, categories, pointAccounts, onNavigate }) {
   const now       = new Date();
   const currentYM = now.toISOString().slice(0, 7);
 
@@ -126,6 +126,26 @@ export function HomePage({ transactions, categories, onNavigate }) {
 
           {/* 最近7日 */}
           <RecentExpenseCard amount={last7DaysExpense} />
+
+          {/* ポイント口座残高 */}
+          {pointAccounts && pointAccounts.length > 0 && (
+            <div className="mx-4 md:mx-0 mt-4 md:mt-0 bg-white rounded-2xl p-4 border border-gray-100">
+              <p className="text-xs font-semibold text-gray-500 mb-3 uppercase tracking-wide">ポイント口座</p>
+              <div className="space-y-2">
+                {pointAccounts.map(a => (
+                  <div key={a.id} className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg">{a.icon}</span>
+                      <span className="text-sm text-gray-700">{a.name}</span>
+                    </div>
+                    <span className={`text-sm font-bold ${a.balance >= 0 ? "text-emerald-600" : "text-rose-600"}`}>
+                      {a.balance.toLocaleString()}{a.unit}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* カテゴリ別支出（バー） */}
           {catExpenses.length > 0 && (
