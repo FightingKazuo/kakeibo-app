@@ -1,30 +1,80 @@
 import { useState } from "react";
-import { todayStr } from "../../utils/format";
+import { todayStr, fmtCurrency } from "../../utils/format";
 import { PrimaryButton } from "../ui/PrimaryButton";
 import { DEFAULT_CATEGORY_RULES } from "../../constants";
-import { predictCategory } from "../../services/categoryPredictor";
 
-export function EditPage({ transaction, categories, allRules, learnedRules, onSave, onCancel }) {
-  const [type,     setType]     = useState(transaction.type);
-  const [amount,   setAmount]   = useState(String(Math.abs(transaction.amount)));
-  const [label,    setLabel]    = useState(transaction.label);
-  const [date,     setDate]     = useState(transaction.date || todayStr());
-  const [category, setCategory] = useState(transaction.category);
+// ─── 品目タイプトグル（共有/個人/相手）──────────────────────
+function ItemTypeToggle({ type, onChange }) {
+  return (
+    <div className="flex rounded-lg overflow-hidden border border-gray-200 flex-shrink-0">
+      {[
+        { value: "shared",   label: "共有", activeClass: "bg-indigo-500 text-white" },
+        { value: "personal", label: "個人", activeClass: "bg-rose-400 text-white"   },
+        { value: "partner",  label: "相手", activeClass: "bg-purple-400 text-white" },
+      ].map(opt => (
+        <button key={opt.value} onClick={() => onChange(opt.value)}
+          className={`px-2 py-1 text-xs font-medium transition-all ${
+            type === opt.value ? opt.activeClass : "bg-white text-gray-400"
+          }`}>
+          {opt.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export function EditPage({ transaction, categories, allRules, learnedRules, members, pointAccounts, onSave, onCancel }) {
+  const [type,      setType]      = useState(transaction.type);
+  const [amount,    setAmount]    = useState(String(Math.abs(transaction.amount)));
+  const [label,     setLabel]     = useState(transaction.label);
+  const [date,      setDate]      = useState(transaction.date || todayStr());
+  const [category,  setCategory]  = useState(transaction.category);
+  const [paidBy,    setPaidBy]    = useState(transaction.paidBy || "");
+  const [payMethod, setPayMethod] = useState(transaction.paymentMethod || "cash");
+  const [items,     setItems]     = useState(
+    Array.isArray(transaction.items) ? transaction.items.map(i => ({ ...i })) : []
+  );
 
   const handleSave = () => {
     if (!amount || !category || !label) { alert("すべて入力してください"); return; }
     onSave({
       ...transaction,
       type,
-      amount:   type === "expense" ? -Number(amount) : Number(amount),
+      amount:        type === "expense" ? -Number(amount) : Number(amount),
       label, date, category,
-      updatedAt: new Date().toISOString(),
+      paidBy:        paidBy || null,
+      paymentMethod: payMethod,
+      pointAccountId: payMethod !== "cash" ? payMethod : null,
+      items,
+      updatedAt:     new Date().toISOString(),
     });
   };
 
-  const expenseCats = categories.filter(c => c.type === "expense");
-  const incomeCats  = categories.filter(c => c.type === "income");
-  const displayCats = type === "expense" ? expenseCats : incomeCats;
+  const displayCats = categories.filter(c => c.type === type);
+
+  // 品目編集
+  const updateItemAmount = (idx, unitPrice) => {
+    setItems(p => p.map((item, i) => {
+      if (i !== idx) return item;
+      const qty    = item.quantity || 1;
+      const amount = unitPrice * qty;
+      return { ...item, unitPrice, amount };
+    }));
+  };
+  const updateItemQuantity = (idx, qty) => {
+    setItems(p => p.map((item, i) => {
+      if (i !== idx) return item;
+      const up     = item.unitPrice || item.amount;
+      const amount = up * qty;
+      return { ...item, quantity: qty, amount };
+    }));
+  };
+  const updateItemType = (idx, type) =>
+    setItems(p => p.map((item, i) => i === idx ? { ...item, type } : item));
+
+  const itemsTotal = items.reduce((s, i) => s + (i.amount || 0), 0);
+  const totalAmt   = Number(amount);
+  const taxDiff    = totalAmt - itemsTotal;
 
   return (
     <div className="pb-20">
@@ -78,9 +128,7 @@ export function EditPage({ transaction, categories, allRules, learnedRules, onSa
             {displayCats.map(cat => (
               <button key={cat.id} onClick={() => setCategory(cat.name)}
                 className={`py-2 px-1 rounded-xl text-xs border transition-all flex flex-col items-center gap-0.5 ${
-                  category === cat.name
-                    ? "bg-indigo-500 text-white border-indigo-500 font-semibold"
-                    : "bg-white text-gray-600 border-gray-200"
+                  category === cat.name ? "bg-indigo-500 text-white border-indigo-500 font-semibold" : "bg-white text-gray-600 border-gray-200"
                 }`}>
                 <span className="text-base">{cat.emoji}</span>
                 <span className="leading-tight text-center">{cat.name}</span>
@@ -95,6 +143,97 @@ export function EditPage({ transaction, categories, allRules, learnedRules, onSa
           <input type="date" value={date} onChange={e => setDate(e.target.value)}
             className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-300" />
         </div>
+
+        {/* 支払者 */}
+        {members && members.length > 0 && (
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 mb-2">支払者</label>
+            <div className="flex gap-2">
+              {members.map(m => (
+                <button key={m.id} onClick={() => setPaidBy(paidBy === m.id ? "" : m.id)}
+                  className={`flex-1 py-2.5 rounded-xl text-sm font-medium border transition-all ${
+                    paidBy === m.id ? "bg-indigo-500 text-white border-indigo-500" : "bg-white text-gray-600 border-gray-200"
+                  }`}>
+                  👤 {m.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* 支払方法 */}
+        <div>
+          <label className="block text-xs font-semibold text-gray-500 mb-2">支払方法</label>
+          <div className="flex flex-wrap gap-2">
+            <button onClick={() => setPayMethod("cash")}
+              className={`px-3 py-2 rounded-xl text-xs font-medium border transition-all ${
+                payMethod === "cash" ? "bg-indigo-500 text-white border-indigo-500" : "bg-white text-gray-600 border-gray-200"
+              }`}>
+              💳 現金/カード
+            </button>
+            {(pointAccounts || []).map(a => (
+              <button key={a.id} onClick={() => setPayMethod(a.id)}
+                className={`px-3 py-2 rounded-xl text-xs font-medium border transition-all ${
+                  payMethod === a.id ? "bg-amber-500 text-white border-amber-500" : "bg-white text-gray-600 border-gray-200"
+                }`}>
+                {a.icon} {a.name}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* 品目編集 */}
+        {items.length > 0 && (
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 mb-2">
+              品目（共有/個人/相手・金額変更）
+            </label>
+            <div className="border border-gray-100 rounded-xl overflow-hidden">
+              {items.map((item, i) => (
+                <div key={i} className={`px-4 py-3 border-b border-gray-50 last:border-b-0 ${
+                  item.type === "personal" ? "bg-rose-50" :
+                  item.type === "partner"  ? "bg-purple-50" : "bg-white"
+                }`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-xs font-medium text-gray-800 flex-1 truncate mr-2">{item.name}</p>
+                    <ItemTypeToggle type={item.type || "shared"} onChange={t => updateItemType(i, t)} />
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs text-gray-400">単価</span>
+                    <input type="number"
+                      value={item.unitPrice || item.amount}
+                      onChange={e => updateItemAmount(i, Number(e.target.value))}
+                      className="w-20 text-xs font-bold text-right bg-white border border-gray-200 rounded-lg px-1.5 py-1 outline-none focus:ring-1 focus:ring-indigo-300" />
+                    <span className="text-xs text-gray-400">×</span>
+                    <input type="number"
+                      value={item.quantity || 1} min={1}
+                      onChange={e => updateItemQuantity(i, Math.max(1, Number(e.target.value)))}
+                      className="w-12 text-xs font-bold text-center bg-white border border-gray-200 rounded-lg px-1.5 py-1 outline-none focus:ring-1 focus:ring-indigo-300" />
+                    <span className="text-xs text-gray-400">=</span>
+                    <span className="text-xs font-bold text-gray-700">¥{item.amount.toLocaleString()}</span>
+                  </div>
+                </div>
+              ))}
+
+              {/* 消費税等の差額表示 */}
+              {Math.abs(taxDiff) >= 2 && (
+                <div className={`flex items-center justify-between px-4 py-2.5 ${taxDiff > 0 ? "bg-amber-50" : "bg-emerald-50"}`}>
+                  <p className="text-xs font-medium text-gray-600">
+                    {taxDiff > 0 ? "🧾 消費税等" : "💰 値引き等"}
+                  </p>
+                  <p className={`text-xs font-bold ${taxDiff > 0 ? "text-amber-600" : "text-emerald-600"}`}>
+                    {taxDiff > 0 ? `+¥${taxDiff.toLocaleString()}` : `-¥${Math.abs(taxDiff).toLocaleString()}`}
+                  </p>
+                </div>
+              )}
+
+              <div className="flex justify-between px-4 py-2.5 bg-gray-50 border-t border-gray-100">
+                <p className="text-xs text-gray-500">品目合計</p>
+                <p className="text-xs font-bold text-gray-700">¥{itemsTotal.toLocaleString()}</p>
+              </div>
+            </div>
+          </div>
+        )}
 
         <PrimaryButton onClick={handleSave} variant="warning">✅ 更新して保存</PrimaryButton>
       </div>
