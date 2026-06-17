@@ -40,6 +40,9 @@ export function SettingsPage({
   const [newPointIcon,     setNewPointIcon]     = useState("⭐");
   const [newPointUnit,     setNewPointUnit]     = useState("pt");
 
+  // 共有設定用
+  const [inviteInput, setInviteInput] = useState("");
+
   const backupFileRef = useRef(null);
 
   const handleAdd = () => {
