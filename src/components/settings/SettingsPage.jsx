@@ -4,6 +4,7 @@ import { removeStorage } from "../../utils/storage";
 import { fmtCurrency } from "../../utils/format";
 import { PrimaryButton } from "../ui/PrimaryButton";
 import { EmptyState } from "../ui/EmptyState";
+import { getTransferKeywords, learnTransferKeyword, removeTransferKeyword } from "../../services/csvParser";
 
 export function SettingsPage({
   categories, onAddCat, onUpdateCat, onDeleteCat,
@@ -42,6 +43,14 @@ export function SettingsPage({
 
   // 共有設定用
   const [inviteInput, setInviteInput] = useState("");
+
+  // 振替キーワード管理用
+  const [transferKws,    setTransferKws]    = useState(() => getTransferKeywords());
+  const [newTransferKw,  setNewTransferKw]  = useState("");
+
+  // ポイント残高手動調整用
+  const [pointAdjust,     setPointAdjust]     = useState({});  // { [accountId]: 入力値 }
+  const [pointAdjustDate, setPointAdjustDate] = useState(() => new Date().toISOString().slice(0, 10));
 
   const backupFileRef = useRef(null);
 
@@ -118,6 +127,8 @@ export function SettingsPage({
     { id:"members",       label:"メンバー"    },
     { id:"points",        label:"ポイント口座" },
     { id:"share",         label:"共有設定"    },
+    { id:"datalinks",     label:"データ取得"  },
+    { id:"transfer",      label:"振替設定"    },
     { id:"rules",         label:"学習ルール"   },
     { id:"backup",        label:"バックアップ" },
     { id:"data",          label:"データ"       },
@@ -140,6 +151,137 @@ export function SettingsPage({
           </button>
         ))}
       </div>
+
+      {/* ── 振替設定 タブ ── */}
+      {tab === "transfer" && (
+        <div className="px-4 py-4 space-y-4">
+          <p className="text-xs text-gray-500 leading-relaxed">
+            銀行明細CSVの取り込み時に「振替」として自動判定するキーワードを管理します。振替は支出・収入に計上されません。
+          </p>
+
+          {/* キーワード追加 */}
+          <div className="flex gap-2">
+            <input type="text" value={newTransferKw} onChange={e => setNewTransferKw(e.target.value)}
+              placeholder="例: SBIハイブリッド預金"
+              className="flex-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-300" />
+            <button
+              onClick={() => {
+                if (!newTransferKw.trim()) return;
+                learnTransferKeyword(newTransferKw.trim());
+                setTransferKws(getTransferKeywords());
+                setNewTransferKw("");
+              }}
+              className="px-4 py-2 bg-indigo-500 text-white rounded-xl text-sm font-semibold">
+              追加
+            </button>
+          </div>
+
+          {/* キーワード一覧 */}
+          <div className="bg-white rounded-2xl overflow-hidden border border-gray-100">
+            {transferKws.map((kw, i) => (
+              <div key={i} className="flex items-center justify-between px-4 py-3 border-b border-gray-50 last:border-b-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm">🔄</span>
+                  <p className="text-sm text-gray-700">{kw}</p>
+                </div>
+                <button
+                  onClick={() => {
+                    removeTransferKeyword(kw);
+                    setTransferKws(getTransferKeywords());
+                  }}
+                  className="text-gray-300 hover:text-rose-400 text-xl">×</button>
+              </div>
+            ))}
+          </div>
+
+          <div className="bg-blue-50 rounded-xl p-3 border border-blue-100">
+            <p className="text-xs font-semibold text-blue-600 mb-1">💡 使い方</p>
+            <p className="text-xs text-blue-500 leading-relaxed">
+              取引一覧の「⋮」ボタンから「振替とする」を選ぶと、そのキーワードが自動で学習されます。次回CSVインポート時から自動除外されます。
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* ── データ取得リンク タブ ── */}
+      {tab === "datalinks" && (
+        <div className="px-4 py-4 space-y-3">
+          <p className="text-xs text-gray-500 leading-relaxed">
+            各サービスのダウンロードページへ直接移動できます。ファイルをダウンロード後、追加 → CSVインポートで取り込んでください。
+          </p>
+          {[
+            {
+              name: "エポスカード",
+              icon: "💳",
+              desc: "利用明細PDF（月次）",
+              url:  "https://www.eposcard.co.jp/memberservice/pc/paymentamountreference/disp_use_detail_preload.do",
+              color: "bg-red-50 border-red-200 text-red-700",
+            },
+            {
+              name: "三井住友カード",
+              icon: "💳",
+              desc: "Web明細CSV",
+              url:  "https://www.smbc-card.com/memx/web_meisai/top/index.html",
+              color: "bg-green-50 border-green-200 text-green-700",
+            },
+            {
+              name: "住信SBIネット銀行",
+              icon: "🏦",
+              desc: "入出金明細CSV",
+              url:  "https://www.netbk.co.jp/contents/pages/wpl020201C/i020201CT/DI02020150",
+              color: "bg-blue-50 border-blue-200 text-blue-700",
+            },
+            {
+              name: "SBI証券",
+              icon: "📈",
+              desc: "保有証券一覧CSV（SaveFile.csv）",
+              url:  "https://site3.sbisec.co.jp/ETGate/?_ControlID=WPLETacR002Control&_PageID=DefaultPID&getFlg=on",
+              color: "bg-emerald-50 border-emerald-200 text-emerald-700",
+            },
+            {
+              name: "JCBカード",
+              icon: "💳",
+              desc: "利用明細CSV",
+              url:  "https://my.jcb.co.jp/iss-pc/member/details_inquiry/detail.html",
+              color: "bg-orange-50 border-orange-200 text-orange-700",
+            },
+            {
+              name: "Amazon注文履歴",
+              icon: "📦",
+              desc: "注文履歴レポート（数日かかる場合あり）",
+              url:  "https://www.amazon.co.jp/hz/privacy-central/data-requests/preview.html",
+              color: "bg-yellow-50 border-yellow-200 text-yellow-700",
+            },
+            {
+              name: "PayPay",
+              icon: "📱",
+              desc: "アプリからのみ申請可能",
+              url:  null,
+              color: "bg-gray-50 border-gray-200 text-gray-500",
+            },
+          ].map(item => (
+            <div key={item.name} className={`rounded-xl p-3.5 border ${item.color}`}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <span className="text-2xl">{item.icon}</span>
+                  <div>
+                    <p className="text-sm font-bold">{item.name}</p>
+                    <p className="text-xs opacity-70 mt-0.5">{item.desc}</p>
+                  </div>
+                </div>
+                {item.url ? (
+                  <a href={item.url} target="_blank" rel="noopener noreferrer"
+                    className="px-3 py-2 bg-white rounded-lg text-xs font-semibold border border-current opacity-80 hover:opacity-100 whitespace-nowrap">
+                    開く →
+                  </a>
+                ) : (
+                  <span className="px-3 py-2 text-xs opacity-50">アプリのみ</span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* ── 共有設定 タブ ── */}
       {tab === "share" && (
@@ -282,11 +424,60 @@ export function SettingsPage({
             ))}
           </div>
 
-          {/* 残高調整の説明 */}
+          {/* 残高手動調整 */}
+          <div className="bg-white rounded-2xl p-4 border border-gray-100 space-y-3">
+            <p className="text-xs font-bold text-gray-600 uppercase tracking-wide">📅 残高の手動調整</p>
+            <p className="text-xs text-gray-400 leading-relaxed">
+              実際の残高を入力して「調整」を押すと、指定日付で差額を収支として記録します。
+            </p>
+            <div className="flex gap-2 items-center">
+              <label className="text-xs text-gray-500 whitespace-nowrap">調整日：</label>
+              <input type="date" value={pointAdjustDate} onChange={e => setPointAdjustDate(e.target.value)}
+                className="flex-1 text-xs px-2 py-1.5 bg-gray-50 border border-gray-200 rounded-lg outline-none" />
+            </div>
+            {(pointAccounts || []).map(a => (
+              <div key={a.id} className="flex items-center gap-2">
+                <span className="text-lg">{a.icon}</span>
+                <span className="text-xs text-gray-700 w-20 flex-shrink-0">{a.name}</span>
+                <span className="text-xs text-gray-400">現在: {a.balance.toLocaleString()}{a.unit}</span>
+                <input
+                  type="number"
+                  value={pointAdjust[a.id] ?? ""}
+                  onChange={e => setPointAdjust(p => ({ ...p, [a.id]: e.target.value }))}
+                  placeholder="実際の残高"
+                  className="flex-1 text-xs px-2 py-1.5 bg-gray-50 border border-gray-200 rounded-lg outline-none"
+                />
+                <button
+                  onClick={() => {
+                    const actual  = Number(pointAdjust[a.id]);
+                    if (isNaN(actual) || pointAdjust[a.id] === "") return;
+                    const diff    = actual - a.balance;
+                    if (Math.abs(diff) < 1) { alert("差額がありません"); return; }
+                    // 差額を取引として記録（登録日以前のデータには影響しない）
+                    onAdd?.({
+                      date:     pointAdjustDate,
+                      label:    `${a.name} 残高調整`,
+                      category: "その他",
+                      amount:   diff,
+                      type:     diff > 0 ? "income" : "expense",
+                      source:   "manual",
+                      pointAccountId: a.id,
+                      paymentMethod:  a.id,
+                    });
+                    setPointAdjust(p => ({ ...p, [a.id]: "" }));
+                    alert(`✅ ${a.name}に¥${Math.abs(diff).toLocaleString()}の${diff > 0 ? "収入" : "支出"}を記録しました`);
+                  }}
+                  className="px-2 py-1.5 bg-indigo-500 text-white rounded-lg text-xs font-semibold whitespace-nowrap">
+                  調整
+                </button>
+              </div>
+            ))}
+          </div>
+
           <div className="bg-amber-50 rounded-xl p-3 border border-amber-100">
-            <p className="text-xs font-semibold text-amber-600 mb-1">📌 残高調整について</p>
+            <p className="text-xs font-semibold text-amber-600 mb-1">📌 仕組み</p>
             <p className="text-xs text-amber-500 leading-relaxed">
-              実際の残高と差がある場合は、取引追加から「残高調整」として収入/支出を記録してください。
+              調整日以前の過去データには影響しません。差額のみを新しい取引として記録します。
             </p>
           </div>
         </div>
