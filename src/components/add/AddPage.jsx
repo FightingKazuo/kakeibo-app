@@ -411,7 +411,13 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
     const expTotal = toImport.filter(r => r.type === "expense").reduce((s, r) => s + Math.abs(r.amount), 0);
     const incTotal = toImport.filter(r => r.type === "income").reduce((s, r) => s + r.amount, 0);
     toImport.forEach(r => {
-      onAdd(createTransaction({ ...r, source: "csv" }));
+      // PayPayのCSVはPayPay口座から自動差し引き
+      const payPayAccount = (pointAccounts || []).find(a => a.name === "PayPay");
+      const isPayPay = csvDetected?.includes("PayPay") || csvDetected?.includes("paypay");
+      const enriched = isPayPay && payPayAccount && r.type === "expense"
+        ? { ...r, pointAccountId: payPayAccount.id, paymentMethod: payPayAccount.id }
+        : r;
+      onAdd(createTransaction({ ...enriched, source: "csv" }));
       if (r.label && r.category) onLearnRule?.(r.label, r.category, r.type || "expense");
     });
     setCsvSummary({ count: toImport.length, skipped: csvRows.length - toImport.length, expTotal, incTotal });
