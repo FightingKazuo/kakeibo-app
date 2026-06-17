@@ -1,11 +1,13 @@
 // ============================================================
-// geminiOcr.js  (v7 — 429詳細取得・AQ.キー認証修正)
+// geminiOcr.js  (v8 — maxTokens増加・バージョン管理追加)
 //
 // 変更点:
-//   - 429レスポンスのボディを取得してエラーメッセージに表示
-//   - AQ.キーをAPIキー方式でも試す（両方試してどちらか成功した方を使う）
-//   - 全モデル失敗時のエラーメッセージに詳細を含める
+//   v8: analyzeWithGemini を4096、analyzePDFWithGemini を8192に増加
+//       GEMINI_OCR_VERSION をエクスポート（設定画面での確認用）
+//   v7: 429詳細取得・AQ.キー認証修正
 // ============================================================
+
+export const GEMINI_OCR_VERSION = "v8";
 
 const ENDPOINTS = [
   { base: "https://generativelanguage.googleapis.com/v1beta/models", model: "gemini-2.5-flash" },
@@ -240,20 +242,32 @@ export const analyzePDFWithGemini = async (file, apiKey, onProgress) => {
   const parsed = await callGemini(
     apiKey,
     [
-      { text: `このクレジットカード・銀行明細PDFから全取引を抽出。JSONのみ出力：
+      { text: `このクレジットカード・銀行明細PDFから全取引を抽出してください。JSONのみ出力（コードブロック不要）：
 {"cardName":"カード名","transactions":[{"date":"YYYY-MM-DD","label":"取引先名","amount":金額整数}]}
-・date はYYYY-MM-DD形式・amountは正の整数・合計行除外` },
+
+抽出ルール：
+・dateはYYYY-MM-DD形式（例: 26年04月26日 → 2026-04-26）
+・amountは正の整数（支払金額・今回お支払金額の列を使う）
+・合計行・小計行・ポイント行・手数料内訳行は除外
+・エポスカードの場合：「ＡＰ／」「ＱＰ／」などのプレフィックスをlabelから除去
+・店舗名は日本語に変換（全角→半角）して簡潔に
+・同じ日付・同じ店舗・同じ金額の重複行は1件のみ
+・分割払いの場合は今回のお支払金額のみ抽出` },
       { inline_data: { mime_type: "application/pdf", data: base64 } },
     ],
-    8192  // PDFは取引件数が多いため大きめに設定
+    8192
   );
   onProgress?.(90);
   const transactions = (parsed.transactions || [])
     .map(t => ({
-      date: String(t.date || "").replace(/\//g, "-").trim(),
-      label: String(t.label || "不明").trim(),
-      amount: -Math.abs(Number(t.amount) || 0),
-      type: "expense", category: "その他", source: "csv",
+      date:  String(t.date || "").replace(/\//g, "-").trim(),
+      label: String(t.label || "不明")
+        .replace(/^(AP|QP|ＡＰ|ＱＰ)[\/／]/, "")  // プレフィックス除去
+        .trim(),
+      amount:   -Math.abs(Number(t.amount) || 0),
+      type:     "expense",
+      category: "その他",
+      source:   "csv",
     }))
     .filter(t => t.date && t.amount < 0);
   onProgress?.(100);
