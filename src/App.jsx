@@ -11,12 +11,14 @@ import {
   saveCategories, saveLearnedRules, saveMembers, savePointAccounts,
   testConnection,
 } from "./utils/supabase";
+import { learnTransferKeyword } from "./services/csvParser";
 
 import { HomePage }            from "./components/home/HomePage";
 import { TransactionListPage } from "./components/transactions/TransactionListPage";
 import { AddPage }             from "./components/add/AddPage";
 import { EditPage }            from "./components/add/EditPage";
 import { AnalysisPage }        from "./components/analysis/AnalysisPage";
+import { AssetsPage }          from "./components/assets/AssetsPage";
 import { SettingsPage }        from "./components/settings/SettingsPage";
 import { BottomNav }           from "./components/layout/BottomNav";
 
@@ -25,6 +27,7 @@ const NAV_ITEMS = [
   { id: "list",     icon: "📋", label: "一覧"     },
   { id: "add",      icon: "➕", label: "追加"     },
   { id: "analysis", icon: "📊", label: "分析"     },
+  { id: "assets",   icon: "💰", label: "資産"     },
   { id: "settings", icon: "⚙️", label: "設定"     },
 ];
 
@@ -257,7 +260,16 @@ export default function App() {
       case "home":
         return <HomePage transactions={transactions} categories={categories} pointAccounts={pointAccountsWithBalance} onNavigate={navigate} />;
       case "list":
-        return <TransactionListPage transactions={transactions} categories={categories} onEdit={setEditingTx} onDelete={handleDelete} onNavigate={navigate} />;
+        return <TransactionListPage
+          transactions={transactions}
+          categories={categories}
+          members={members}
+          pointAccounts={pointAccountsWithBalance}
+          onEdit={setEditingTx}
+          onDelete={handleDelete}
+          onUpdate={handleUpdate}
+          onNavigate={navigate}
+        />;
       case "add":
         return <AddPage
           categories={categories}
@@ -272,6 +284,8 @@ export default function App() {
         />;
       case "analysis":
         return <AnalysisPage transactions={transactions} categories={categories} members={members} pointAccounts={pointAccountsWithBalance} />;
+      case "assets":
+        return <AssetsPage transactions={transactions} pointAccounts={pointAccountsWithBalance} />;
       case "settings":
         return <SettingsPage
           categories={categories}
@@ -311,6 +325,7 @@ export default function App() {
           ${currentPage === "list"     ? "max-w-4xl" : ""}
           ${currentPage === "add"      ? "max-w-2xl" : ""}
           ${currentPage === "analysis" ? "max-w-4xl" : ""}
+          ${currentPage === "assets"   ? "max-w-2xl" : ""}
           ${currentPage === "settings" ? "max-w-2xl" : ""}
         `}>
           <main>{renderPage()}</main>
