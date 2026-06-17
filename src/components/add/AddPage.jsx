@@ -1169,6 +1169,23 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
               <span className="text-xs text-gray-300">|</span>
               <button onClick={() => { const n = {}; csvRows.forEach((r, i) => n[i] = !r.isDuplicate); setCsvChecked(n); }} className="text-xs text-indigo-500 font-semibold">重複以外</button>
             </div>
+
+            {/* ── 一括カテゴリ編集 ── */}
+            <div className="bg-indigo-50 rounded-xl p-3 border border-indigo-100">
+              <p className="text-xs font-semibold text-indigo-600 mb-2">🏷️ 一括カテゴリ変更（選択中の件に適用）</p>
+              <div className="flex flex-wrap gap-1.5">
+                {categories.filter(c => c.type === "expense").map(cat => (
+                  <button key={cat.id}
+                    onClick={() => {
+                      setCsvRows(p => p.map((r, i) => csvChecked[i] ? { ...r, category: cat.name } : r));
+                    }}
+                    className="px-2.5 py-1 bg-white rounded-lg text-xs border border-indigo-200 text-gray-600 hover:bg-indigo-500 hover:text-white hover:border-indigo-500 transition-all">
+                    {cat.emoji} {cat.name}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-indigo-400 mt-1.5">※ チェックした件のカテゴリをまとめて変更できます</p>
+            </div>
             <div className="bg-white rounded-xl overflow-hidden border border-gray-100">
               {csvRows.map((r, i) => (
                 <div key={i} className={`border-b border-gray-50 last:border-b-0 ${r.isDuplicate ? "bg-amber-50" : ""}`}>
