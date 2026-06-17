@@ -42,15 +42,16 @@ function ItemTypeToggle({ type, onChange }) {
 }
 
 // ─── 品目リスト（アコーディオン）────────────────────────────
-function ItemsAccordion({ items, onToggleType, totalAmount }) {
+function ItemsAccordion({ items, onToggleType, onEditAmount, totalAmount }) {
   const [open, setOpen] = useState(false);
   if (!items || items.length === 0) return null;
 
-  const sharedTotal   = items.filter(i => i.type === "personal" ? false : true)
-                             .reduce((s, i) => s + i.amount, 0);
-  const personalTotal = items.filter(i => i.type === "personal")
-                             .reduce((s, i) => s + i.amount, 0);
-  const hasPersonal = personalTotal > 0;
+  const sharedTotal   = items.filter(i => (i.type || "shared") !== "personal").reduce((s, i) => s + i.amount, 0);
+  const personalTotal = items.filter(i => i.type === "personal").reduce((s, i) => s + i.amount, 0);
+  const hasPersonal   = personalTotal > 0;
+  const itemsSum      = items.reduce((s, i) => s + i.amount, 0);
+  const diff          = totalAmount ? Math.round(totalAmount - itemsSum) : 0;
+  const hasDiff       = Math.abs(diff) >= 2;
 
   return (
     <div className="border border-gray-100 rounded-xl overflow-hidden">
@@ -60,10 +61,9 @@ function ItemsAccordion({ items, onToggleType, totalAmount }) {
       >
         <span className="font-medium text-gray-700">品目 {items.length}件</span>
         <div className="flex items-center gap-3">
-          {hasPersonal && (
-            <span className="text-xs text-rose-500 font-medium">個人 {fmtCurrency(personalTotal)}</span>
-          )}
+          {hasPersonal && <span className="text-xs text-rose-500 font-medium">個人 {fmtCurrency(personalTotal)}</span>}
           <span className="text-xs text-indigo-500 font-medium">共有 {fmtCurrency(sharedTotal)}</span>
+          {hasDiff && <span className="text-xs text-amber-500 font-medium">差額 ¥{Math.abs(diff)}</span>}
           <span className="text-gray-400">{open ? "▲" : "▼"}</span>
         </div>
       </button>
@@ -77,12 +77,31 @@ function ItemsAccordion({ items, onToggleType, totalAmount }) {
                   <p className="text-xs text-gray-400">×{item.quantity} @¥{item.unitPrice?.toLocaleString()}</p>
                 )}
               </div>
-              <p className="text-xs font-bold text-gray-700 flex-shrink-0">
-                ¥{item.amount.toLocaleString()}
-              </p>
+              {/* 品目金額編集 */}
+              {onEditAmount ? (
+                <input
+                  type="number"
+                  value={item.amount}
+                  onChange={e => onEditAmount(i, Number(e.target.value))}
+                  className="w-20 text-xs font-bold text-gray-700 text-right bg-gray-50 border border-gray-200 rounded-lg px-2 py-1 outline-none focus:ring-1 focus:ring-indigo-300"
+                />
+              ) : (
+                <p className="text-xs font-bold text-gray-700 flex-shrink-0">¥{item.amount.toLocaleString()}</p>
+              )}
               <ItemTypeToggle type={item.type || "shared"} onChange={t => onToggleType(i, t)} />
             </div>
           ))}
+          {/* 消費税等の差額表示 */}
+          {hasDiff && (
+            <div className={`flex items-center justify-between px-4 py-2.5 ${diff > 0 ? "bg-amber-50" : "bg-emerald-50"}`}>
+              <p className="text-xs font-medium text-gray-600">
+                {diff > 0 ? "🧾 消費税等" : "💰 値引き等"}
+              </p>
+              <p className={`text-xs font-bold ${diff > 0 ? "text-amber-600" : "text-emerald-600"}`}>
+                {diff > 0 ? `+¥${diff.toLocaleString()}` : `-¥${Math.abs(diff).toLocaleString()}`}
+              </p>
+            </div>
+          )}
         </div>
       )}
       {hasPersonal && (
@@ -132,14 +151,20 @@ function CsvOcrDupModal({ ocrTxs, csvCandidates, onDecide }) {
         </div>
         <div className="space-y-2">
           <button
-            onClick={() => onDecide("ocr-win")}
+            onClick={() => onDecide("merge")}
             className="w-full py-3 bg-indigo-500 text-white rounded-xl text-sm font-bold"
           >
-            ✅ OCRを残してCSVを削除
+            ✅ CSVデータ＋品目情報をマージ（推奨）
+          </button>
+          <button
+            onClick={() => onDecide("ocr-win")}
+            className="w-full py-3 bg-white border border-gray-300 text-gray-700 rounded-xl text-sm font-medium"
+          >
+            📷 OCRを残してCSVを削除
           </button>
           <button
             onClick={() => onDecide("both")}
-            className="w-full py-3 bg-white border border-gray-300 text-gray-700 rounded-xl text-sm font-medium"
+            className="w-full py-3 bg-white border border-gray-200 text-gray-500 rounded-xl text-sm font-medium"
           >
             両方残す
           </button>
@@ -265,6 +290,9 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
   const toggleOcrItemType = (idx, type) =>
     setOcrItems(p => p.map((item, i) => i === idx ? { ...item, type } : item));
 
+  const editOcrItemAmount = (idx, amount) =>
+    setOcrItems(p => p.map((item, i) => i === idx ? { ...item, amount } : item));
+
   const toggleMultiItemType = (resultIdx, itemIdx, type) =>
     setOcrResults(p => p.map((r, ri) =>
       ri !== resultIdx ? r : {
@@ -365,7 +393,8 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
 
       const existKeys = new Set(existingTransactions.map(DUPLICATE_KEY));
       const withDup   = allRows.map(r => ({ ...r, isDuplicate: existKeys.has(DUPLICATE_KEY(r)) }));
-      const init      = {}; withDup.forEach((_, i) => init[i] = !withDup[i].isDuplicate);
+      // 重複 or カード引き落とし行は初期チェックOFF
+      const init      = {}; withDup.forEach((_, i) => init[i] = !withDup[i].isDuplicate && !withDup[i].isCardWithdrawal);
       setCsvRows(withDup); setCsvChecked(init);
       setCsvStep(allRows.length === 0 ? "empty" : "preview");
     } catch {
@@ -394,17 +423,32 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
 
   // ─── ocr ───
 
-  /** CSV重複候補を検索（同日付 ＋ 金額±5%以内） */
+  /** CSV重複候補を検索（日付±3日 ＋ 金額±10%以内） */
   const findCsvDuplicates = (date, amount) => {
-    const amt = Math.abs(Number(amount));
+    const amt     = Math.abs(Number(amount));
+    const dateObj = new Date(date);
     return existingTransactions.filter(tx => {
       if (tx.source !== "csv") return false;
-      if (tx.date !== date) return false;
+      // 日付±3日以内
+      const diffDays = Math.abs(new Date(tx.date) - dateObj) / 86400000;
+      if (diffDays > 3) return false;
       const txAmt = Math.abs(tx.amount);
       if (txAmt === 0 || amt === 0) return false;
+      // 金額±10%以内（PayPayは手数料で多少ズレる）
       const diff = Math.abs(txAmt - amt) / Math.max(txAmt, amt);
-      return diff <= 0.05; // ±5%以内
+      return diff <= 0.10;
     });
+  };
+
+  /** OCR品目をCSV取引にマージして更新する */
+  const mergeOcrItemsIntoCSV = (csvTx, ocrTxs) => {
+    const allItems = ocrTxs.flatMap(t => t.items || []);
+    return {
+      ...csvTx,
+      items:     allItems,
+      source:    "csv",            // CSV主体を維持
+      updatedAt: new Date().toISOString(),
+    };
   };
 
   const registerOcr = (label, amount, date, cat, items) => {
@@ -467,7 +511,15 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
   };
 
   const handleDupModalDecide = (d) => {
-    if (d === "ocr-win" && dupModal?.txs) {
+    if (d === "merge" && dupModal?.txs && dupModal?.candidates) {
+      // CSVデータ主体＋OCR品目を引き継ぐマージ
+      const csvTx   = dupModal.candidates[0];
+      const merged  = mergeOcrItemsIntoCSV(csvTx, dupModal.txs);
+      onDelete?.(csvTx.id);      // 元のCSV取引を削除
+      onAdd(merged);             // マージ済み取引を追加
+      setOcrStep("done");
+      setTimeout(() => { setOcrStep("upload"); setMode("select"); }, 1500);
+    } else if (d === "ocr-win" && dupModal?.txs) {
       // OCRを残してCSVを削除
       dupModal.candidates.forEach(tx => onDelete?.(tx.id));
       dupModal.txs.forEach(tx => onAdd(tx));
@@ -953,6 +1005,7 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
                 <ItemsAccordion
                   items={ocrItems}
                   onToggleType={toggleOcrItemType}
+                  onEditAmount={editOcrItemAmount}
                   totalAmount={Number(ocrAmount)}
                 />
               </div>
@@ -1222,7 +1275,15 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
 
             {/* ── 一括カテゴリ編集 ── */}
             <div className="bg-indigo-50 rounded-xl p-3 border border-indigo-100">
-              <p className="text-xs font-semibold text-indigo-600 mb-2">🏷️ 一括カテゴリ変更（選択中の件に適用）</p>
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-semibold text-indigo-600">🏷️ 一括カテゴリ変更（選択中の件に適用）</p>
+                <div className="flex gap-2">
+                  <button onClick={() => { const n = {}; csvRows.forEach((_, i) => n[i] = true); setCsvChecked(n); }}
+                    className="text-xs text-indigo-500 font-semibold bg-white px-2 py-1 rounded-lg border border-indigo-200">全ON</button>
+                  <button onClick={() => { const n = {}; csvRows.forEach((_, i) => n[i] = false); setCsvChecked(n); }}
+                    className="text-xs text-gray-500 font-semibold bg-white px-2 py-1 rounded-lg border border-gray-200">全OFF</button>
+                </div>
+              </div>
               <div className="flex flex-wrap gap-1.5">
                 {categories.filter(c => c.type === "expense").map(cat => (
                   <button key={cat.id}
@@ -1245,6 +1306,7 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
                       <div className="flex items-center gap-1">
                         <p className="text-sm font-medium text-gray-800 truncate">{r.label}</p>
                         {r.isDuplicate && <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full flex-shrink-0">重複</span>}
+                        {r.isCardWithdrawal && <span className="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full flex-shrink-0">💳 引落</span>}
                       </div>
                       <p className="text-xs text-gray-400">{r.category} · {r.date}</p>
                     </div>
