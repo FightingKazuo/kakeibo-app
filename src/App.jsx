@@ -311,9 +311,10 @@ export default function App() {
       case "settings":
         return <SettingsPage
           categories={categories}
-          onAddCat={(c)     => handleCategoriesChange([...categories, c])}
-          onUpdateCat={(c)  => handleCategoriesChange(categories.map(x => x.id === c.id ? c : x))}
-          onDeleteCat={(id) => handleCategoriesChange(categories.filter(x => x.id !== id))}
+          onAddCat={(c)       => handleCategoriesChange([...categories, c])}
+          onUpdateCat={(c)    => handleCategoriesChange(categories.map(x => x.id === c.id ? c : x))}
+          onDeleteCat={(id)   => handleCategoriesChange(categories.filter(x => x.id !== id))}
+          onReorderCat={(cats) => handleCategoriesChange(cats)}
           learnedRules={learnedRules}
           onDeleteRule={handleDeleteRule}
           transactions={transactions}
