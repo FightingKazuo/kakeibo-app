@@ -5,7 +5,7 @@ import { PIE_COLORS } from "../../constants";
 import { MonthSelector } from "../common/MonthSelector";
 import { EmptyState } from "../ui/EmptyState";
 
-export function AnalysisPage({ transactions, categories, members }) {
+export function AnalysisPage({ transactions, categories, members, pointAccounts, onUpdate }) {
   const [tab,      setTab]      = useState("analysis");
   const [selMonth, setSelMonth] = useState("all");
 
@@ -18,6 +18,10 @@ export function AnalysisPage({ transactions, categories, members }) {
   }, [transactions]);
   const [settleDateFrom, setSettleDateFrom] = useState(today.slice(0, 7) + "-01");
   const [settleDateTo,   setSettleDateTo]   = useState(today);
+
+  // ── 支払者未設定の一括設定 ──
+  const [selectedUnset,  setSelectedUnset]  = useState(new Set());
+  const [showUnsetPanel, setShowUnsetPanel] = useState(false);
 
   const months = useMemo(
     () => [...new Set(transactions.map(t => toYM(t.date)))].sort().reverse(),
@@ -134,6 +138,19 @@ export function AnalysisPage({ transactions, categories, members }) {
 
     return { balances, totalShared, perPerson, settlements, txCount: target.length };
   }, [transactions, members, settleDateFrom, settleDateTo]);
+
+  // ── 支払者未設定の取引 ──────────────────────────────────────
+  const unsetPayerTxs = useMemo(() =>
+    transactions.filter(t =>
+      t.type === "expense" &&
+      !t.paidBy &&
+      t.shareType !== "personal" &&
+      t.shareType !== "partner" &&
+      t.date >= settleDateFrom &&
+      t.date <= settleDateTo
+    ),
+    [transactions, settleDateFrom, settleDateTo]
+  );
 
   if (transactions.length === 0) return (
     <div className="pb-20">
@@ -319,12 +336,100 @@ export function AnalysisPage({ transactions, categories, members }) {
             </div>
           ) : (
             <>
-              {/* 注記 */}
-              <div className="bg-blue-50 rounded-xl p-3 border border-blue-100">
-                <p className="text-xs text-blue-600">
-                  💡 支払者未設定の取引は「{members[0]?.name}」が支払ったとして計算しています
-                </p>
-              </div>
+              {/* 支払者未設定の警告 */}
+              {unsetPayerTxs.length > 0 && (
+                <div className="bg-rose-50 rounded-2xl border border-rose-200 overflow-hidden">
+                  <button
+                    onClick={() => setShowUnsetPanel(p => !p)}
+                    className="w-full flex items-center justify-between px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-rose-500 text-lg">⚠️</span>
+                      <div className="text-left">
+                        <p className="text-sm font-bold text-rose-700">支払者未設定 {unsetPayerTxs.length}件</p>
+                        <p className="text-xs text-rose-500">タップして一括設定</p>
+                      </div>
+                    </div>
+                    <span className="text-rose-400">{showUnsetPanel ? "▲" : "▼"}</span>
+                  </button>
+
+                  {showUnsetPanel && (
+                    <div className="border-t border-rose-200 bg-white">
+                      <div className="px-4 py-3 bg-rose-50 border-b border-rose-100 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <p className="text-xs font-semibold text-rose-600">{selectedUnset.size}件選択中</p>
+                          <div className="flex gap-2">
+                            <button onClick={() => setSelectedUnset(new Set(unsetPayerTxs.map(t => t.id)))}
+                              className="text-xs text-rose-500 font-semibold bg-white px-2 py-1 rounded-lg border border-rose-200">全選択</button>
+                            <button onClick={() => setSelectedUnset(new Set())}
+                              className="text-xs text-gray-500 font-semibold bg-white px-2 py-1 rounded-lg border border-gray-200">解除</button>
+                          </div>
+                        </div>
+                        {selectedUnset.size > 0 && (
+                          <div className="flex flex-wrap gap-2">
+                            {members.map(m => (
+                              <button key={m.id}
+                                onClick={() => {
+                                  selectedUnset.forEach(id => {
+                                    const tx = transactions.find(t => t.id === id);
+                                    if (tx) onUpdate?.({ ...tx, paidBy: m.id, updatedAt: new Date().toISOString() });
+                                  });
+                                  setSelectedUnset(new Set());
+                                }}
+                                className="px-3 py-1.5 bg-indigo-500 text-white rounded-xl text-xs font-semibold">
+                                👤 {m.name}が払った
+                              </button>
+                            ))}
+                            <button
+                              onClick={() => {
+                                selectedUnset.forEach(id => {
+                                  const tx = transactions.find(t => t.id === id);
+                                  if (tx) onUpdate?.({ ...tx, shareType: "personal", updatedAt: new Date().toISOString() });
+                                });
+                                setSelectedUnset(new Set());
+                              }}
+                              className="px-3 py-1.5 bg-rose-400 text-white rounded-xl text-xs font-semibold">
+                              👤 個人費用
+                            </button>
+                            <button
+                              onClick={() => {
+                                selectedUnset.forEach(id => {
+                                  const tx = transactions.find(t => t.id === id);
+                                  if (tx) onUpdate?.({ ...tx, shareType: "shared", paidBy: members[0]?.id, updatedAt: new Date().toISOString() });
+                                });
+                                setSelectedUnset(new Set());
+                              }}
+                              className="px-3 py-1.5 bg-emerald-500 text-white rounded-xl text-xs font-semibold">
+                              🤝 共有（自分払い）
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                      <div className="divide-y divide-gray-50 max-h-64 overflow-y-auto">
+                        {unsetPayerTxs.map(t => (
+                          <div key={t.id}
+                            onClick={() => setSelectedUnset(prev => {
+                              const next = new Set(prev);
+                              next.has(t.id) ? next.delete(t.id) : next.add(t.id);
+                              return next;
+                            })}
+                            className={"flex items-center gap-3 px-4 py-3 cursor-pointer " + (selectedUnset.has(t.id) ? "bg-indigo-50" : "bg-white")}>
+                            <div className={"w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 " + (selectedUnset.has(t.id) ? "bg-indigo-500 border-indigo-500" : "border-gray-300")}>
+                              {selectedUnset.has(t.id) && <span className="text-white text-xs">✓</span>}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-gray-800 truncate">{t.label}</p>
+                              <p className="text-xs text-gray-400">{t.category} · {t.date}</p>
+                            </div>
+                            <p className="text-sm font-bold text-rose-600 flex-shrink-0">
+                              -{fmtCurrency(Math.abs(t.amount))}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
               {/* 合計サマリー */}
               <div className="bg-white rounded-2xl p-4 border border-gray-100">
                 <p className="text-xs font-semibold text-gray-500 mb-3 uppercase tracking-wide">共有支出合計</p>
