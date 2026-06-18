@@ -365,42 +365,38 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
                           </div>
                         </div>
                         {selectedUnset.size > 0 && (
-                          <div className="flex flex-wrap gap-2">
-                            {members.map(m => (
-                              <button key={m.id}
+                          <div className="space-y-2">
+                            <p className="text-xs text-rose-600 font-semibold">
+                              {selectedUnset.size}件に適用する設定を選択：
+                            </p>
+                            <div className="flex flex-wrap gap-2">
+                              {members.map(m => (
+                                <button key={m.id}
+                                  onClick={() => {
+                                    if (!window.confirm(`選択中の${selectedUnset.size}件を「${m.name}が払った」に設定しますか？`)) return;
+                                    selectedUnset.forEach(id => {
+                                      const tx = transactions.find(t => t.id === id);
+                                      if (tx) onUpdate?.({ ...tx, paidBy: m.id, shareType: "shared", updatedAt: new Date().toISOString() });
+                                    });
+                                    setSelectedUnset(new Set());
+                                  }}
+                                  className="px-3 py-2 bg-indigo-500 text-white rounded-xl text-xs font-semibold flex items-center gap-1">
+                                  👤 {m.name}が払った
+                                </button>
+                              ))}
+                              <button
                                 onClick={() => {
+                                  if (!window.confirm(`選択中の${selectedUnset.size}件を「個人費用」に設定しますか？精算対象から除外されます。`)) return;
                                   selectedUnset.forEach(id => {
                                     const tx = transactions.find(t => t.id === id);
-                                    if (tx) onUpdate?.({ ...tx, paidBy: m.id, updatedAt: new Date().toISOString() });
+                                    if (tx) onUpdate?.({ ...tx, shareType: "personal", updatedAt: new Date().toISOString() });
                                   });
                                   setSelectedUnset(new Set());
                                 }}
-                                className="px-3 py-1.5 bg-indigo-500 text-white rounded-xl text-xs font-semibold">
-                                👤 {m.name}が払った
+                                className="px-3 py-2 bg-rose-400 text-white rounded-xl text-xs font-semibold">
+                                👤 個人費用
                               </button>
-                            ))}
-                            <button
-                              onClick={() => {
-                                selectedUnset.forEach(id => {
-                                  const tx = transactions.find(t => t.id === id);
-                                  if (tx) onUpdate?.({ ...tx, shareType: "personal", updatedAt: new Date().toISOString() });
-                                });
-                                setSelectedUnset(new Set());
-                              }}
-                              className="px-3 py-1.5 bg-rose-400 text-white rounded-xl text-xs font-semibold">
-                              👤 個人費用
-                            </button>
-                            <button
-                              onClick={() => {
-                                selectedUnset.forEach(id => {
-                                  const tx = transactions.find(t => t.id === id);
-                                  if (tx) onUpdate?.({ ...tx, shareType: "shared", paidBy: members[0]?.id, updatedAt: new Date().toISOString() });
-                                });
-                                setSelectedUnset(new Set());
-                              }}
-                              className="px-3 py-1.5 bg-emerald-500 text-white rounded-xl text-xs font-semibold">
-                              🤝 共有（自分払い）
-                            </button>
+                            </div>
                           </div>
                         )}
                       </div>
