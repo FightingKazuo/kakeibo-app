@@ -427,10 +427,32 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
       const detectedLabel = [...detectedLabels].join(" / ") || "generic";
       setCsvDetected(detectedLabel);
 
-      const existKeys = new Set(existingTransactions.map(DUPLICATE_KEY));
-      const withDup   = allRows.map(r => ({ ...r, isDuplicate: existKeys.has(DUPLICATE_KEY(r)) }));
+      const existKeys  = new Set(existingTransactions.map(DUPLICATE_KEY));
+      // CSV-OCR重複検出（日付±3日・金額±10%）
+      const findOcrDup = (row) => {
+        const amt     = Math.abs(row.amount);
+        const dateObj = new Date(row.date);
+        return existingTransactions.find(tx => {
+          if (tx.source !== "ocr") return false;
+          const diffDays = Math.abs(new Date(tx.date) - dateObj) / 86400000;
+          if (diffDays > 3) return false;
+          const txAmt = Math.abs(tx.amount);
+          if (txAmt === 0 || amt === 0) return false;
+          const diff = Math.abs(txAmt - amt) / Math.max(txAmt, amt);
+          return diff <= 0.10;
+        });
+      };
+      const withDup = allRows.map(r => {
+        const exactDup = existKeys.has(DUPLICATE_KEY(r));
+        const ocrDup   = !exactDup ? findOcrDup(r) : null;
+        return {
+          ...r,
+          isDuplicate:    exactDup,
+          ocrDuplicate:   ocrDup || null,  // OCRとの重複候補
+        };
+      });
       // 重複 or カード引き落とし行は初期チェックOFF
-      const init      = {}; withDup.forEach((_, i) => init[i] = !withDup[i].isDuplicate && !withDup[i].isCardWithdrawal);
+      const init = {}; withDup.forEach((_, i) => init[i] = !withDup[i].isDuplicate && !withDup[i].isCardWithdrawal && !withDup[i].ocrDuplicate);
       setCsvRows(withDup); setCsvChecked(init);
       setCsvStep(allRows.length === 0 ? "empty" : "preview");
     } catch {
@@ -453,7 +475,20 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
       const enriched = isPayPay && payPayAccount && r.type === "expense"
         ? { ...r, pointAccountId: payPayAccount.id, paymentMethod: payPayAccount.id }
         : r;
-      onAdd(createTransaction({ ...enriched, source: "csv" }));
+
+      // OCR重複がある場合はマージ（CSVデータ主体＋OCRの品目を引き継ぐ）
+      if (r.ocrDuplicate) {
+        const ocrTx  = r.ocrDuplicate;
+        const merged = {
+          ...enriched,
+          items:  ocrTx.items || [],    // OCRの品目情報を引き継ぐ
+          source: "csv",
+        };
+        onDelete?.(ocrTx.id);           // 元のOCR取引を削除
+        onAdd(createTransaction({ ...merged, source: "csv" }));
+      } else {
+        onAdd(createTransaction({ ...enriched, source: "csv" }));
+      }
       if (r.label && r.category) onLearnRule?.(r.label, r.category, r.type || "expense");
     });
     setCsvSummary({ count: toImport.length, skipped: csvRows.length - toImport.length, expTotal, incTotal });
@@ -1408,11 +1443,17 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
                   <div className="flex items-center gap-3 px-4 py-3">
                     <input type="checkbox" checked={!!csvChecked[i]} onChange={() => setCsvChecked(p => ({ ...p, [i]: !p[i] }))} className="accent-indigo-500 flex-shrink-0" />
                     <div className="flex-1 min-w-0" onClick={() => setCsvEditIdx(csvEditIdx === i ? null : i)}>
-                      <div className="flex items-center gap-1">
+                      <div className="flex items-center gap-1 flex-wrap">
                         <p className="text-sm font-medium text-gray-800 truncate">{r.label}</p>
-                        {r.isDuplicate && <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full flex-shrink-0">重複</span>}
+                        {r.isDuplicate    && <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full flex-shrink-0">重複</span>}
                         {r.isCardWithdrawal && <span className="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full flex-shrink-0">💳 引落</span>}
+                        {r.ocrDuplicate   && <span className="text-xs bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full flex-shrink-0">📷 OCR重複</span>}
                       </div>
+                      {r.ocrDuplicate && (
+                        <p className="text-xs text-purple-500 mt-0.5">
+                          OCR:「{r.ocrDuplicate.label}」¥{Math.abs(r.ocrDuplicate.amount).toLocaleString()}と重複の可能性
+                        </p>
+                      )}
                       <p className="text-xs text-gray-400">{r.category} · {r.date}</p>
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0">
