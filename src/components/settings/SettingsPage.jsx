@@ -488,40 +488,46 @@ export function SettingsPage({
                 className="flex-1 text-xs px-2 py-1.5 bg-gray-50 border border-gray-200 rounded-lg outline-none" />
             </div>
             {(pointAccounts || []).map(a => (
-              <div key={a.id} className="flex items-center gap-2">
-                <span className="text-lg">{a.icon}</span>
-                <span className="text-xs text-gray-700 w-20 flex-shrink-0">{a.name}</span>
-                <span className="text-xs text-gray-400">現在: {a.balance.toLocaleString()}{a.unit}</span>
-                <input
-                  type="number"
-                  value={pointAdjust[a.id] ?? ""}
-                  onChange={e => setPointAdjust(p => ({ ...p, [a.id]: e.target.value }))}
-                  placeholder="実際の残高"
-                  className="flex-1 text-xs px-2 py-1.5 bg-gray-50 border border-gray-200 rounded-lg outline-none"
-                />
-                <button
-                  onClick={() => {
-                    const actual  = Number(pointAdjust[a.id]);
-                    if (isNaN(actual) || pointAdjust[a.id] === "") return;
-                    const diff    = actual - a.balance;
-                    if (Math.abs(diff) < 1) { alert("差額がありません"); return; }
-                    // 差額を取引として記録（登録日以前のデータには影響しない）
-                    onAdd?.({
-                      date:     pointAdjustDate,
-                      label:    `${a.name} 残高調整`,
-                      category: "その他",
-                      amount:   diff,
-                      type:     diff > 0 ? "income" : "expense",
-                      source:   "manual",
-                      pointAccountId: a.id,
-                      paymentMethod:  a.id,
-                    });
-                    setPointAdjust(p => ({ ...p, [a.id]: "" }));
-                    alert(`✅ ${a.name}に¥${Math.abs(diff).toLocaleString()}の${diff > 0 ? "収入" : "支出"}を記録しました`);
-                  }}
-                  className="px-2 py-1.5 bg-indigo-500 text-white rounded-lg text-xs font-semibold whitespace-nowrap">
-                  調整
-                </button>
+              <div key={a.id} className="bg-gray-50 rounded-xl p-3 border border-gray-100 space-y-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-lg">{a.icon}</span>
+                  <div>
+                    <p className="text-xs font-semibold text-gray-700">{a.name}</p>
+                    <p className="text-xs text-gray-400">現在: {a.balance.toLocaleString()}円</p>
+                  </div>
+                </div>
+                <div className="flex gap-2 items-center">
+                  <span className="text-xs text-gray-400">¥</span>
+                  <input
+                    type="number"
+                    value={pointAdjust[a.id] ?? ""}
+                    onChange={e => setPointAdjust(p => ({ ...p, [a.id]: e.target.value }))}
+                    placeholder="実際の残高（円）"
+                    className="flex-1 text-sm px-3 py-2 bg-white border border-gray-200 rounded-lg outline-none"
+                  />
+                  <button
+                    onClick={() => {
+                      const actual = Number(pointAdjust[a.id]);
+                      if (isNaN(actual) || pointAdjust[a.id] === "") return;
+                      const diff = actual - a.balance;
+                      if (Math.abs(diff) < 1) { alert("差額がありません"); return; }
+                      onAdd?.({
+                        date:     pointAdjustDate,
+                        label:    `${a.name} 残高調整`,
+                        category: "その他",
+                        amount:   diff,
+                        type:     diff > 0 ? "income" : "expense",
+                        source:   "manual",
+                        pointAccountId: a.id,
+                        paymentMethod:  a.id,
+                      });
+                      setPointAdjust(p => ({ ...p, [a.id]: "" }));
+                      alert(`✅ ${a.name}に¥${Math.abs(diff).toLocaleString()}の${diff > 0 ? "収入" : "支出"}を記録しました`);
+                    }}
+                    className="px-3 py-2 bg-indigo-500 text-white rounded-lg text-xs font-semibold whitespace-nowrap">
+                    調整
+                  </button>
+                </div>
               </div>
             ))}
           </div>
