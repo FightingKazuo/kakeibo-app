@@ -554,19 +554,23 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
     const toImport = csvRows.filter((_, i) => csvChecked[i]);
     const expTotal = toImport.filter(r => r.type === "expense").reduce((s, r) => s + Math.abs(r.amount), 0);
     const incTotal = toImport.filter(r => r.type === "income").reduce((s, r) => s + r.amount, 0);
-    // 自分のメンバーID（デフォルト: members[0]）
     const selfId = members?.[0]?.id || null;
+    const payPayAccount = (pointAccounts || []).find(a => a.name === "PayPay");
+    const isPayPay = csvDetected?.includes("PayPay") || csvDetected?.includes("paypay");
 
     toImport.forEach(r => {
-      // PayPayのCSVはPayPay口座から自動差し引き
-      const payPayAccount = (pointAccounts || []).find(a => a.name === "PayPay");
-      const isPayPay = csvDetected?.includes("PayPay") || csvDetected?.includes("paypay");
-      const enriched = isPayPay && payPayAccount && r.type === "expense"
-        ? { ...r, pointAccountId: payPayAccount.id, paymentMethod: payPayAccount.id }
+      // PayPay CSVは収入・支出どちらもPayPay口座に紐付け
+      // 収入（チャージ・割り勘戻り）→ PayPay残高増加
+      // 支出（支払い）→ PayPay残高から差し引き
+      const enriched = isPayPay && payPayAccount
+        ? {
+            ...r,
+            pointAccountId: payPayAccount.id,
+            paymentMethod:  payPayAccount.id,
+          }
         : r;
 
-      // CSV取込の支出は「自分払い」「共有」を自動設定
-      // 個人/相手が手動設定されている場合はそちらを優先
+      // 支出は「自分払い」「共有」を自動設定（手動設定済みは優先）
       const withPayer = enriched.type === "expense" ? {
         ...enriched,
         paidBy:    enriched.paidBy    || selfId,
@@ -576,11 +580,7 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
       // OCR重複がある場合はマージ（CSVデータ主体＋OCRの品目を引き継ぐ）
       if (r.ocrDuplicate) {
         const ocrTx  = r.ocrDuplicate;
-        const merged = {
-          ...withPayer,
-          items:  ocrTx.items || [],
-          source: "csv",
-        };
+        const merged = { ...withPayer, items: ocrTx.items || [], source: "csv" };
         onDelete?.(ocrTx.id);
         onAdd(createTransaction({ ...merged, source: "csv" }));
       } else {
