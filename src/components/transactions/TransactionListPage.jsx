@@ -80,6 +80,15 @@ export function TransactionListPage({ transactions, categories, members, pointAc
     exitSelectMode();
   };
 
+  // 一括共有区分変更
+  const handleBulkShareType = (shareType) => {
+    selectedIds.forEach(id => {
+      const tx = transactions.find(t => t.id === id);
+      if (tx) onUpdate?.({ ...tx, shareType, updatedAt: new Date().toISOString() });
+    });
+    exitSelectMode();
+  };
+
   // 共有/個人の更新
   const handleUpdateSharing = (id, shareType) => {
     const tx = transactions.find(t => t.id === id);
@@ -160,13 +169,29 @@ export function TransactionListPage({ transactions, categories, members, pointAc
       {/* ── 選択モードの操作バー ── */}
       {selectMode && selectedIds.size > 0 && (
         <div className="bg-white border-b border-gray-100 px-4 py-3 space-y-2">
+          {/* 共有区分 */}
+          <div className="flex gap-2">
+            <button onClick={() => handleBulkShareType("shared")}
+              className="flex-1 py-2 bg-indigo-500 text-white rounded-xl text-xs font-semibold">
+              🤝 共有
+            </button>
+            <button onClick={() => handleBulkShareType("personal")}
+              className="flex-1 py-2 bg-rose-400 text-white rounded-xl text-xs font-semibold">
+              👤 個人
+            </button>
+            <button onClick={() => handleBulkShareType("partner")}
+              className="flex-1 py-2 bg-purple-400 text-white rounded-xl text-xs font-semibold">
+              👥 相手
+            </button>
+          </div>
+          {/* カテゴリ変更・削除 */}
           <div className="flex gap-2">
             <button onClick={() => setShowBulkCat(p => !p)}
-              className="flex-1 py-2 bg-indigo-500 text-white rounded-xl text-sm font-semibold">
+              className="flex-1 py-2 bg-gray-100 text-gray-700 rounded-xl text-xs font-semibold">
               🏷️ カテゴリ変更
             </button>
             <button onClick={handleBulkDelete}
-              className="flex-1 py-2 bg-rose-500 text-white rounded-xl text-sm font-semibold">
+              className="flex-1 py-2 bg-rose-500 text-white rounded-xl text-xs font-semibold">
               🗑️ 削除
             </button>
           </div>
