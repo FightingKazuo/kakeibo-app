@@ -464,6 +464,87 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
 
   const handleCSVFile = handleFileInput;
 
+  // 重複行判定
+  const isDupRow = (r) => r.isDuplicate || r.isCardWithdrawal || !!r.ocrDuplicate;
+
+  // CSVリスト行レンダリング
+  const renderCsvRow = (r, i) => {
+    const isDup = isDupRow(r);
+    const isCategorized = r.category !== "その他";
+    return (
+      <div key={i} className={`border-b border-gray-50 last:border-b-0 ${
+        isDup ? "bg-gray-50 opacity-60" :
+        isCategorized ? "bg-emerald-50" : "bg-white"
+      }`}>
+        <div className="flex items-center gap-3 px-4 py-3">
+          <input type="checkbox"
+            checked={!!csvChecked[i]}
+            onChange={() => !isDup && setCsvChecked(p => ({ ...p, [i]: !p[i] }))}
+            className="accent-indigo-500 flex-shrink-0"
+            disabled={isDup}
+          />
+          <div className="flex-1 min-w-0" onClick={() => !isDup && setCsvEditIdx(csvEditIdx === i ? null : i)}>
+            <div className="flex items-center gap-1 flex-wrap">
+              <p className={`text-sm font-medium truncate ${isDup ? "text-gray-400" : "text-gray-800"}`}>{r.label}</p>
+              {isCategorized && !isDup && (
+                <span className="text-xs bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full flex-shrink-0">
+                  {categories.find(c => c.name === r.category)?.emoji} {r.category}
+                </span>
+              )}
+              {r.isDuplicate     && <span className="text-xs bg-gray-200 text-gray-500 px-1.5 py-0.5 rounded-full flex-shrink-0">重複</span>}
+              {r.isCardWithdrawal && <span className="text-xs bg-gray-200 text-gray-500 px-1.5 py-0.5 rounded-full flex-shrink-0">💳 引落</span>}
+              {r.ocrDuplicate    && <span className="text-xs bg-gray-200 text-gray-500 px-1.5 py-0.5 rounded-full flex-shrink-0">📷 OCR重複</span>}
+            </div>
+            {r.ocrDuplicate && (
+              <p className="text-xs text-gray-400 mt-0.5">
+                OCR:「{r.ocrDuplicate.label}」と重複の可能性
+              </p>
+            )}
+            <p className="text-xs text-gray-400">{r.date}</p>
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <p className={`text-sm font-bold ${isDup ? "text-gray-400" : r.type === "income" ? "text-emerald-500" : "text-rose-500"}`}>
+              {r.type === "income" ? "+" : "-"}{fmtCurrency(r.amount)}
+            </p>
+            {!isDup && (
+              <button onClick={() => setCsvEditIdx(csvEditIdx === i ? null : i)} className="text-gray-300 text-xs">✏️</button>
+            )}
+          </div>
+        </div>
+        {csvEditIdx === i && !isDup && (
+          <div className="px-4 pb-3 space-y-2 bg-gray-50 border-t border-gray-100">
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <p className="text-xs text-gray-400 mb-1">店舗名</p>
+                <input type="text" value={r.label} onChange={e => updateCsvRow(i, "label", e.target.value)}
+                  className="w-full text-xs px-2 py-1.5 bg-white border border-gray-200 rounded-lg outline-none" />
+              </div>
+              <div>
+                <p className="text-xs text-gray-400 mb-1">金額</p>
+                <input type="number" value={Math.abs(r.amount)}
+                  onChange={e => updateCsvRow(i, "amount", r.type === "expense" ? -Number(e.target.value) : Number(e.target.value))}
+                  className="w-full text-xs px-2 py-1.5 bg-white border border-gray-200 rounded-lg outline-none" />
+              </div>
+              <div>
+                <p className="text-xs text-gray-400 mb-1">日付</p>
+                <input type="date" value={r.date} onChange={e => updateCsvRow(i, "date", e.target.value)}
+                  className="w-full text-xs px-2 py-1.5 bg-white border border-gray-200 rounded-lg outline-none" />
+              </div>
+              <div>
+                <p className="text-xs text-gray-400 mb-1">カテゴリ</p>
+                <select value={r.category} onChange={e => updateCsvRow(i, "category", e.target.value)}
+                  className="w-full text-xs px-2 py-1.5 bg-white border border-gray-200 rounded-lg outline-none">
+                  {categories.map(c => <option key={c.id} value={c.name}>{c.emoji}{c.name}</option>)}
+                </select>
+              </div>
+            </div>
+            <button onClick={() => setCsvEditIdx(null)} className="text-xs text-indigo-500 font-semibold">完了 ✓</button>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const execCSVImport = () => {
     const toImport = csvRows.filter((_, i) => csvChecked[i]);
     const expTotal = toImport.filter(r => r.type === "expense").reduce((s, r) => s + Math.abs(r.amount), 0);
@@ -1378,47 +1459,43 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
             {csvDetected && (
               <div className={`rounded-xl px-3 py-2 border flex items-center gap-2 ${csvDetected !== "generic" ? "bg-emerald-50 border-emerald-200" : "bg-amber-50 border-amber-200"}`}>
                 <span className="text-sm">{csvDetected !== "generic" ? "✅" : "⚠️"}</span>
-                <div>
-                  <p className="text-xs font-semibold text-gray-700">
-                    {csvDetected !== "generic"
-                      ? `自動判定: ${CSV_FORMATS[csvDetected]?.label || csvDetected}`
-                      : "フォーマット不明（汎用モードで処理）"
-                    }
-                  </p>
-                  {csvDetected === "generic" && (
-                    <p className="text-xs text-amber-600">正しく読み込めない場合は手動選択してください</p>
-                  )}
-                </div>
+                <p className="text-xs font-semibold text-gray-700">
+                  {csvDetected !== "generic"
+                    ? `自動判定: ${CSV_FORMATS[csvDetected]?.label || csvDetected}`
+                    : "フォーマット不明（汎用モードで処理）"
+                  }
+                </p>
               </div>
             )}
+
+            {/* カウンター */}
             <div className="grid grid-cols-3 gap-2">
               <div className="bg-gray-50 rounded-xl p-2.5 text-center border border-gray-100">
-                <p className="text-lg font-bold text-gray-800">{Object.values(csvChecked).filter(Boolean).length}</p>
-                <p className="text-xs text-gray-400 mt-0.5">選択中</p>
-              </div>
-              <div className="bg-amber-50 rounded-xl p-2.5 text-center border border-amber-100">
-                <p className="text-lg font-bold text-amber-600">{csvRows.filter(r => r.isDuplicate).length}</p>
-                <p className="text-xs text-amber-400 mt-0.5">重複</p>
-              </div>
-              <div className="bg-indigo-50 rounded-xl p-2.5 text-center border border-indigo-100">
-                <p className="text-xs font-bold text-indigo-600 leading-tight mt-1">
-                  {fmtCurrency(csvRows.filter((_, i) => csvChecked[i] && csvRows[i]?.type === "expense").reduce((s, r) => s + Math.abs(r.amount), 0))}
+                <p className="text-lg font-bold text-gray-800">
+                  {csvRows.filter((r, i) => csvChecked[i] && r.category === "その他" && !isDupRow(r)).length}
                 </p>
-                <p className="text-xs text-indigo-400 mt-0.5">支出合計</p>
+                <p className="text-xs text-gray-400 mt-0.5">未分類</p>
               </div>
-            </div>
-            <div className="flex gap-3">
-              <button onClick={() => { const n = {}; csvRows.forEach((_, i) => n[i] = true); setCsvChecked(n); }} className="text-xs text-indigo-500 font-semibold">すべて選択</button>
-              <span className="text-xs text-gray-300">|</span>
-              <button onClick={() => { const n = {}; csvRows.forEach((r, i) => n[i] = !r.isDuplicate); setCsvChecked(n); }} className="text-xs text-indigo-500 font-semibold">重複以外</button>
+              <div className="bg-emerald-50 rounded-xl p-2.5 text-center border border-emerald-100">
+                <p className="text-lg font-bold text-emerald-600">
+                  {csvRows.filter((r, i) => csvChecked[i] && r.category !== "その他" && !isDupRow(r)).length}
+                </p>
+                <p className="text-xs text-emerald-400 mt-0.5">適用済み</p>
+              </div>
+              <div className="bg-gray-100 rounded-xl p-2.5 text-center border border-gray-200">
+                <p className="text-lg font-bold text-gray-400">
+                  {csvRows.filter(r => isDupRow(r)).length}
+                </p>
+                <p className="text-xs text-gray-400 mt-0.5">重複</p>
+              </div>
             </div>
 
-            {/* ── 一括カテゴリ編集 ── */}
+            {/* 一括カテゴリ変更 */}
             <div className="bg-indigo-50 rounded-xl p-3 border border-indigo-100">
               <div className="flex items-center justify-between mb-2">
-                <p className="text-xs font-semibold text-indigo-600">🏷️ 一括カテゴリ変更（選択中の件に適用）</p>
+                <p className="text-xs font-semibold text-indigo-600">🏷️ カテゴリを選択して消し込み</p>
                 <div className="flex gap-2">
-                  <button onClick={() => { const n = {}; csvRows.forEach((_, i) => n[i] = true); setCsvChecked(n); }}
+                  <button onClick={() => { const n = {}; csvRows.forEach((r, i) => n[i] = !isDupRow(r)); setCsvChecked(n); }}
                     className="text-xs text-indigo-500 font-semibold bg-white px-2 py-1 rounded-lg border border-indigo-200">全ON</button>
                   <button onClick={() => { const n = {}; csvRows.forEach((_, i) => n[i] = false); setCsvChecked(n); }}
                     className="text-xs text-gray-500 font-semibold bg-white px-2 py-1 rounded-lg border border-gray-200">全OFF</button>
@@ -1427,76 +1504,54 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
               <div className="flex flex-wrap gap-1.5">
                 {categories.filter(c => c.type === "expense").map(cat => (
                   <button key={cat.id}
-                    onClick={() => {
-                      setCsvRows(p => p.map((r, i) => csvChecked[i] ? { ...r, category: cat.name } : r));
-                    }}
+                    onClick={() => setCsvRows(p => p.map((r, i) => csvChecked[i] && !isDupRow(r) ? { ...r, category: cat.name } : r))}
                     className="px-2.5 py-1 bg-white rounded-lg text-xs border border-indigo-200 text-gray-600 hover:bg-indigo-500 hover:text-white hover:border-indigo-500 transition-all">
                     {cat.emoji} {cat.name}
                   </button>
                 ))}
               </div>
-              <p className="text-xs text-indigo-400 mt-1.5">※ チェックした件のカテゴリをまとめて変更できます</p>
+              <p className="text-xs text-indigo-400 mt-1.5">チェックした件を選択→カテゴリボタンで変更</p>
             </div>
+
+            {/* リスト：未分類 → 適用済み → 重複 の順 */}
             <div className="bg-white rounded-xl overflow-hidden border border-gray-100">
-              {csvRows.map((r, i) => (
-                <div key={i} className={`border-b border-gray-50 last:border-b-0 ${r.isDuplicate ? "bg-amber-50" : ""}`}>
-                  <div className="flex items-center gap-3 px-4 py-3">
-                    <input type="checkbox" checked={!!csvChecked[i]} onChange={() => setCsvChecked(p => ({ ...p, [i]: !p[i] }))} className="accent-indigo-500 flex-shrink-0" />
-                    <div className="flex-1 min-w-0" onClick={() => setCsvEditIdx(csvEditIdx === i ? null : i)}>
-                      <div className="flex items-center gap-1 flex-wrap">
-                        <p className="text-sm font-medium text-gray-800 truncate">{r.label}</p>
-                        {r.isDuplicate    && <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full flex-shrink-0">重複</span>}
-                        {r.isCardWithdrawal && <span className="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full flex-shrink-0">💳 引落</span>}
-                        {r.ocrDuplicate   && <span className="text-xs bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full flex-shrink-0">📷 OCR重複</span>}
-                      </div>
-                      {r.ocrDuplicate && (
-                        <p className="text-xs text-purple-500 mt-0.5">
-                          OCR:「{r.ocrDuplicate.label}」¥{Math.abs(r.ocrDuplicate.amount).toLocaleString()}と重複の可能性
-                        </p>
-                      )}
-                      <p className="text-xs text-gray-400">{r.category} · {r.date}</p>
-                    </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      <p className={`text-sm font-bold ${r.type === "income" ? "text-emerald-500" : "text-rose-500"}`}>
-                        {r.type === "income" ? "+" : "-"}{fmtCurrency(r.amount)}
-                      </p>
-                      <button onClick={() => setCsvEditIdx(csvEditIdx === i ? null : i)} className="text-gray-300 text-xs">✏️</button>
-                    </div>
-                  </div>
-                  {csvEditIdx === i && (
-                    <div className="px-4 pb-3 space-y-2 bg-gray-50 border-t border-gray-100">
-                      <div className="grid grid-cols-2 gap-2">
-                        <div>
-                          <p className="text-xs text-gray-400 mb-1">店舗名</p>
-                          <input type="text" value={r.label} onChange={e => updateCsvRow(i, "label", e.target.value)}
-                            className="w-full text-xs px-2 py-1.5 bg-white border border-gray-200 rounded-lg outline-none" />
-                        </div>
-                        <div>
-                          <p className="text-xs text-gray-400 mb-1">金額</p>
-                          <input type="number" value={Math.abs(r.amount)}
-                            onChange={e => updateCsvRow(i, "amount", r.type === "expense" ? -Number(e.target.value) : Number(e.target.value))}
-                            className="w-full text-xs px-2 py-1.5 bg-white border border-gray-200 rounded-lg outline-none" />
-                        </div>
-                        <div>
-                          <p className="text-xs text-gray-400 mb-1">日付</p>
-                          <input type="date" value={r.date} onChange={e => updateCsvRow(i, "date", e.target.value)}
-                            className="w-full text-xs px-2 py-1.5 bg-white border border-gray-200 rounded-lg outline-none" />
-                        </div>
-                        <div>
-                          <p className="text-xs text-gray-400 mb-1">カテゴリ</p>
-                          <select value={r.category} onChange={e => updateCsvRow(i, "category", e.target.value)}
-                            className="w-full text-xs px-2 py-1.5 bg-white border border-gray-200 rounded-lg outline-none">
-                            {categories.map(c => <option key={c.id} value={c.name}>{c.emoji}{c.name}</option>)}
-                          </select>
-                        </div>
-                      </div>
-                      <button onClick={() => setCsvEditIdx(null)} className="text-xs text-indigo-500 font-semibold">完了 ✓</button>
-                    </div>
-                  )}
+              {/* ① 未分類 */}
+              {csvRows.filter((r, i) => csvChecked[i] && r.category === "その他" && !isDupRow(r)).length > 0 && (
+                <div className="px-4 py-2 bg-gray-50 border-b border-gray-100">
+                  <p className="text-xs font-semibold text-gray-500">📋 未分類</p>
                 </div>
-              ))}
+              )}
+              {csvRows.map((r, i) => {
+                if (isDupRow(r) || r.category !== "その他") return null;
+                return renderCsvRow(r, i);
+              })}
+
+              {/* ② 適用済み */}
+              {csvRows.filter((r, i) => csvChecked[i] && r.category !== "その他" && !isDupRow(r)).length > 0 && (
+                <div className="px-4 py-2 bg-emerald-50 border-b border-emerald-100 border-t border-gray-100">
+                  <p className="text-xs font-semibold text-emerald-600">✅ 適用済み</p>
+                </div>
+              )}
+              {csvRows.map((r, i) => {
+                if (isDupRow(r) || r.category === "その他") return null;
+                return renderCsvRow(r, i);
+              })}
+
+              {/* ③ 重複（一番下・灰色） */}
+              {csvRows.filter(r => isDupRow(r)).length > 0 && (
+                <div className="px-4 py-2 bg-gray-100 border-t border-gray-200">
+                  <p className="text-xs font-semibold text-gray-400">⊘ 重複（スキップ予定）</p>
+                </div>
+              )}
+              {csvRows.map((r, i) => {
+                if (!isDupRow(r)) return null;
+                return renderCsvRow(r, i);
+              })}
             </div>
-            <PrimaryButton onClick={execCSVImport}>✅ {Object.values(csvChecked).filter(Boolean).length}件をインポート</PrimaryButton>
+
+            <PrimaryButton onClick={execCSVImport}>
+              ✅ {csvRows.filter((r, i) => csvChecked[i]).length}件をインポート
+            </PrimaryButton>
           </div>
         )}
 
