@@ -29,27 +29,30 @@ export const calcTaxInclusive = (items, receiptTotal) => {
 
   const itemsTotal = items.reduce((s, i) => s + i.amount, 0);
   const diff       = receiptTotal - itemsTotal;
+  const diffRatio  = itemsTotal > 0 ? diff / itemsTotal : 0;
 
-  // 差額が品目合計の3%未満 → 税込み表示とみなす
-  const diffRatio = itemsTotal > 0 ? diff / itemsTotal : 0;
+  // 差額が3%未満 → 税込み表示
   if (Math.abs(diffRatio) < 0.03) {
     return { items, tax8: 0, remainder: 0, isTaxExclusive: false };
   }
 
-  // 税抜き表示 → 全品目8%で税込み計算
-  const tax8     = Math.floor(itemsTotal * 0.08);
-  const tax8Total = itemsTotal + tax8;
-  const remainder = Math.round(receiptTotal - tax8Total); // 残差（10%品目の2%分等）
+  // 差額が7〜11% → 税抜き表示と判断（8%または10%）
+  if (diffRatio >= 0.07 && diffRatio <= 0.11) {
+    const tax8      = Math.floor(itemsTotal * 0.08);
+    const tax8Total = itemsTotal + tax8;
+    const remainder = Math.round(receiptTotal - tax8Total);
 
-  // 各品目を8%税込みに変換
-  const convertedItems = items.map(item => ({
-    ...item,
-    amountExclTax: item.amount,                               // 税抜き価格を保存
-    amount:        Math.round(item.amount * 1.08),            // 8%税込みに変換
-    taxRate:       8,
-  }));
+    const convertedItems = items.map(item => ({
+      ...item,
+      amountExclTax: item.amount,                    // 税抜き価格を保存
+      amount:        Math.round(item.amount * 1.08), // 8%税込みに変換
+      taxRate:       8,
+    }));
+    return { items: convertedItems, tax8, remainder, isTaxExclusive: true };
+  }
 
-  return { items: convertedItems, tax8, remainder, isTaxExclusive: true };
+  // それ以外（値引き等）→ 残差だけ記録
+  return { items, tax8: 0, remainder: Math.round(diff), isTaxExclusive: false };
 };
 
 // ─── 学習 ────────────────────────────────────────────────────
