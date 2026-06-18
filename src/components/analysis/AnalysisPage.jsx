@@ -74,28 +74,35 @@ export function AnalysisPage({ transactions, categories, members }) {
   const settlementData = useMemo(() => {
     if (!members || members.length < 2) return null;
 
-    // 期間内の共有支出のみ対象
+    // 期間内の共有支出（支払者未設定も含む）
     const target = transactions.filter(t =>
       t.type === "expense" &&
-      (t.shareType === "shared" || !t.shareType) &&
+      t.shareType !== "personal" &&
+      t.shareType !== "partner" &&
       t.date >= settleDateFrom &&
-      t.date <= settleDateTo &&
-      t.paidBy
+      t.date <= settleDateTo
     );
 
-    // メンバーごとの支払合計
+    if (target.length === 0) return { balances: members.map(m => ({ ...m, paid: 0, balance: 0 })), totalShared: 0, perPerson: 0, settlements: [], txCount: 0 };
+
+    // メンバーごとの支払合計（支払者未設定は「自分」として集計）
+    const defaultPayer = members[0]?.id;
     const paidMap = {};
     members.forEach(m => { paidMap[m.id] = 0; });
+
     target.forEach(t => {
-      if (paidMap[t.paidBy] !== undefined) {
-        paidMap[t.paidBy] += Math.abs(t.amount);
+      const payerId = t.paidBy || defaultPayer;
+      if (paidMap[payerId] !== undefined) {
+        paidMap[payerId] += Math.abs(t.amount);
+      } else {
+        // 不明な支払者はデフォルト（自分）に集計
+        paidMap[defaultPayer] += Math.abs(t.amount);
       }
     });
 
     const totalShared = Object.values(paidMap).reduce((s, v) => s + v, 0);
     const perPerson   = totalShared / members.length;
 
-    // 精算額（正=もらう側、負=払う側）
     const balances = members.map(m => ({
       ...m,
       paid:    paidMap[m.id] || 0,
@@ -103,19 +110,19 @@ export function AnalysisPage({ transactions, categories, members }) {
     }));
 
     // 精算メッセージ生成
-    const payers    = balances.filter(b => b.balance < 0).sort((a, b) => a.balance - b.balance);
-    const receivers = balances.filter(b => b.balance > 0).sort((a, b) => b.balance - a.balance);
-    const settlements = [];
+    const payers         = balances.filter(b => b.balance < -1).sort((a, b) => a.balance - b.balance);
+    const receivers      = balances.filter(b => b.balance >  1).sort((a, b) => b.balance - a.balance);
+    const settlements    = [];
     const payersClone    = payers.map(p => ({ ...p, remaining: Math.abs(p.balance) }));
     const receiversClone = receivers.map(r => ({ ...r, remaining: r.balance }));
 
     let pi = 0, ri = 0;
     while (pi < payersClone.length && ri < receiversClone.length) {
       const amount = Math.min(payersClone[pi].remaining, receiversClone[ri].remaining);
-      if (amount > 0) {
+      if (amount > 1) {
         settlements.push({
-          from: payersClone[pi].name,
-          to:   receiversClone[ri].name,
+          from:   payersClone[pi].name,
+          to:     receiversClone[ri].name,
           amount: Math.round(amount),
         });
       }
@@ -308,10 +315,16 @@ export function AnalysisPage({ transactions, categories, members }) {
             <div className="bg-gray-50 rounded-2xl p-5 border border-gray-200 text-center">
               <p className="text-2xl mb-2">🔍</p>
               <p className="text-sm font-bold text-gray-600">対象の取引がありません</p>
-              <p className="text-xs text-gray-400 mt-1">支払者が設定された共有支出が対象です</p>
+              <p className="text-xs text-gray-400 mt-1">期間内に支出データがありません</p>
             </div>
           ) : (
             <>
+              {/* 注記 */}
+              <div className="bg-blue-50 rounded-xl p-3 border border-blue-100">
+                <p className="text-xs text-blue-600">
+                  💡 支払者未設定の取引は「{members[0]?.name}」が支払ったとして計算しています
+                </p>
+              </div>
               {/* 合計サマリー */}
               <div className="bg-white rounded-2xl p-4 border border-gray-100">
                 <p className="text-xs font-semibold text-gray-500 mb-3 uppercase tracking-wide">共有支出合計</p>
