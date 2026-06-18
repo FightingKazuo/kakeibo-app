@@ -17,9 +17,14 @@ export function TransactionItem({
   const pointAccount = pointAccounts?.find(a => a.id === t.pointAccountId);
   const isTransfer   = t.isTransfer === true;
 
+  // 分割表示用
+  const isSplit    = !!t._splitType;
+  const splitType  = t._splitType;  // "shared" | "personal" | "partner"
+  const displayAmt = t._splitAmt ?? Math.abs(t.amount);
+
   const handleMainClick = () => {
     if (selectMode) { onSelect?.(t.id); return; }
-    if (hasItems) setExpanded(p => !p);
+    if (hasItems && !isSplit) setExpanded(p => !p);
   };
 
   const handleLongPress = (() => {
@@ -32,9 +37,14 @@ export function TransactionItem({
   })();
 
   return (
-    <div className={`bg-white border-b border-gray-100 last:border-b-0 transition-colors ${
+    <div className={`border-b border-gray-100 last:border-b-0 transition-colors ${
       isTransfer ? "opacity-50" : ""
-    } ${selected ? "bg-indigo-50" : ""}`}>
+    } ${selected ? "bg-indigo-50" :
+      isSplit && splitType === "shared"   ? "bg-indigo-50/30" :
+      isSplit && splitType === "personal" ? "bg-rose-50/40" :
+      isSplit && splitType === "partner"  ? "bg-purple-50/40" :
+      "bg-white"
+    }`}>
 
       {/* ── メイン行 ── */}
       <div className="flex items-center gap-3 px-4 py-4"
@@ -57,42 +67,48 @@ export function TransactionItem({
         <div className="flex-1 min-w-0 overflow-hidden" onClick={handleMainClick}>
           <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
             <p className="text-sm font-medium text-gray-800 truncate">{t.label}</p>
-            {t.source && t.source !== "manual" && <SourceBadge source={t.source} />}
+            {!isSplit && t.source && t.source !== "manual" && <SourceBadge source={t.source} />}
             {isTransfer && <span className="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full">振替</span>}
-            {/* 支払者未設定警告 */}
-            {t.type === "expense" && !t.paidBy && t.shareType !== "personal" && t.shareType !== "partner" && (
+            {/* 分割バッジ */}
+            {isSplit && splitType === "shared"   && <span className="text-xs bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded-full font-medium">🤝共有分</span>}
+            {isSplit && splitType === "personal" && <span className="text-xs bg-rose-100 text-rose-500 px-1.5 py-0.5 rounded-full font-medium">👤個人分</span>}
+            {isSplit && splitType === "partner"  && <span className="text-xs bg-purple-100 text-purple-500 px-1.5 py-0.5 rounded-full font-medium">👥相手分</span>}
+            {/* 支払者未設定警告（非分割のみ） */}
+            {!isSplit && t.type === "expense" && !t.paidBy && t.shareType !== "personal" && t.shareType !== "partner" && (
               <span className="text-xs bg-rose-100 text-rose-500 px-1.5 py-0.5 rounded-full">⚠️未設定</span>
             )}
           </div>
           <div className="flex items-center gap-2 mt-0.5 flex-wrap">
             <p className="text-xs text-gray-400">{t.category} · {t.date}</p>
-            {/* 支払者 */}
-            {paidByMember ? (
-              <span className="text-xs bg-indigo-50 text-indigo-500 px-1.5 py-0.5 rounded-full">
-                👤{paidByMember.name}払い
-              </span>
-            ) : t.type === "expense" && t.shareType !== "personal" && t.shareType !== "partner" && (
-              <span className="text-xs bg-rose-50 text-rose-400 px-1.5 py-0.5 rounded-full">
-                ⚠️支払者未設定
-              </span>
+            {/* 分割行でない場合のみ支払者・共有区分を表示 */}
+            {!isSplit && (
+              <>
+                {paidByMember ? (
+                  <span className="text-xs bg-indigo-50 text-indigo-500 px-1.5 py-0.5 rounded-full">
+                    👤{paidByMember.name}払い
+                  </span>
+                ) : t.type === "expense" && t.shareType !== "personal" && t.shareType !== "partner" && (
+                  <span className="text-xs bg-rose-50 text-rose-400 px-1.5 py-0.5 rounded-full">
+                    ⚠️支払者未設定
+                  </span>
+                )}
+                {pointAccount && (
+                  <span className="text-xs bg-amber-50 text-amber-500 px-1.5 py-0.5 rounded-full">
+                    {pointAccount.icon}{pointAccount.name}
+                  </span>
+                )}
+                {t.type === "expense" && (
+                  t.shareType === "personal" ? (
+                    <span className="text-xs bg-rose-100 text-rose-500 px-1.5 py-0.5 rounded-full font-medium">👤個人</span>
+                  ) : t.shareType === "partner" ? (
+                    <span className="text-xs bg-purple-100 text-purple-500 px-1.5 py-0.5 rounded-full font-medium">👥相手負担</span>
+                  ) : (
+                    <span className="text-xs bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded-full font-medium">🤝共有</span>
+                  )
+                )}
+              </>
             )}
-            {/* 支払方法 */}
-            {pointAccount && (
-              <span className="text-xs bg-amber-50 text-amber-500 px-1.5 py-0.5 rounded-full">
-                {pointAccount.icon}{pointAccount.name}
-              </span>
-            )}
-            {/* 共有/個人/相手（支出のみ表示） */}
-            {t.type === "expense" && (
-              t.shareType === "personal" ? (
-                <span className="text-xs bg-rose-100 text-rose-500 px-1.5 py-0.5 rounded-full font-medium">👤個人</span>
-              ) : t.shareType === "partner" ? (
-                <span className="text-xs bg-purple-100 text-purple-500 px-1.5 py-0.5 rounded-full font-medium">👥相手負担</span>
-              ) : (
-                <span className="text-xs bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded-full font-medium">🤝共有</span>
-              )
-            )}
-            {hasItems && !selectMode && (
+            {hasItems && !selectMode && !isSplit && (
               <span className="text-xs text-indigo-400 font-medium">品目{t.items.length}件 {expanded ? "▲" : "▼"}</span>
             )}
           </div>
@@ -100,7 +116,7 @@ export function TransactionItem({
 
         <div className="flex items-center gap-1.5 flex-shrink-0 ml-1">
           <p className={`text-base font-bold tabular-nums whitespace-nowrap ${isIncome ? "text-emerald-600" : "text-rose-600"}`}>
-            {isIncome ? "+" : "-"}{fmtCurrency(t.amount)}
+            {isIncome ? "+" : "-"}{fmtCurrency(displayAmt)}
           </p>
           {!selectMode && (
             <>
