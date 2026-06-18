@@ -165,7 +165,6 @@ export default function App() {
   const handleUpdate = async (tx) => {
     const normalized = normalizeTransaction(tx);
     setTransactions(p => p.map(t => t.id === normalized.id ? normalized : t));
-    setEditingTx(null);
     setSyncStatus("syncing");
     try {
       await upsertTransaction(shareId, normalized);
@@ -174,6 +173,12 @@ export default function App() {
       console.error("sync error:", e);
       setSyncStatus("error");
     }
+  };
+
+  // 編集ページからの保存（editingTxをクリア）
+  const handleSave = async (tx) => {
+    await handleUpdate(tx);
+    setEditingTx(null);
   };
 
   // ── 設定操作（変更時にSupabaseへ保存）────────────────────
@@ -249,7 +254,7 @@ export default function App() {
             learnedRules={learnedRules}
             members={members}
             pointAccounts={pointAccountsWithBalance}
-            onSave={handleUpdate}
+            onSave={handleSave}
             onCancel={() => setEditingTx(null)}
           />
         </div>
