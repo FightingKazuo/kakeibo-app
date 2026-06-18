@@ -8,6 +8,7 @@ export function TransactionListPage({ transactions, categories, members, pointAc
   const [q,          setQ]          = useState("");
   const [selMonth,   setSelMonth]   = useState("all");
   const [srcFilter,  setSrcFilter]  = useState("all");
+  const [errFilter,  setErrFilter]  = useState(false); // 支払者未設定フィルター
 
   // 選択モード
   const [selectMode,   setSelectMode]   = useState(false);
@@ -23,8 +24,15 @@ export function TransactionListPage({ transactions, categories, members, pointAc
     transactions
       .filter(t => selMonth === "all" || toYM(t.date) === selMonth)
       .filter(t => srcFilter === "all" || t.source === srcFilter)
-      .filter(t => t.label.includes(q) || t.category.includes(q)),
-    [transactions, selMonth, srcFilter, q]
+      .filter(t => t.label.includes(q) || t.category.includes(q))
+      .filter(t => !errFilter || (t.type === "expense" && !t.paidBy && t.shareType !== "personal" && t.shareType !== "partner")),
+    [transactions, selMonth, srcFilter, q, errFilter]
+  );
+
+  // 支払者未設定件数
+  const unsetCount = useMemo(() =>
+    transactions.filter(t => t.type === "expense" && !t.paidBy && t.shareType !== "personal" && t.shareType !== "partner").length,
+    [transactions]
   );
 
   const totals = useMemo(() => ({
@@ -121,6 +129,14 @@ export function TransactionListPage({ transactions, categories, members, pointAc
                   {lb}
                 </button>
               ))}
+              {unsetCount > 0 && (
+                <button onClick={() => setErrFilter(p => !p)}
+                  className={`flex-shrink-0 px-3 py-1 rounded-full text-xs font-semibold border transition-all duration-200 ${
+                    errFilter ? "bg-rose-500 text-white border-rose-500" : "bg-rose-50 text-rose-500 border-rose-200"
+                  }`}>
+                  ⚠️ 未設定{unsetCount}件
+                </button>
+              )}
             </div>
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">🔍</span>
