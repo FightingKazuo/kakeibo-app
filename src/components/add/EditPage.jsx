@@ -31,12 +31,27 @@ export function EditPage({ transaction, categories, allRules, learnedRules, memb
   const [category,  setCategory]  = useState(transaction.category);
   const [paidBy,    setPaidBy]    = useState(transaction.paidBy || "");
   const [payMethod, setPayMethod] = useState(transaction.paymentMethod || "cash");
-  const [items,     setItems]     = useState(
+  const [items, setItems] = useState(
     Array.isArray(transaction.items) ? transaction.items.map(i => ({ ...i })) : []
   );
 
+  // 税抜き表示かどうか（amountExclTaxがある品目が1件でもあれば税抜き）
+  const isTaxExclusive = items.some(i => i.amountExclTax != null);
+  const taxLabel = isTaxExclusive ? "税抜き" : "税込み";
+
   const handleSave = () => {
     if (!amount || !category || !label) { alert("すべて入力してください"); return; }
+
+    // 税抜きの場合、保存時に税込みに変換
+    const savedItems = isTaxExclusive
+      ? items.map(i => ({
+          ...i,
+          amountExclTax: i.amountExclTax ?? i.amount,
+          amount:        Math.round((i.amountExclTax ?? i.amount) * 1.08),
+          taxRate:       8,
+        }))
+      : items;
+
     onSave({
       ...transaction,
       type,
@@ -45,7 +60,7 @@ export function EditPage({ transaction, categories, allRules, learnedRules, memb
       paidBy:        paidBy || null,
       paymentMethod: payMethod,
       pointAccountId: payMethod !== "cash" ? payMethod : null,
-      items,
+      items:         savedItems,
       updatedAt:     new Date().toISOString(),
     });
   };
@@ -187,33 +202,70 @@ export function EditPage({ transaction, categories, allRules, learnedRules, memb
           <div>
             <label className="block text-xs font-semibold text-gray-500 mb-2">
               品目（共有/個人/相手・金額変更）
+              <span className={`ml-2 px-1.5 py-0.5 rounded text-xs ${isTaxExclusive ? "bg-amber-100 text-amber-600" : "bg-gray-100 text-gray-500"}`}>
+                {taxLabel}
+              </span>
             </label>
             <div className="border border-gray-100 rounded-xl overflow-hidden">
-              {items.map((item, i) => (
-                <div key={i} className={`px-4 py-3 border-b border-gray-50 last:border-b-0 ${
-                  item.type === "personal" ? "bg-rose-50" :
-                  item.type === "partner"  ? "bg-purple-50" : "bg-white"
-                }`}>
-                  <div className="flex items-center justify-between mb-2">
-                    <p className="text-xs font-medium text-gray-800 flex-1 truncate mr-2">{item.name}</p>
-                    <ItemTypeToggle type={item.type || "shared"} onChange={t => updateItemType(i, t)} />
+              {items.map((item, i) => {
+                // 税抜きの場合はamountExclTaxを表示、なければamountをそのまま
+                const displayPrice = isTaxExclusive
+                  ? (item.amountExclTax || Math.round(item.amount / 1.08))
+                  : (item.unitPrice || item.amount);
+                const displayTotal = isTaxExclusive
+                  ? displayPrice * (item.quantity || 1)
+                  : item.amount;
+
+                return (
+                  <div key={i} className={`px-4 py-3 border-b border-gray-50 last:border-b-0 ${
+                    item.type === "personal" ? "bg-rose-50" :
+                    item.type === "partner"  ? "bg-purple-50" : "bg-white"
+                  }`}>
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-xs font-medium text-gray-800 flex-1 truncate mr-2">{item.name}</p>
+                      <ItemTypeToggle type={item.type || "shared"} onChange={t => updateItemType(i, t)} />
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs text-gray-400">単価</span>
+                      <input type="number"
+                        value={displayPrice}
+                        onChange={e => {
+                          const newPrice = Number(e.target.value);
+                          const qty      = item.quantity || 1;
+                          setItems(p => p.map((it, j) => j !== i ? it : {
+                            ...it,
+                            amountExclTax: isTaxExclusive ? newPrice : undefined,
+                            unitPrice:     newPrice,
+                            amount:        isTaxExclusive ? Math.round(newPrice * qty * 1.08) : newPrice * qty,
+                          }));
+                        }}
+                        className="w-20 text-xs font-bold text-right bg-white border border-gray-200 rounded-lg px-1.5 py-1 outline-none focus:ring-1 focus:ring-indigo-300" />
+                      <span className="text-xs text-gray-400">×</span>
+                      <input type="number"
+                        value={item.quantity || 1} min={1}
+                        onChange={e => {
+                          const qty      = Math.max(1, Number(e.target.value));
+                          const price    = displayPrice;
+                          setItems(p => p.map((it, j) => j !== i ? it : {
+                            ...it,
+                            quantity: qty,
+                            amount:   isTaxExclusive ? Math.round(price * qty * 1.08) : price * qty,
+                          }));
+                        }}
+                        className="w-12 text-xs font-bold text-center bg-white border border-gray-200 rounded-lg px-1.5 py-1 outline-none focus:ring-1 focus:ring-indigo-300" />
+                      <span className="text-xs text-gray-400">=</span>
+                      <div className="text-right">
+                        {isTaxExclusive && (
+                          <p className="text-xs text-gray-400">税抜 ¥{displayTotal.toLocaleString()}</p>
+                        )}
+                        <p className="text-xs font-bold text-gray-700">
+                          税込 ¥{item.amount.toLocaleString()}
+                        </p>
+                      </div>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-xs text-gray-400">単価</span>
-                    <input type="number"
-                      value={item.unitPrice || item.amount}
-                      onChange={e => updateItemAmount(i, Number(e.target.value))}
-                      className="w-20 text-xs font-bold text-right bg-white border border-gray-200 rounded-lg px-1.5 py-1 outline-none focus:ring-1 focus:ring-indigo-300" />
-                    <span className="text-xs text-gray-400">×</span>
-                    <input type="number"
-                      value={item.quantity || 1} min={1}
-                      onChange={e => updateItemQuantity(i, Math.max(1, Number(e.target.value)))}
-                      className="w-12 text-xs font-bold text-center bg-white border border-gray-200 rounded-lg px-1.5 py-1 outline-none focus:ring-1 focus:ring-indigo-300" />
-                    <span className="text-xs text-gray-400">=</span>
-                    <span className="text-xs font-bold text-gray-700">¥{item.amount.toLocaleString()}</span>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
 
               {/* 消費税等の差額表示 */}
               {Math.abs(taxDiff) >= 2 && (
