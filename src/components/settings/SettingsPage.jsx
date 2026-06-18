@@ -9,7 +9,7 @@ import { EmojiPicker } from "../common/EmojiPicker";
 import { getAllTaxRules, removeTaxRule } from "../../services/taxLearning";
 
 export function SettingsPage({
-  categories, onAddCat, onUpdateCat, onDeleteCat,
+  categories, onAddCat, onUpdateCat, onDeleteCat, onReorderCat,
   learnedRules, onDeleteRule,
   transactions, onAdd,
   onReset,
@@ -26,6 +26,10 @@ export function SettingsPage({
   const [editName,   setEditName]  = useState("");
   const [editEmoji,  setEditEmoji] = useState("");
   const [restoreMsg, setRestoreMsg]= useState("");
+
+  // ドラッグ並び替え用
+  const [dragIdx,    setDragIdx]   = useState(null);  // ドラッグ中のindex
+  const [overIdx,    setOverIdx]   = useState(null);  // ホバー中のindex
 
   // メンバー編集用
   const [editingMemberId,   setEditingMemberId]   = useState(null);
@@ -59,6 +63,42 @@ export function SettingsPage({
   const [pointAdjustDate, setPointAdjustDate] = useState(() => new Date().toISOString().slice(0, 10));
 
   const backupFileRef = useRef(null);
+
+  // ─── ドラッグ並び替えハンドラー ───────────────────────────────
+  const handleDragStart = (i) => setDragIdx(i);
+  const handleDragOver  = (e, i) => { e.preventDefault(); setOverIdx(i); };
+  const handleDrop      = (i) => {
+    if (dragIdx === null || dragIdx === i) { setDragIdx(null); setOverIdx(null); return; }
+    const next = [...categories];
+    const [moved] = next.splice(dragIdx, 1);
+    next.splice(i, 0, moved);
+    onReorderCat?.(next);
+    setDragIdx(null); setOverIdx(null);
+  };
+  const handleDragEnd   = () => { setDragIdx(null); setOverIdx(null); };
+
+  // タッチドラッグ用
+  const touchState = { startY: 0, startIdx: null };
+  const handleTouchStart = (e, i) => {
+    touchState.startY   = e.touches[0].clientY;
+    touchState.startIdx = i;
+    setDragIdx(i);
+  };
+  const handleTouchMove = (e) => {
+    const el = document.elementFromPoint(e.touches[0].clientX, e.touches[0].clientY);
+    const row = el?.closest("[data-catidx]");
+    if (row) setOverIdx(Number(row.dataset.catidx));
+  };
+  const handleTouchEnd = () => {
+    if (touchState.startIdx !== null && overIdx !== null && touchState.startIdx !== overIdx) {
+      const next = [...categories];
+      const [moved] = next.splice(touchState.startIdx, 1);
+      next.splice(overIdx, 0, moved);
+      onReorderCat?.(next);
+    }
+    touchState.startIdx = null;
+    setDragIdx(null); setOverIdx(null);
+  };
 
   const handleAdd = () => {
     if (!newName.trim()) return;
@@ -518,7 +558,6 @@ export function SettingsPage({
                         amount:   diff,
                         type:     diff > 0 ? "income" : "expense",
                         source:   "manual",
-                        shareType:      "personal",
                         pointAccountId: a.id,
                         paymentMethod:  a.id,
                       });
@@ -669,8 +708,23 @@ export function SettingsPage({
             </div>
           )}
           <div className="bg-white rounded-2xl overflow-hidden border border-gray-100">
-            {categories.map(cat => (
-              <div key={cat.id} className="flex items-center gap-3 px-4 py-3 border-b border-gray-50 last:border-b-0">
+            {categories.map((cat, idx) => (
+              <div
+                key={cat.id}
+                data-catidx={idx}
+                draggable
+                onDragStart={() => handleDragStart(idx)}
+                onDragOver={(e) => handleDragOver(e, idx)}
+                onDrop={() => handleDrop(idx)}
+                onDragEnd={handleDragEnd}
+                onTouchStart={(e) => handleTouchStart(e, idx)}
+                onTouchMove={handleTouchMove}
+                onTouchEnd={handleTouchEnd}
+                className={`flex items-center gap-3 px-4 py-3 border-b border-gray-50 last:border-b-0 transition-all ${
+                  dragIdx === idx ? "opacity-40 bg-gray-50" :
+                  overIdx === idx && dragIdx !== null ? "bg-indigo-50 border-indigo-200" : ""
+                }`}
+              >
                 {editingId === cat.id ? (
                   <>
                     <button
@@ -685,6 +739,7 @@ export function SettingsPage({
                   </>
                 ) : (
                   <>
+                    <span className="text-gray-300 cursor-grab active:cursor-grabbing touch-none select-none px-1 text-base">⠿</span>
                     <span className="text-xl">{cat.emoji}</span>
                     <div className="flex-1">
                       <p className="text-sm font-medium text-gray-800">{cat.name}</p>
