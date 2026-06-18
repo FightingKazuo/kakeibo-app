@@ -452,7 +452,12 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
         };
       });
       // 重複 or カード引き落とし行は初期チェックOFF
-      const init = {}; withDup.forEach((_, i) => init[i] = !withDup[i].isDuplicate && !withDup[i].isCardWithdrawal && !withDup[i].ocrDuplicate);
+      // カテゴリ設定済み（その他以外）は初期チェックON
+      const init = {};
+      withDup.forEach((r, i) => {
+        const isDup = r.isDuplicate || r.isCardWithdrawal || !!r.ocrDuplicate;
+        init[i] = !isDup; // 重複以外はデフォルトON
+      });
       setCsvRows(withDup); setCsvChecked(init);
       setCsvStep(allRows.length === 0 ? "empty" : "preview");
     } catch {
@@ -549,6 +554,9 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
     const toImport = csvRows.filter((_, i) => csvChecked[i]);
     const expTotal = toImport.filter(r => r.type === "expense").reduce((s, r) => s + Math.abs(r.amount), 0);
     const incTotal = toImport.filter(r => r.type === "income").reduce((s, r) => s + r.amount, 0);
+    // 自分のメンバーID（デフォルト: members[0]）
+    const selfId = members?.[0]?.id || null;
+
     toImport.forEach(r => {
       // PayPayのCSVはPayPay口座から自動差し引き
       const payPayAccount = (pointAccounts || []).find(a => a.name === "PayPay");
@@ -557,18 +565,26 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
         ? { ...r, pointAccountId: payPayAccount.id, paymentMethod: payPayAccount.id }
         : r;
 
+      // CSV取込の支出は「自分払い」「共有」を自動設定
+      // 個人/相手が手動設定されている場合はそちらを優先
+      const withPayer = enriched.type === "expense" ? {
+        ...enriched,
+        paidBy:    enriched.paidBy    || selfId,
+        shareType: enriched.shareType || "shared",
+      } : enriched;
+
       // OCR重複がある場合はマージ（CSVデータ主体＋OCRの品目を引き継ぐ）
       if (r.ocrDuplicate) {
         const ocrTx  = r.ocrDuplicate;
         const merged = {
-          ...enriched,
-          items:  ocrTx.items || [],    // OCRの品目情報を引き継ぐ
+          ...withPayer,
+          items:  ocrTx.items || [],
           source: "csv",
         };
-        onDelete?.(ocrTx.id);           // 元のOCR取引を削除
+        onDelete?.(ocrTx.id);
         onAdd(createTransaction({ ...merged, source: "csv" }));
       } else {
-        onAdd(createTransaction({ ...enriched, source: "csv" }));
+        onAdd(createTransaction({ ...withPayer, source: "csv" }));
       }
       if (r.label && r.category) onLearnRule?.(r.label, r.category, r.type || "expense");
     });
