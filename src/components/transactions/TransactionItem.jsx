@@ -59,13 +59,39 @@ export function TransactionItem({
             <p className="text-sm font-medium text-gray-800 truncate">{t.label}</p>
             {t.source && t.source !== "manual" && <SourceBadge source={t.source} />}
             {isTransfer && <span className="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full">振替</span>}
+            {/* 支払者未設定警告 */}
+            {t.type === "expense" && !t.paidBy && t.shareType !== "personal" && t.shareType !== "partner" && (
+              <span className="text-xs bg-rose-100 text-rose-500 px-1.5 py-0.5 rounded-full">⚠️未設定</span>
+            )}
           </div>
           <div className="flex items-center gap-2 mt-0.5 flex-wrap">
             <p className="text-xs text-gray-400">{t.category} · {t.date}</p>
-            {paidByMember && <span className="text-xs text-indigo-400">👤{paidByMember.name}</span>}
-            {pointAccount  && <span className="text-xs text-amber-500">{pointAccount.icon}{pointAccount.name}</span>}
-            {t.shareType === "personal" && <span className="text-xs bg-rose-100 text-rose-500 px-1.5 py-0.5 rounded-full">個人</span>}
-            {t.shareType === "shared"   && <span className="text-xs bg-indigo-100 text-indigo-500 px-1.5 py-0.5 rounded-full">共有</span>}
+            {/* 支払者 */}
+            {paidByMember ? (
+              <span className="text-xs bg-indigo-50 text-indigo-500 px-1.5 py-0.5 rounded-full">
+                👤{paidByMember.name}払い
+              </span>
+            ) : t.type === "expense" && t.shareType !== "personal" && t.shareType !== "partner" && (
+              <span className="text-xs bg-rose-50 text-rose-400 px-1.5 py-0.5 rounded-full">
+                ⚠️支払者未設定
+              </span>
+            )}
+            {/* 支払方法 */}
+            {pointAccount && (
+              <span className="text-xs bg-amber-50 text-amber-500 px-1.5 py-0.5 rounded-full">
+                {pointAccount.icon}{pointAccount.name}
+              </span>
+            )}
+            {/* 共有/個人/相手（支出のみ表示） */}
+            {t.type === "expense" && (
+              t.shareType === "personal" ? (
+                <span className="text-xs bg-rose-100 text-rose-500 px-1.5 py-0.5 rounded-full font-medium">👤個人</span>
+              ) : t.shareType === "partner" ? (
+                <span className="text-xs bg-purple-100 text-purple-500 px-1.5 py-0.5 rounded-full font-medium">👥相手負担</span>
+              ) : (
+                <span className="text-xs bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded-full font-medium">🤝共有</span>
+              )
+            )}
             {hasItems && !selectMode && (
               <span className="text-xs text-indigo-400 font-medium">品目{t.items.length}件 {expanded ? "▲" : "▼"}</span>
             )}
