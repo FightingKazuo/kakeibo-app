@@ -20,9 +20,9 @@ export const DEFAULT_MEMBERS = [
 
 // デフォルトポイント口座
 export const DEFAULT_POINT_ACCOUNTS = [
-  { id: "pa1", name: "Tポイント",   icon: "🟡", unit: "pt", balance: 0 },
+  { id: "pa1", name: "Tポイント",   icon: "🟡", unit: "円", balance: 0 },
   { id: "pa2", name: "WAON",        icon: "🔵", unit: "円", balance: 0 },
-  { id: "pa3", name: "楽天ポイント", icon: "🔴", unit: "pt", balance: 0 },
+  { id: "pa3", name: "楽天ポイント", icon: "🔴", unit: "円", balance: 0 },
   { id: "pa4", name: "PayPay",      icon: "💛", unit: "円", balance: 0 },
 ];
 
