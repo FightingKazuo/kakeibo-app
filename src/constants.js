@@ -45,9 +45,11 @@ export const DEFAULT_CATS = [
   {id:"c14",name:"投資",    emoji:"📈", type:"expense"},
   {id:"c15",name:"外食",    emoji:"🍜", type:"expense"},
 
-  {id:"c10",name:"給料",    emoji:"💴", type:"income"},
-  {id:"c11",name:"副業",    emoji:"💻", type:"income"},
-  {id:"c12",name:"ボーナス",emoji:"🎁", type:"income"},
+  {id:"c10",name:"給料",      emoji:"💴", type:"income"},
+  {id:"c11",name:"副業",      emoji:"💻", type:"income"},
+  {id:"c12",name:"ボーナス",  emoji:"🎁", type:"income"},
+  {id:"c16",name:"割り勘戻り",emoji:"🔄", type:"income"},
+  {id:"c17",name:"その他収入",emoji:"💰", type:"income"},
 ];
 
 export const DEFAULT_CATEGORY_RULES = [
