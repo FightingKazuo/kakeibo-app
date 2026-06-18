@@ -372,12 +372,13 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
                             <div className="flex flex-wrap gap-2">
                               {members.map(m => (
                                 <button key={m.id}
-                                  onClick={() => {
+                                  onClick={async () => {
                                     if (!window.confirm(`選択中の${selectedUnset.size}件を「${m.name}が払った」に設定しますか？`)) return;
-                                    selectedUnset.forEach(id => {
-                                      const tx = transactions.find(t => t.id === id);
-                                      if (tx) onUpdate?.({ ...tx, paidBy: m.id, shareType: "shared", updatedAt: new Date().toISOString() });
-                                    });
+                                    const snap = [...transactions];
+                                    for (const id of [...selectedUnset]) {
+                                      const tx = snap.find(t => t.id === id);
+                                      if (tx) await onUpdate?.({ ...tx, paidBy: m.id, shareType: "shared", updatedAt: new Date().toISOString() });
+                                    }
                                     setSelectedUnset(new Set());
                                   }}
                                   className="px-3 py-2 bg-indigo-500 text-white rounded-xl text-xs font-semibold flex items-center gap-1">
@@ -387,10 +388,12 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
                               <button
                                 onClick={() => {
                                   if (!window.confirm(`選択中の${selectedUnset.size}件を「個人費用」に設定しますか？精算対象から除外されます。`)) return;
-                                  selectedUnset.forEach(id => {
-                                    const tx = transactions.find(t => t.id === id);
-                                    if (tx) onUpdate?.({ ...tx, shareType: "personal", updatedAt: new Date().toISOString() });
-                                  });
+                                  const snapshot2 = [...transactions];
+                                  const ids2 = [...selectedUnset];
+                                  for (const id of ids2) {
+                                    const tx = snapshot2.find(t => t.id === id);
+                                    if (tx) await onUpdate?.({ ...tx, shareType: "personal", updatedAt: new Date().toISOString() });
+                                  }
                                   setSelectedUnset(new Set());
                                 }}
                                 className="px-3 py-2 bg-rose-400 text-white rounded-xl text-xs font-semibold">
