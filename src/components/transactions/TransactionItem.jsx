@@ -78,36 +78,41 @@ export function TransactionItem({
               <span className="text-xs bg-rose-100 text-rose-500 px-1.5 py-0.5 rounded-full">⚠️未設定</span>
             )}
           </div>
-          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-            <p className="text-xs text-gray-400">{t.category} · {t.date}</p>
-            {/* 分割行でない場合のみ支払者・共有区分を表示 */}
+          {/* 1行目：カテゴリ・日付 */}
+          <p className="text-xs text-gray-400 mt-0.5">{t.category} · {t.date}</p>
+          {/* 2行目：バッジ類 */}
+          <div className="flex items-center gap-1.5 mt-1 flex-wrap">
             {!isSplit && (
               <>
+                {/* 支払者 */}
                 {paidByMember ? (
-                  <span className="text-xs bg-indigo-50 text-indigo-500 px-1.5 py-0.5 rounded-full">
+                  <span className="text-xs bg-indigo-50 text-indigo-500 px-1.5 py-0.5 rounded-full font-medium">
                     👤{paidByMember.name}払い
                   </span>
                 ) : t.type === "expense" && t.shareType !== "personal" && t.shareType !== "partner" && (
-                  <span className="text-xs bg-rose-50 text-rose-400 px-1.5 py-0.5 rounded-full">
+                  <span className="text-xs bg-rose-50 text-rose-400 px-1.5 py-0.5 rounded-full font-medium">
                     ⚠️支払者未設定
                   </span>
                 )}
+                {/* 支払方法（ポイント） */}
                 {pointAccount && (
-                  <span className="text-xs bg-amber-50 text-amber-500 px-1.5 py-0.5 rounded-full">
-                    {pointAccount.icon}{pointAccount.name}
+                  <span className="text-xs bg-amber-50 text-amber-500 px-1.5 py-0.5 rounded-full font-medium">
+                    {pointAccount.icon}{pointAccount.name}払い
                   </span>
                 )}
+                {/* 共有区分 */}
                 {t.type === "expense" && (
                   t.shareType === "personal" ? (
                     <span className="text-xs bg-rose-100 text-rose-500 px-1.5 py-0.5 rounded-full font-medium">👤個人</span>
                   ) : t.shareType === "partner" ? (
-                    <span className="text-xs bg-purple-100 text-purple-500 px-1.5 py-0.5 rounded-full font-medium">👥相手負担</span>
+                    <span className="text-xs bg-purple-100 text-purple-500 px-1.5 py-0.5 rounded-full font-medium">👥相手</span>
                   ) : (
                     <span className="text-xs bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded-full font-medium">🤝共有</span>
                   )
                 )}
               </>
             )}
+            {/* 品目 */}
             {hasItems && !selectMode && !isSplit && (
               <span className="text-xs text-indigo-400 font-medium">品目{t.items.length}件 {expanded ? "▲" : "▼"}</span>
             )}
