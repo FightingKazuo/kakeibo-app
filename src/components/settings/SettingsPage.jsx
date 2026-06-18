@@ -518,6 +518,7 @@ export function SettingsPage({
                         amount:   diff,
                         type:     diff > 0 ? "income" : "expense",
                         source:   "manual",
+                        shareType:      "personal",
                         pointAccountId: a.id,
                         paymentMethod:  a.id,
                       });
