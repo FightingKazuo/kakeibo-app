@@ -1090,21 +1090,13 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
               <p className="text-sm font-bold text-indigo-600">カメラでレシートを撮影</p>
               <p className="text-xs text-indigo-400">真正面から・明るい場所で</p>
             </button>
-            <input ref={ocrFileRef} type="file" accept="image/*" multiple onChange={handleOcrFile} className="hidden" />
+            <input ref={ocrFileRef} type="file" accept="image/*" onChange={handleOcrFile} className="hidden" />
             <button onClick={() => ocrFileRef.current?.click()}
               className="w-full py-4 rounded-2xl border border-gray-200 bg-white flex items-center justify-center gap-3 px-4">
               <span className="text-xl">🖼️</span>
               <div className="text-left">
-                <p className="text-sm font-semibold text-gray-600">画像を選択（複数枚OK）</p>
-                <p className="text-xs text-gray-400">最大15枚まで · Gemini使用時は自動調整</p>
-              </div>
-            </button>
-            <button onClick={() => { setPasteText(""); setOcrStep("paste"); }}
-              className="w-full py-4 rounded-2xl border-2 border-emerald-300 bg-emerald-50 flex items-center gap-4 px-5">
-              <span className="text-3xl">📋</span>
-              <div className="text-left">
-                <p className="text-sm font-bold text-emerald-700">テキストを貼り付け（おすすめ）</p>
-                <p className="text-xs text-emerald-500">Google Lens等でコピーしたテキストを使う</p>
+                <p className="text-sm font-semibold text-gray-600">画像を選択</p>
+                <p className="text-xs text-gray-400">カメラロールから1枚選択</p>
               </div>
             </button>
             <div className="bg-gray-50 rounded-xl p-3 border border-gray-200 text-xs text-gray-500 space-y-1">
