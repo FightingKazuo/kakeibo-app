@@ -386,7 +386,7 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
                                 </button>
                               ))}
                               <button
-                                onClick={() => {
+                                onClick={async () => {
                                   if (!window.confirm(`選択中の${selectedUnset.size}件を「個人費用」に設定しますか？精算対象から除外されます。`)) return;
                                   const snapshot2 = [...transactions];
                                   const ids2 = [...selectedUnset];
