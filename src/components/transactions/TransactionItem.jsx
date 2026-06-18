@@ -73,8 +73,8 @@ export function TransactionItem({
             {isSplit && splitType === "shared"   && <span className="text-xs bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded-full font-medium">🤝共有分</span>}
             {isSplit && splitType === "personal" && <span className="text-xs bg-rose-100 text-rose-500 px-1.5 py-0.5 rounded-full font-medium">👤個人分</span>}
             {isSplit && splitType === "partner"  && <span className="text-xs bg-purple-100 text-purple-500 px-1.5 py-0.5 rounded-full font-medium">👥相手分</span>}
-            {/* 支払者未設定警告（非分割のみ） */}
-            {!isSplit && t.type === "expense" && !t.paidBy && t.shareType !== "personal" && t.shareType !== "partner" && (
+            {/* 支払者未設定警告（非分割のみ・paidByが未設定の場合のみ） */}
+            {!isSplit && t.type === "expense" && !t.paidBy && t.shareType !== "personal" && t.shareType !== "partner" && !isTransfer && (
               <span className="text-xs bg-rose-100 text-rose-500 px-1.5 py-0.5 rounded-full">⚠️未設定</span>
             )}
           </div>
@@ -89,7 +89,7 @@ export function TransactionItem({
                   <span className="text-xs bg-indigo-50 text-indigo-500 px-1.5 py-0.5 rounded-full font-medium">
                     👤{paidByMember.name}払い
                   </span>
-                ) : t.type === "expense" && t.shareType !== "personal" && t.shareType !== "partner" && (
+                ) : t.paidBy ? null : t.type === "expense" && t.shareType !== "personal" && t.shareType !== "partner" && !isTransfer && (
                   <span className="text-xs bg-rose-50 text-rose-400 px-1.5 py-0.5 rounded-full font-medium">
                     ⚠️支払者未設定
                   </span>
