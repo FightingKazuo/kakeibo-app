@@ -700,13 +700,13 @@ export function SettingsPage({
                       <button
                         onClick={() => moveCategory(idx, -1)}
                         disabled={idx === 0}
-                        className="w-6 h-5 flex items-center justify-center text-gray-300 hover:text-indigo-400 disabled:opacity-20 disabled:cursor-not-allowed transition-colors text-xs leading-none">
+                        className="w-8 h-7 flex items-center justify-center text-gray-400 hover:text-indigo-500 hover:bg-indigo-50 disabled:opacity-20 disabled:cursor-not-allowed transition-colors rounded-md text-sm">
                         ▲
                       </button>
                       <button
                         onClick={() => moveCategory(idx, 1)}
                         disabled={idx === categories.length - 1}
-                        className="w-6 h-5 flex items-center justify-center text-gray-300 hover:text-indigo-400 disabled:opacity-20 disabled:cursor-not-allowed transition-colors text-xs leading-none">
+                        className="w-8 h-7 flex items-center justify-center text-gray-400 hover:text-indigo-500 hover:bg-indigo-50 disabled:opacity-20 disabled:cursor-not-allowed transition-colors rounded-md text-sm">
                         ▼
                       </button>
                     </div>
