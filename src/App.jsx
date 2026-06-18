@@ -101,7 +101,16 @@ export default function App() {
         setCategories(cats    || loadStorage(STORAGE_KEYS.CATEGORIES, DEFAULT_CATS));
         setLearnedRules(rules || loadStorage(STORAGE_KEYS.RULES, []));
         setMembers(mems       || loadStorage(STORAGE_KEYS.MEMBERS, DEFAULT_MEMBERS));
-        setPointAccounts(points || loadStorage(STORAGE_KEYS.POINT_ACCOUNTS, DEFAULT_POINT_ACCOUNTS));
+
+        // ポイント口座：既存データにデフォルト口座が欠けていたら補完
+        const loadedPoints = points || loadStorage(STORAGE_KEYS.POINT_ACCOUNTS, DEFAULT_POINT_ACCOUNTS);
+        const mergedPoints = DEFAULT_POINT_ACCOUNTS.map(def => {
+          const existing = loadedPoints.find(a => a.id === def.id);
+          return existing ? { ...existing, unit: "円" } : def; // unitを円に統一
+        });
+        // デフォルトにないカスタム口座も保持
+        const customPoints = loadedPoints.filter(a => !DEFAULT_POINT_ACCOUNTS.find(d => d.id === a.id));
+        setPointAccounts([...mergedPoints, ...customPoints]);
 
         setSyncStatus("synced");
       } catch (e) {
@@ -111,7 +120,13 @@ export default function App() {
         setCategories(loadStorage(STORAGE_KEYS.CATEGORIES, DEFAULT_CATS));
         setLearnedRules(loadStorage(STORAGE_KEYS.RULES, []));
         setMembers(loadStorage(STORAGE_KEYS.MEMBERS, DEFAULT_MEMBERS));
-        setPointAccounts(loadStorage(STORAGE_KEYS.POINT_ACCOUNTS, DEFAULT_POINT_ACCOUNTS));
+        const fallbackPoints = loadStorage(STORAGE_KEYS.POINT_ACCOUNTS, DEFAULT_POINT_ACCOUNTS);
+        const mergedFallback = DEFAULT_POINT_ACCOUNTS.map(def => {
+          const existing = fallbackPoints.find(a => a.id === def.id);
+          return existing ? { ...existing, unit: "円" } : def;
+        });
+        const customFallback = fallbackPoints.filter(a => !DEFAULT_POINT_ACCOUNTS.find(d => d.id === a.id));
+        setPointAccounts([...mergedFallback, ...customFallback]);
         setSyncStatus("error");
       } finally {
         setIsLoading(false);
