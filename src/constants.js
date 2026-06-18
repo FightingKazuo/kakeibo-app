@@ -142,16 +142,35 @@ export const CSV_FORMATS = {
     sampleColumns: ["取引日","出金金額（円）","取引先","取引内容"],
     normalize: (r) => {
       const content = (r["取引内容"] || "").trim();
-      if (["送った金額","ポイント、残高の獲得"].includes(content)) return null;
+
+      // 無視する行
+      if (content === "ポイント、残高の獲得") return null;
+
       const dateRaw = (r["取引日"] || "").slice(0, 10);
       const date    = dateRaw.replace(/\//g, "-");
       if (!date.match(/^\d{4}-\d{2}-\d{2}$/)) return null;
+
       const label   = (r["取引先"] || r["取引内容"] || "不明").trim();
       const outStr  = String(r["出金金額（円）"] || "").replace(/[,，\-\s]/g, "");
       const inStr   = String(r["入金金額（円）"] || "").replace(/[,，\-\s]/g, "");
       const out = parseFloat(outStr) || 0;
       const inc = parseFloat(inStr)  || 0;
       if (!out && !inc) return null;
+
+      // 取引内容別に種類を設定
+      if (content === "チャージ") {
+        // チャージは収入（PayPay残高への入金）
+        return { date, label: `PayPay チャージ（${label}）`, category: "その他収入", amount: inc, type: "income" };
+      }
+      if (content === "受け取った金額") {
+        // 割り勘戻り・送金受取
+        return { date, label, category: "割り勘戻り", amount: inc, type: "income" };
+      }
+      if (content === "送った金額") {
+        // 送金は支出（個人費用として扱う）
+        return { date, label: `PayPay送金（${label}）`, category: "その他", amount: -out, type: "expense", shareType: "personal" };
+      }
+      // 支払い・請求書払い → 通常支出
       return { date, label, category: "その他", amount: out > 0 ? -out : inc, type: out > 0 ? "expense" : "income" };
     },
   },
