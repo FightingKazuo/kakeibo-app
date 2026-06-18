@@ -285,7 +285,7 @@ export default function App() {
           onLearnRule={handleLearn}
         />;
       case "analysis":
-        return <AnalysisPage transactions={transactions} categories={categories} members={members} pointAccounts={pointAccountsWithBalance} />;
+        return <AnalysisPage transactions={transactions} categories={categories} members={members} pointAccounts={pointAccountsWithBalance} onUpdate={handleUpdate} />;
       case "assets":
         return <AssetsPage transactions={transactions} pointAccounts={pointAccountsWithBalance} />;
       case "settings":
