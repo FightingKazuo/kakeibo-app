@@ -1501,7 +1501,9 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
                     className="text-xs text-gray-500 font-semibold bg-white px-2 py-1 rounded-lg border border-gray-200">全OFF</button>
                 </div>
               </div>
-              <div className="flex flex-wrap gap-1.5">
+              {/* 支出カテゴリ */}
+              <p className="text-xs text-gray-500 font-semibold mb-1">💸 支出</p>
+              <div className="flex flex-wrap gap-1.5 mb-2">
                 {categories.filter(c => c.type === "expense").map(cat => (
                   <button key={cat.id}
                     onClick={() => setCsvRows(p => p.map((r, i) => csvChecked[i] && !isDupRow(r) ? { ...r, category: cat.name } : r))}
@@ -1509,6 +1511,30 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
                     {cat.emoji} {cat.name}
                   </button>
                 ))}
+              </div>
+              {/* 収入カテゴリ */}
+              <p className="text-xs text-gray-500 font-semibold mb-1">💰 収入（PayPay戻り等）</p>
+              <div className="flex flex-wrap gap-1.5">
+                {categories.filter(c => c.type === "income").map(cat => (
+                  <button key={cat.id}
+                    onClick={() => setCsvRows(p => p.map((r, i) => {
+                      if (!csvChecked[i] || isDupRow(r)) return r;
+                      // 収入カテゴリ選択時は収入typeに変更
+                      return { ...r, category: cat.name, type: "income", amount: Math.abs(r.amount) };
+                    }))}
+                    className="px-2.5 py-1 bg-white rounded-lg text-xs border border-emerald-200 text-gray-600 hover:bg-emerald-500 hover:text-white hover:border-emerald-500 transition-all">
+                    {cat.emoji} {cat.name}
+                  </button>
+                ))}
+                {/* 割り勘戻りショートカット */}
+                <button
+                  onClick={() => setCsvRows(p => p.map((r, i) => {
+                    if (!csvChecked[i] || isDupRow(r)) return r;
+                    return { ...r, category: "割り勘戻り", type: "income", amount: Math.abs(r.amount) };
+                  }))}
+                  className="px-2.5 py-1 bg-white rounded-lg text-xs border border-emerald-200 text-gray-600 hover:bg-emerald-500 hover:text-white hover:border-emerald-500 transition-all">
+                  🔄 割り勘戻り
+                </button>
               </div>
               <p className="text-xs text-indigo-400 mt-1.5">チェックした件を選択→カテゴリボタンで変更</p>
             </div>
