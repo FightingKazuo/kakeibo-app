@@ -4,22 +4,54 @@ import { MonthSelector } from "../common/MonthSelector";
 import { TransactionItem } from "./TransactionItem";
 import { EmptyState } from "../ui/EmptyState";
 
+// ─── 取引を共有/個人/相手に分割した表示行を生成 ───────────────
+// 品目に複数のtype（shared/personal/partner）が混在する取引を分割
+const splitTransaction = (tx) => {
+  const items = tx.items || [];
+  if (!items.length) return [tx]; // 品目なし → そのまま
+
+  const sharedItems   = items.filter(i => !i.type || i.type === "shared");
+  const personalItems = items.filter(i => i.type === "personal");
+  const partnerItems  = items.filter(i => i.type === "partner");
+
+  // 全部同じtype → 分割不要
+  const types = new Set(items.map(i => i.type || "shared"));
+  if (types.size === 1) return [tx];
+
+  const rows = [];
+  if (sharedItems.length > 0) {
+    const amt = sharedItems.reduce((s, i) => s + i.amount, 0);
+    if (amt > 0) rows.push({ ...tx, _splitType: "shared",   _splitAmt: amt,   items: sharedItems });
+  }
+  if (personalItems.length > 0) {
+    const amt = personalItems.reduce((s, i) => s + i.amount, 0);
+    if (amt > 0) rows.push({ ...tx, _splitType: "personal", _splitAmt: amt,   items: personalItems });
+  }
+  if (partnerItems.length > 0) {
+    const amt = partnerItems.reduce((s, i) => s + i.amount, 0);
+    if (amt > 0) rows.push({ ...tx, _splitType: "partner",  _splitAmt: amt,   items: partnerItems });
+  }
+  return rows.length > 0 ? rows : [tx];
+};
+
 export function TransactionListPage({ transactions, categories, members, pointAccounts, onEdit, onDelete, onUpdate, onNavigate }) {
-  const [q,          setQ]          = useState("");
-  const [selMonth,   setSelMonth]   = useState("all");
-  const [srcFilter,  setSrcFilter]  = useState("all");
-  const [errFilter,  setErrFilter]  = useState(false); // 支払者未設定フィルター
+  const [q,           setQ]           = useState("");
+  const [selMonth,    setSelMonth]    = useState("all");
+  const [srcFilter,   setSrcFilter]   = useState("all");
+  const [shareFilter, setShareFilter] = useState("all"); // all/shared/personal/partner
+  const [errFilter,   setErrFilter]   = useState(false);
 
   // 選択モード
-  const [selectMode,   setSelectMode]   = useState(false);
-  const [selectedIds,  setSelectedIds]  = useState(new Set());
-  const [showBulkCat,  setShowBulkCat]  = useState(false);
+  const [selectMode,  setSelectMode]  = useState(false);
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [showBulkCat, setShowBulkCat] = useState(false);
 
   const months = useMemo(
     () => [...new Set(transactions.map(t => toYM(t.date)))].sort().reverse(),
     [transactions]
   );
 
+  // フィルター適用後の取引
   const filtered = useMemo(() =>
     transactions
       .filter(t => selMonth === "all" || toYM(t.date) === selMonth)
@@ -29,16 +61,27 @@ export function TransactionListPage({ transactions, categories, members, pointAc
     [transactions, selMonth, srcFilter, q, errFilter]
   );
 
+  // 分割表示行を生成してからshareFilterを適用
+  const displayRows = useMemo(() => {
+    const rows = filtered.flatMap(t => splitTransaction(t));
+    if (shareFilter === "all") return rows;
+    return rows.filter(r => {
+      const effectiveType = r._splitType || r.shareType || "shared";
+      return effectiveType === shareFilter;
+    });
+  }, [filtered, shareFilter]);
+
+  // 合計（分割行の場合は_splitAmtを使用）
+  const totals = useMemo(() => ({
+    income:  displayRows.filter(t => t.type === "income").reduce((s, t) => s + Math.abs(t._splitAmt ?? t.amount), 0),
+    expense: displayRows.filter(t => t.type === "expense").reduce((s, t) => s + Math.abs(t._splitAmt ?? t.amount), 0),
+  }), [displayRows]);
+
   // 支払者未設定件数
   const unsetCount = useMemo(() =>
     transactions.filter(t => t.type === "expense" && !t.paidBy && t.shareType !== "personal" && t.shareType !== "partner").length,
     [transactions]
   );
-
-  const totals = useMemo(() => ({
-    income:  filtered.filter(t => t.type === "income").reduce((s, t) => s + t.amount, 0),
-    expense: filtered.filter(t => t.type === "expense").reduce((s, t) => s + Math.abs(t.amount), 0),
-  }), [filtered]);
 
   // 選択操作
   const toggleSelect = (id) => {
@@ -60,7 +103,7 @@ export function TransactionListPage({ transactions, categories, members, pointAc
     setShowBulkCat(false);
   };
 
-  const selectAll = () => setSelectedIds(new Set(filtered.map(t => t.id)));
+  const selectAll = () => setSelectedIds(new Set(displayRows.map(t => t.id)));
   const deselectAll = () => setSelectedIds(new Set());
 
   // 一括削除
@@ -108,7 +151,6 @@ export function TransactionListPage({ transactions, categories, members, pointAc
       {/* ── ヘッダー ── */}
       <div className="bg-white px-4 pt-12 pb-3 border-b border-gray-100 sticky top-0 z-10 space-y-2">
         {selectMode ? (
-          /* 選択モードヘッダー */
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <button onClick={exitSelectMode} className="text-gray-400 text-lg">←</button>
@@ -129,6 +171,7 @@ export function TransactionListPage({ transactions, categories, members, pointAc
               </button>
             </div>
             <MonthSelector months={months} selected={selMonth} onChange={setSelMonth} />
+            {/* ソース・エラーフィルター */}
             <div className="flex gap-2 overflow-x-auto scrollbar-none">
               {[["all","すべて"],["manual","✏️手動"],["csv","📊CSV"],["ocr","📷OCR"]].map(([id, lb]) => (
                 <button key={id} onClick={() => setSrcFilter(id)}
@@ -147,6 +190,22 @@ export function TransactionListPage({ transactions, categories, members, pointAc
                 </button>
               )}
             </div>
+            {/* 共有区分フィルター */}
+            <div className="flex gap-2 overflow-x-auto scrollbar-none">
+              {[
+                ["all",      "すべて",   "bg-gray-700 text-white",   "bg-white text-gray-500 border-gray-200"],
+                ["shared",   "🤝 共有",  "bg-indigo-500 text-white", "bg-white text-indigo-500 border-indigo-200"],
+                ["personal", "👤 個人",  "bg-rose-400 text-white",   "bg-white text-rose-400 border-rose-200"],
+                ["partner",  "👥 相手",  "bg-purple-400 text-white", "bg-white text-purple-400 border-purple-200"],
+              ].map(([id, lb, activeClass, inactiveClass]) => (
+                <button key={id} onClick={() => setShareFilter(id)}
+                  className={`flex-shrink-0 px-3 py-1 rounded-full text-xs font-semibold border transition-all duration-200 ${
+                    shareFilter === id ? activeClass : inactiveClass
+                  }`}>
+                  {lb}
+                </button>
+              ))}
+            </div>
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">🔍</span>
               <input type="text" value={q} onChange={e => setQ(e.target.value)} placeholder="カテゴリや内容で検索..."
@@ -158,7 +217,7 @@ export function TransactionListPage({ transactions, categories, members, pointAc
 
       {/* 件数・合計 */}
       <div className="px-4 py-2 bg-gray-50 border-b border-gray-100 flex justify-between text-xs text-gray-500">
-        <span>{filtered.length}件</span>
+        <span>{displayRows.length}件</span>
         <span>
           <span className="text-emerald-500 font-semibold">+{fmtCurrency(totals.income)}</span>
           {" / "}
@@ -214,15 +273,15 @@ export function TransactionListPage({ transactions, categories, members, pointAc
 
       {/* ── リスト ── */}
       <div className="bg-white">
-        {filtered.length === 0 && transactions.length === 0 ? (
+        {displayRows.length === 0 && transactions.length === 0 ? (
           <EmptyState emoji="🗂️" title="まだ取引がありません" desc="「追加」から最初の取引を登録しましょう"
             actionLabel="➕ 取引を追加する" onAction={() => onNavigate?.("add")} />
-        ) : filtered.length === 0 ? (
+        ) : displayRows.length === 0 ? (
           <EmptyState emoji="🔍" title="該当する取引がありません" desc="検索条件やフィルターを変えてみてください" />
         ) : (
-          filtered.map(t => (
+          displayRows.map((t, idx) => (
             <TransactionItem
-              key={t.id}
+              key={`${t.id}_${t._splitType || "all"}_${idx}`}
               transaction={t}
               categories={categories}
               members={members}
