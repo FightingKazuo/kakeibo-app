@@ -1506,7 +1506,11 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
               <div className="flex flex-wrap gap-1.5 mb-2">
                 {categories.filter(c => c.type === "expense").map(cat => (
                   <button key={cat.id}
-                    onClick={() => setCsvRows(p => p.map((r, i) => csvChecked[i] && !isDupRow(r) ? { ...r, category: cat.name } : r))}
+                    onClick={() => {
+                      setCsvRows(p => p.map((r, i) => csvChecked[i] && !isDupRow(r) ? { ...r, category: cat.name } : r));
+                      // カテゴリ適用後はチェックを解除
+                      setCsvChecked(p => { const n = {...p}; csvRows.forEach((r, i) => { if (p[i] && !isDupRow(r)) n[i] = false; }); return n; });
+                    }}
                     className="px-2.5 py-1 bg-white rounded-lg text-xs border border-indigo-200 text-gray-600 hover:bg-indigo-500 hover:text-white hover:border-indigo-500 transition-all">
                     {cat.emoji} {cat.name}
                   </button>
@@ -1517,21 +1521,26 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
               <div className="flex flex-wrap gap-1.5">
                 {categories.filter(c => c.type === "income").map(cat => (
                   <button key={cat.id}
-                    onClick={() => setCsvRows(p => p.map((r, i) => {
-                      if (!csvChecked[i] || isDupRow(r)) return r;
-                      // 収入カテゴリ選択時は収入typeに変更
-                      return { ...r, category: cat.name, type: "income", amount: Math.abs(r.amount) };
-                    }))}
+                    onClick={() => {
+                      setCsvRows(p => p.map((r, i) => {
+                        if (!csvChecked[i] || isDupRow(r)) return r;
+                        return { ...r, category: cat.name, type: "income", amount: Math.abs(r.amount) };
+                      }));
+                      setCsvChecked(p => { const n = {...p}; csvRows.forEach((r, i) => { if (p[i] && !isDupRow(r)) n[i] = false; }); return n; });
+                    }}
                     className="px-2.5 py-1 bg-white rounded-lg text-xs border border-emerald-200 text-gray-600 hover:bg-emerald-500 hover:text-white hover:border-emerald-500 transition-all">
                     {cat.emoji} {cat.name}
                   </button>
                 ))}
                 {/* 割り勘戻りショートカット */}
                 <button
-                  onClick={() => setCsvRows(p => p.map((r, i) => {
-                    if (!csvChecked[i] || isDupRow(r)) return r;
-                    return { ...r, category: "割り勘戻り", type: "income", amount: Math.abs(r.amount) };
-                  }))}
+                  onClick={() => {
+                    setCsvRows(p => p.map((r, i) => {
+                      if (!csvChecked[i] || isDupRow(r)) return r;
+                      return { ...r, category: "割り勘戻り", type: "income", amount: Math.abs(r.amount) };
+                    }));
+                    setCsvChecked(p => { const n = {...p}; csvRows.forEach((r, i) => { if (p[i] && !isDupRow(r)) n[i] = false; }); return n; });
+                  }}
                   className="px-2.5 py-1 bg-white rounded-lg text-xs border border-emerald-200 text-gray-600 hover:bg-emerald-500 hover:text-white hover:border-emerald-500 transition-all">
                   🔄 割り勘戻り
                 </button>
