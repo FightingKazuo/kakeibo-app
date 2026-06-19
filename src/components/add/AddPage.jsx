@@ -215,7 +215,7 @@ function CsvOcrDupModal({ ocrTxs, csvCandidates, onDecide }) {
 }
 
 // ─── メインコンポーネント ────────────────────────────────────
-export function AddPage({ categories, existingTransactions, allRules, learnedRules, members, pointAccounts, onAdd, onDelete, onLearnRule }) {
+export function AddPage({ categories, existingTransactions, allRules, learnedRules, members, pointAccounts, importHistory, onAdd, onDelete, onLearnRule, onImportHistoryChange }) {
   const [mode, setMode] = useState("select");
 
   // manual
@@ -232,6 +232,7 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
   // csv
   const [csvFormat,        setCsvFormat]       = useState("generic");
   const [csvDetected,      setCsvDetected]     = useState(null);
+  const [csvFormatIds,     setCsvFormatIds]    = useState([]); // 取り込んだフォーマットIDリスト
   const [csvShowOverride,  setCsvShowOverride] = useState(false);
   const [csvRows,    setCsvRows]    = useState([]);
   const [csvChecked, setCsvChecked] = useState({});
@@ -380,7 +381,8 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
     setCsvPdfLoading(true);
     try {
       let allRows = [];
-      const detectedLabels = new Set();
+      const detectedLabels    = new Set();
+      const detectedFormatIds = new Set();
       const errors = [];
 
       for (const file of files) {
@@ -412,8 +414,9 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
           const formatToUse = detected !== "generic" ? detected : csvFormat;
           if (detected !== "generic") {
             detectedLabels.add(CSV_FORMATS[detected]?.label || detected);
+            detectedFormatIds.add(detected);
           }
-          allRows = [...allRows, ...parseCSVText(text, formatToUse)];
+          allRows = [...allRows, ...parseCSVText(text, formatToUse, importHistory || {})];
         }
       }
 
@@ -428,6 +431,7 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
 
       const detectedLabel = [...detectedLabels].join(" / ") || "generic";
       setCsvDetected(detectedLabel);
+      setCsvFormatIds([...detectedFormatIds]);
 
       const existKeys  = new Set(existingTransactions.map(DUPLICATE_KEY));
       // CSV-OCR重複検出（日付±3日・金額±10%）
@@ -471,24 +475,29 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
 
   const handleCSVFile = handleFileInput;
 
-  // 重複行判定
-  const isDupRow = (r) => r.isDuplicate || r.isCardWithdrawal || !!r.ocrDuplicate;
+  // 重複行判定（確定スキップ / チェック可能警告 に分離）
+  const isDupRow     = (r) => r.isDuplicate || r.isCardWithdrawal || !!r.ocrDuplicate || r.isCardWarning;
+  const isHardDupRow = (r) => r.isDuplicate || r.isCardWithdrawal;   // 操作不可
+  const isOcrOnlyDup = (r) => !r.isDuplicate && !r.isCardWithdrawal && (!!r.ocrDuplicate || r.isCardWarning); // チェック可
 
   // CSVリスト行レンダリング
   const renderCsvRow = (r, i) => {
-    const isDup = isDupRow(r);
+    const isDup     = isDupRow(r);
+    const isHardDup = isHardDupRow(r);
+    const isOcrDup  = isOcrOnlyDup(r);
     const isCategorized = r.category !== "その他";
     return (
       <div key={i} className={`border-b border-gray-50 last:border-b-0 ${
-        isDup ? "bg-gray-50 opacity-60" :
+        isHardDup ? "bg-gray-50 opacity-60" :
+        isOcrDup  ? "bg-yellow-50/60" :
         isCategorized ? "bg-emerald-50" : "bg-white"
       }`}>
         <div className="flex items-center gap-3 px-4 py-3">
           <input type="checkbox"
             checked={!!csvChecked[i]}
-            onChange={() => !isDup && setCsvChecked(p => ({ ...p, [i]: !p[i] }))}
+            onChange={() => !isHardDup && setCsvChecked(p => ({ ...p, [i]: !p[i] }))}
             className="accent-indigo-500 flex-shrink-0"
-            disabled={isDup}
+            disabled={isHardDup}
           />
           <div className="flex-1 min-w-0" onClick={() => !isDup && setCsvEditIdx(csvEditIdx === i ? null : i)}>
             <div className="flex items-center gap-1 flex-wrap">
@@ -499,8 +508,9 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
                 </span>
               )}
               {r.isDuplicate     && <span className="text-xs bg-gray-200 text-gray-500 px-1.5 py-0.5 rounded-full flex-shrink-0">重複</span>}
-              {r.isCardWithdrawal && <span className="text-xs bg-gray-200 text-gray-500 px-1.5 py-0.5 rounded-full flex-shrink-0">💳 引落</span>}
-              {r.ocrDuplicate    && <span className="text-xs bg-gray-200 text-gray-500 px-1.5 py-0.5 rounded-full flex-shrink-0">📷 OCR重複</span>}
+              {r.isCardWithdrawal && <span className="text-xs bg-gray-200 text-gray-500 px-1.5 py-0.5 rounded-full flex-shrink-0">💳 取込済みスキップ</span>}
+              {r.isCardWarning    && <span className="text-xs bg-amber-100 text-amber-600 px-1.5 py-0.5 rounded-full flex-shrink-0">💳 カード未取込?</span>}
+              {r.ocrDuplicate    && <span className="text-xs bg-amber-100 text-amber-600 px-1.5 py-0.5 rounded-full flex-shrink-0">📷 OCR重複?</span>}
             </div>
             {r.ocrDuplicate && (
               <p className="text-xs text-gray-400 mt-0.5">
@@ -596,6 +606,20 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
 
     setCsvSummary({ count: toImport.length, skipped: csvRows.length - toImport.length, expTotal, incTotal });
     setCsvStep("done");
+
+    // インポート履歴を記録（カードフォーマットID × 年月）
+    // 例: { "smbc_2026-06": true, "epos_2026-05": true }
+    if (csvFormatIds.length > 0 && toImport.length > 0) {
+      const dates = toImport.map(r => r.date).filter(Boolean).sort();
+      const months = [...new Set(dates.map(d => d.slice(0, 7)))];
+      const newHistory = { ...(importHistory || {}) };
+      csvFormatIds.forEach(fmtId => {
+        months.forEach(ym => {
+          newHistory[`${fmtId}_${ym}`] = true;
+        });
+      });
+      onImportHistoryChange?.(newHistory);
+    }
   };
 
   const updateCsvRow = (i, key, val) =>
@@ -1586,14 +1610,25 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
                 return renderCsvRow(r, i);
               })}
 
-              {/* ③ 重複（一番下・灰色） */}
-              {csvRows.filter(r => isDupRow(r)).length > 0 && (
+              {/* ③ 確定スキップ（取り込み済みカード引き落とし・完全重複） */}
+              {csvRows.some(r => isHardDupRow(r)) && (
                 <div className="px-4 py-2 bg-gray-100 border-t border-gray-200">
-                  <p className="text-xs font-semibold text-gray-400">⊘ 重複（スキップ予定）</p>
+                  <p className="text-xs font-semibold text-gray-400">⊘ スキップ確定（取込済み・重複）</p>
                 </div>
               )}
               {csvRows.map((r, i) => {
-                if (!isDupRow(r)) return null;
+                if (!isHardDupRow(r)) return null;
+                return renderCsvRow(r, i);
+              })}
+
+              {/* ④ カード未取込み警告・OCR重複（チェックでインポート可） */}
+              {csvRows.some(r => isOcrOnlyDup(r)) && (
+                <div className="px-4 py-2 bg-amber-50 border-t border-amber-100">
+                  <p className="text-xs font-semibold text-amber-500">⚠️ 要確認（チェックでインポート可）</p>
+                </div>
+              )}
+              {csvRows.map((r, i) => {
+                if (!isOcrOnlyDup(r)) return null;
                 return renderCsvRow(r, i);
               })}
             </div>
