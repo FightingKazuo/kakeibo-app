@@ -151,7 +151,10 @@ export function SettingsPage({
       <div className="px-4 py-4">
         <div className="bg-white rounded-2xl overflow-hidden border border-gray-100">
           {TABS.map((t, i) => (
-            <button key={t.id} onClick={() => setTab(t.id)}
+            <button key={t.id} onClick={() => {
+              history.pushState({ page: "settings", tab: t.id }, "", window.location.pathname);
+              setTab(t.id);
+            }}
               className="w-full flex items-center gap-3 px-4 py-4 border-b border-gray-50 last:border-b-0 hover:bg-gray-50 active:bg-gray-100 transition-colors text-left">
               <span className="text-xl w-8 text-center">{t.icon}</span>
               <span className="flex-1 text-sm font-medium text-gray-800">{t.label}</span>
@@ -166,7 +169,11 @@ export function SettingsPage({
   return (
     <div className="pb-24">
       <div className="bg-white px-4 pt-12 pb-4 border-b border-gray-100 flex items-center gap-3">
-        <button onClick={() => setTab(null)} className="text-gray-400 text-xl leading-none">‹</button>
+        <button
+          onClick={() => { history.back(); setTab(null); }}
+          className="flex items-center justify-center w-10 h-10 rounded-full bg-gray-100 hover:bg-gray-200 active:bg-gray-300 transition-colors text-gray-600 text-lg font-bold">
+          ‹
+        </button>
         <h1 className="text-xl font-bold text-gray-900">
           {TABS.find(t => t.id === tab)?.icon} {TABS.find(t => t.id === tab)?.label}
         </h1>
