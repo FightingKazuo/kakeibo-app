@@ -399,6 +399,7 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
       )}
 
 
+      {tab === "settlement" && (
         <div className="px-4 py-5 space-y-4">
 
           {/* 期間選択 */}
