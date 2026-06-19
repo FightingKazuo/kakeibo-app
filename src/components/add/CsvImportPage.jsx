@@ -6,7 +6,7 @@ import { analyzePDFWithGemini } from "../../services/geminiOcr";
 import { CSV_FORMATS, DEFAULT_CATEGORY_RULES } from "../../constants";
 import { loadStorage } from "../../utils/storage";
 import { fmtCurrency } from "../../utils/format";
-import { PrimaryButton } from "../../ui/PrimaryButton";
+import { PrimaryButton } from "../ui/PrimaryButton";
 
 export function CsvImportPage({ categories, existingTransactions, members, pointAccounts, importHistory, onAdd, onDelete, onLearnRule, onImportHistoryChange, onBack }) {
   const [csvFormat,       setCsvFormat]       = useState("generic");
