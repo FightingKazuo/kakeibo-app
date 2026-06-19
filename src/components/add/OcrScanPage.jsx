@@ -7,9 +7,9 @@ import { loadStorage, saveStorage } from "../../utils/storage";
 import { runTesseract, runOCRSpace, extractAmount, extractDate, extractStoreName, extractReceiptItems } from "../../services/ocrUtils";
 import { analyzeWithGemini, testGeminiKey, parseOCRTextWithGemini } from "../../services/geminiOcr";
 import { learnTaxRule, describeTaxDiff, calcTaxInclusive } from "../../services/taxLearning";
-import { CategorySuggestion } from "../../common/CategorySuggestion";
-import { DuplicateCheckModal } from "../../common/DuplicateCheckModal";
-import { PrimaryButton } from "../../ui/PrimaryButton";
+import { CategorySuggestion } from "../common/CategorySuggestion";
+import { DuplicateCheckModal } from "../common/DuplicateCheckModal";
+import { PrimaryButton } from "../ui/PrimaryButton";
 import { ItemsAccordion } from "./shared/ItemsAccordion";
 import { CsvOcrDupModal } from "./shared/CsvOcrDupModal";
 
