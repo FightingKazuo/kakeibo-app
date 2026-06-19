@@ -31,11 +31,11 @@ export function EditPage({ transaction, categories, allRules, learnedRules, memb
   const [category,  setCategory]  = useState(transaction.category);
   const [paidBy,    setPaidBy]    = useState(transaction.paidBy || "");
   const [payMethod, setPayMethod] = useState(transaction.paymentMethod || "cash");
+  const [shareType, setShareType] = useState(transaction.shareType || "shared");
+
   const [items, setItems] = useState(
     Array.isArray(transaction.items) ? transaction.items.map(i => ({ ...i })) : []
   );
-
-  // 税抜き表示かどうか（amountExclTaxがある品目が1件でもあれば税抜き）
   const isTaxExclusive = items.some(i => i.amountExclTax != null);
   const taxLabel = isTaxExclusive ? "税抜き" : "税込み";
 
@@ -60,6 +60,7 @@ export function EditPage({ transaction, categories, allRules, learnedRules, memb
       paidBy:        paidBy || null,
       paymentMethod: payMethod,
       pointAccountId: payMethod !== "cash" ? payMethod : null,
+      shareType,
       items:         savedItems,
       updatedAt:     new Date().toISOString(),
     });
@@ -175,6 +176,28 @@ export function EditPage({ transaction, categories, allRules, learnedRules, memb
             </div>
           </div>
         )}
+
+        {/* 支払方法 */}
+        <div>
+          <label className="block text-xs font-semibold text-gray-500 mb-2">費用の種別</label>
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              { value: "shared",   label: "🤝 共有",   activeClass: "bg-indigo-500 text-white border-indigo-500" },
+              { value: "personal", label: "👤 個人",   activeClass: "bg-rose-400 text-white border-rose-400"     },
+              { value: "partner",  label: "👥 相手",   activeClass: "bg-purple-400 text-white border-purple-400" },
+            ].map(opt => (
+              <button key={opt.value} onClick={() => setShareType(opt.value)}
+                className={`py-2.5 rounded-xl text-sm font-medium border transition-all ${
+                  shareType === opt.value ? opt.activeClass : "bg-white text-gray-500 border-gray-200"
+                }`}>
+                {opt.label}
+              </button>
+            ))}
+          </div>
+          {items.length > 0 && (
+            <p className="text-xs text-gray-400 mt-1.5">※ 品目がある場合は品目ごとに設定した種別が優先されます</p>
+          )}
+        </div>
 
         {/* 支払方法 */}
         <div>
