@@ -117,15 +117,17 @@ const upsertSetting = async (table, shareId, data) => {
   });
 };
 
-export const fetchCategories    = (shareId) => fetchSetting("categories",    shareId);
-export const fetchLearnedRules  = (shareId) => fetchSetting("learned_rules", shareId);
-export const fetchMembers       = (shareId) => fetchSetting("members",       shareId);
-export const fetchPointAccounts = (shareId) => fetchSetting("point_accounts",shareId);
+export const saveCategories    = (shareId, data) => upsertSetting("categories",     shareId, data);
+export const saveLearnedRules  = (shareId, data) => upsertSetting("learned_rules",  shareId, data);
+export const saveMembers       = (shareId, data) => upsertSetting("members",        shareId, data);
+export const savePointAccounts = (shareId, data) => upsertSetting("point_accounts", shareId, data);
+export const saveImportHistory = (shareId, data) => upsertSetting("import_history", shareId, data);
 
-export const saveCategories    = (shareId, data) => upsertSetting("categories",    shareId, data);
-export const saveLearnedRules  = (shareId, data) => upsertSetting("learned_rules", shareId, data);
-export const saveMembers       = (shareId, data) => upsertSetting("members",       shareId, data);
-export const savePointAccounts = (shareId, data) => upsertSetting("point_accounts",shareId, data);
+export const fetchCategories    = (shareId) => fetchSetting("categories",     shareId);
+export const fetchLearnedRules  = (shareId) => fetchSetting("learned_rules",  shareId);
+export const fetchMembers       = (shareId) => fetchSetting("members",        shareId);
+export const fetchPointAccounts = (shareId) => fetchSetting("point_accounts", shareId);
+export const fetchImportHistory = (shareId) => fetchSetting("import_history", shareId);
 
 // ─── 接続テスト ───────────────────────────────────────────
 export const testConnection = async () => {
