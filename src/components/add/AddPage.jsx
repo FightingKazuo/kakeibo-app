@@ -476,9 +476,9 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
   const handleCSVFile = handleFileInput;
 
   // 重複行判定（確定スキップ / チェック可能警告 に分離）
-  const isDupRow     = (r) => r.isDuplicate || r.isCardWithdrawal || !!r.ocrDuplicate || r.isCardWarning;
-  const isHardDupRow = (r) => r.isDuplicate || r.isCardWithdrawal;   // 操作不可
-  const isOcrOnlyDup = (r) => !r.isDuplicate && !r.isCardWithdrawal && (!!r.ocrDuplicate || r.isCardWarning); // チェック可
+  const isDupRow     = (r) => r.isDuplicate || r.isCardWithdrawal || !!r.ocrDuplicate || r.isCardWarning || r.isTransfer;
+  const isHardDupRow = (r) => r.isDuplicate || r.isCardWithdrawal || r.isTransfer;  // 操作不可
+  const isOcrOnlyDup = (r) => !r.isDuplicate && !r.isCardWithdrawal && !r.isTransfer && (!!r.ocrDuplicate || r.isCardWarning); // チェック可
 
   // CSVリスト行レンダリング
   const renderCsvRow = (r, i) => {
@@ -508,6 +508,7 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
                 </span>
               )}
               {r.isDuplicate     && <span className="text-xs bg-gray-200 text-gray-500 px-1.5 py-0.5 rounded-full flex-shrink-0">重複</span>}
+              {r.isTransfer      && <span className="text-xs bg-gray-200 text-gray-500 px-1.5 py-0.5 rounded-full flex-shrink-0">🔄 振替</span>}
               {r.isCardWithdrawal && <span className="text-xs bg-gray-200 text-gray-500 px-1.5 py-0.5 rounded-full flex-shrink-0">💳 取込済みスキップ</span>}
               {r.isCardWarning    && <span className="text-xs bg-amber-100 text-amber-600 px-1.5 py-0.5 rounded-full flex-shrink-0">💳 カード未取込?</span>}
               {r.ocrDuplicate    && <span className="text-xs bg-amber-100 text-amber-600 px-1.5 py-0.5 rounded-full flex-shrink-0">📷 OCR重複?</span>}
@@ -1610,10 +1611,10 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
                 return renderCsvRow(r, i);
               })}
 
-              {/* ③ 確定スキップ（取り込み済みカード引き落とし・完全重複） */}
+              {/* ③ 確定スキップ（取り込み済みカード引き落とし・完全重複・振替） */}
               {csvRows.some(r => isHardDupRow(r)) && (
                 <div className="px-4 py-2 bg-gray-100 border-t border-gray-200">
-                  <p className="text-xs font-semibold text-gray-400">⊘ スキップ確定（取込済み・重複）</p>
+                  <p className="text-xs font-semibold text-gray-400">⊘ スキップ確定（振替・取込済み・重複）</p>
                 </div>
               )}
               {csvRows.map((r, i) => {
