@@ -149,6 +149,7 @@ function ItemsAccordion({ items, onToggleType, onEditAmount, onEditQuantity, tot
   );
 }
 
+// ─── CSVインポート時のOCR重複確認モーダル ────────────────────
 // ─── CSV-OCR重複確認モーダル ─────────────────────────────────
 function CsvOcrDupModal({ ocrTxs, csvCandidates, onDecide }) {
   const ocrAmt  = Math.abs(ocrTxs[0]?.amount || 0);
@@ -236,6 +237,7 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
   const [csvChecked, setCsvChecked] = useState({});
   const [csvStep,    setCsvStep]    = useState("upload");
   const [csvSummary, setCsvSummary] = useState(null);
+  const [csvOcrDupQueue,  setCsvOcrDupQueue]  = useState([]);   // OCR重複確認キュー（未使用・互換維持）
   const [csvEditIdx, setCsvEditIdx] = useState(null);
   const fileRef = useRef(null);
 
@@ -469,33 +471,28 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
 
   const handleCSVFile = handleFileInput;
 
-  // 重複行判定（完全一致 or 引落はロック、OCR重複のみは操作可能）
-  const isDupRow      = (r) => r.isDuplicate || r.isCardWithdrawal || !!r.ocrDuplicate;
-  const isHardDupRow  = (r) => r.isDuplicate || r.isCardWithdrawal;  // チェック不可
-  const isOcrOnlyDup  = (r) => !r.isDuplicate && !r.isCardWithdrawal && !!r.ocrDuplicate; // チェック可
+  // 重複行判定
+  const isDupRow = (r) => r.isDuplicate || r.isCardWithdrawal || !!r.ocrDuplicate;
 
   // CSVリスト行レンダリング
   const renderCsvRow = (r, i) => {
-    const isDup     = isDupRow(r);
-    const isHardDup = isHardDupRow(r);
-    const isOcrDup  = isOcrOnlyDup(r);
+    const isDup = isDupRow(r);
     const isCategorized = r.category !== "その他";
     return (
       <div key={i} className={`border-b border-gray-50 last:border-b-0 ${
-        isHardDup ? "bg-gray-50 opacity-60" :
-        isOcrDup  ? "bg-yellow-50/60" :
+        isDup ? "bg-gray-50 opacity-60" :
         isCategorized ? "bg-emerald-50" : "bg-white"
       }`}>
         <div className="flex items-center gap-3 px-4 py-3">
           <input type="checkbox"
             checked={!!csvChecked[i]}
-            onChange={() => !isHardDup && setCsvChecked(p => ({ ...p, [i]: !p[i] }))}
+            onChange={() => !isDup && setCsvChecked(p => ({ ...p, [i]: !p[i] }))}
             className="accent-indigo-500 flex-shrink-0"
-            disabled={isHardDup}
+            disabled={isDup}
           />
-          <div className="flex-1 min-w-0" onClick={() => !isHardDup && setCsvEditIdx(csvEditIdx === i ? null : i)}>
+          <div className="flex-1 min-w-0" onClick={() => !isDup && setCsvEditIdx(csvEditIdx === i ? null : i)}>
             <div className="flex items-center gap-1 flex-wrap">
-              <p className={`text-sm font-medium truncate ${isHardDup ? "text-gray-400" : isOcrDup && !csvChecked[i] ? "text-gray-500" : "text-gray-800"}`}>{r.label}</p>
+              <p className={`text-sm font-medium truncate ${isDup ? "text-gray-400" : "text-gray-800"}`}>{r.label}</p>
               {isCategorized && !isDup && (
                 <span className="text-xs bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full flex-shrink-0">
                   {categories.find(c => c.name === r.category)?.emoji} {r.category}
@@ -503,25 +500,25 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
               )}
               {r.isDuplicate     && <span className="text-xs bg-gray-200 text-gray-500 px-1.5 py-0.5 rounded-full flex-shrink-0">重複</span>}
               {r.isCardWithdrawal && <span className="text-xs bg-gray-200 text-gray-500 px-1.5 py-0.5 rounded-full flex-shrink-0">💳 引落</span>}
-              {r.ocrDuplicate    && <span className="text-xs bg-amber-100 text-amber-600 px-1.5 py-0.5 rounded-full flex-shrink-0">📷 OCR重複?</span>}
+              {r.ocrDuplicate    && <span className="text-xs bg-gray-200 text-gray-500 px-1.5 py-0.5 rounded-full flex-shrink-0">📷 OCR重複</span>}
             </div>
             {r.ocrDuplicate && (
-              <p className="text-xs text-amber-500 mt-0.5">
-                OCR:「{r.ocrDuplicate.label}」と重複の可能性 → チェックでインポート可
+              <p className="text-xs text-gray-400 mt-0.5">
+                OCR:「{r.ocrDuplicate.label}」と重複の可能性
               </p>
             )}
             <p className="text-xs text-gray-400">{r.date}</p>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
-            <p className={`text-sm font-bold ${isHardDup ? "text-gray-400" : r.type === "income" ? "text-emerald-500" : "text-rose-500"}`}>
+            <p className={`text-sm font-bold ${isDup ? "text-gray-400" : r.type === "income" ? "text-emerald-500" : "text-rose-500"}`}>
               {r.type === "income" ? "+" : "-"}{fmtCurrency(r.amount)}
             </p>
-            {!isHardDup && (
+            {!isDup && (
               <button onClick={() => setCsvEditIdx(csvEditIdx === i ? null : i)} className="text-gray-300 text-xs">✏️</button>
             )}
           </div>
         </div>
-        {csvEditIdx === i && !isHardDup && (
+        {csvEditIdx === i && !isDup && (
           <div className="px-4 pb-3 space-y-2 bg-gray-50 border-t border-gray-100">
             <div className="grid grid-cols-2 gap-2">
               <div>
@@ -563,36 +560,40 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
     const payPayAccount = (pointAccounts || []).find(a => a.name === "PayPay");
     const isPayPay = csvDetected?.includes("PayPay") || csvDetected?.includes("paypay");
 
-    toImport.forEach(r => {
-      // PayPay CSVは収入・支出どちらもPayPay口座に紐付け
-      // 収入（チャージ・割り勘戻り）→ PayPay残高増加
-      // 支出（支払い）→ PayPay残高から差し引き
-      const enriched = isPayPay && payPayAccount
-        ? {
-            ...r,
-            pointAccountId: payPayAccount.id,
-            paymentMethod:  payPayAccount.id,
-          }
-        : r;
+    const pendingOcrDups = [];
+    let importedCount = 0;
 
-      // 支出は「自分払い」「共有」を自動設定（手動設定済みは優先）
+    toImport.forEach(r => {
+      const enriched = isPayPay && payPayAccount
+        ? { ...r, pointAccountId: payPayAccount.id, paymentMethod: payPayAccount.id }
+        : r;
       const withPayer = enriched.type === "expense" ? {
         ...enriched,
         paidBy:    enriched.paidBy    || selfId,
         shareType: enriched.shareType || "shared",
       } : enriched;
 
-      // OCR重複がある場合はマージ（CSVデータ主体＋OCRの品目を引き継ぐ）
       if (r.ocrDuplicate) {
-        const ocrTx  = r.ocrDuplicate;
-        const merged = { ...withPayer, items: ocrTx.items || [], source: "csv" };
+        // 自動マージ：CSVの金額・日付・店舗名 ＋ OCRの品目・カテゴリ・支払者・共有設定
+        const ocrTx = r.ocrDuplicate;
+        const merged = {
+          ...withPayer,
+          // OCR側の情報を優先
+          items:     ocrTx.items     || [],
+          category:  ocrTx.category  || withPayer.category,
+          shareType: ocrTx.shareType || withPayer.shareType,
+          paidBy:    ocrTx.paidBy    || withPayer.paidBy,
+          source:    "csv",
+        };
         onDelete?.(ocrTx.id);
-        onAdd(createTransaction({ ...merged, source: "csv" }));
+        onAdd(createTransaction(merged));
       } else {
         onAdd(createTransaction({ ...withPayer, source: "csv" }));
       }
       if (r.label && r.category) onLearnRule?.(r.label, r.category, r.type || "expense");
+      importedCount++;
     });
+
     setCsvSummary({ count: toImport.length, skipped: csvRows.length - toImport.length, expTotal, incTotal });
     setCsvStep("done");
   };
@@ -1585,24 +1586,14 @@ export function AddPage({ categories, existingTransactions, allRules, learnedRul
                 return renderCsvRow(r, i);
               })}
 
-              {/* ③ 重複（一番下） */}
-              {csvRows.some(r => isHardDupRow(r)) && (
+              {/* ③ 重複（一番下・灰色） */}
+              {csvRows.filter(r => isDupRow(r)).length > 0 && (
                 <div className="px-4 py-2 bg-gray-100 border-t border-gray-200">
-                  <p className="text-xs font-semibold text-gray-400">⊘ 重複（スキップ確定）</p>
+                  <p className="text-xs font-semibold text-gray-400">⊘ 重複（スキップ予定）</p>
                 </div>
               )}
               {csvRows.map((r, i) => {
-                if (!isHardDupRow(r)) return null;
-                return renderCsvRow(r, i);
-              })}
-              {/* ④ OCR重複の可能性あり（チェックでインポート可） */}
-              {csvRows.some(r => isOcrOnlyDup(r)) && (
-                <div className="px-4 py-2 bg-amber-50 border-t border-amber-100">
-                  <p className="text-xs font-semibold text-amber-500">📷 OCR重複の可能性（確認してチェックでインポート可）</p>
-                </div>
-              )}
-              {csvRows.map((r, i) => {
-                if (!isOcrOnlyDup(r)) return null;
+                if (!isDupRow(r)) return null;
                 return renderCsvRow(r, i);
               })}
             </div>
