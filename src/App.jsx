@@ -85,14 +85,17 @@ export default function App() {
     const load = async () => {
       setIsLoading(true);
       try {
-        const [txs, cats, rules, mems, points, importHist] = await Promise.all([
+        const [txs, cats, rules, mems, points] = await Promise.all([
           fetchTransactions(shareId),
           fetchCategories(shareId),
           fetchLearnedRules(shareId),
           fetchMembers(shareId),
           fetchPointAccounts(shareId),
-          fetchImportHistory(shareId),
         ]);
+
+        // import_historyテーブルは任意（未作成でも動作する）
+        let importHist = {};
+        try { importHist = await fetchImportHistory(shareId) || {}; } catch {}
 
         if (txs && txs.length > 0) {
           setTransactions(txs.map(normalizeTransaction).filter(Boolean));
