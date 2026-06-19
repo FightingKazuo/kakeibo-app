@@ -280,7 +280,7 @@ export default function App() {
   const renderPage = () => {
     switch (currentPage) {
       case "home":
-        return <HomePage transactions={transactions} categories={categories} pointAccounts={pointAccountsWithBalance} onNavigate={navigate} />;
+        return <HomePage transactions={transactions} categories={categories} pointAccounts={pointAccountsWithBalance} learnedRules={learnedRules} onNavigate={navigate} />;
       case "list":
         return <TransactionListPage
           transactions={transactions}
@@ -311,10 +311,11 @@ export default function App() {
       case "settings":
         return <SettingsPage
           categories={categories}
-          onAddCat={(c)       => handleCategoriesChange([...categories, c])}
-          onUpdateCat={(c)    => handleCategoriesChange(categories.map(x => x.id === c.id ? c : x))}
-          onDeleteCat={(id)   => handleCategoriesChange(categories.filter(x => x.id !== id))}
-          onReorderCat={(cats) => handleCategoriesChange(cats)}
+          onAddCat={(c)         => handleCategoriesChange([...categories, c])}
+          onUpdateCat={(c)      => handleCategoriesChange(categories.map(x => x.id === c.id ? c : x))}
+          onDeleteCat={(id)     => handleCategoriesChange(categories.filter(x => x.id !== id))}
+          onReorderCat={(cats)  => handleCategoriesChange(cats)}
+          onResetCategories={()  => handleCategoriesChange(DEFAULT_CATS)}
           learnedRules={learnedRules}
           onDeleteRule={handleDeleteRule}
           transactions={transactions}
@@ -335,7 +336,7 @@ export default function App() {
           syncStatus={syncStatus}
         />;
       default:
-        return <HomePage transactions={transactions} categories={categories} pointAccounts={pointAccountsWithBalance} onNavigate={navigate} />;
+        return <HomePage transactions={transactions} categories={categories} pointAccounts={pointAccountsWithBalance} learnedRules={learnedRules} onNavigate={navigate} />;
     }
   };
 
