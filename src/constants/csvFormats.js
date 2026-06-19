@@ -1,0 +1,149 @@
+// ============================================================
+// constants/csvFormats.js
+// CSVフォーマット定義（各カード・銀行のパース設定）
+// ============================================================
+
+export const CSV_FORMATS = {
+  generic: {
+    label: "汎用（アプリ標準）",
+    sampleColumns: ["date", "label", "amount", "type"],
+    normalize: (r) => {
+      const type = r.type === "income" ? "income" : "expense";
+      const amt  = parseFloat(String(r.amount || 0).replace(/[¥,\s]/g, "")) || 0;
+      return {
+        date:     (r.date || "").replace(/\//g, "-"),
+        label:    (r.label || "不明").trim(),
+        category: (r.category || "その他").trim(),
+        amount:   type === "expense" ? -Math.abs(amt) : Math.abs(amt),
+        type,
+      };
+    },
+  },
+
+  mufg: {
+    label: "三菱UFJ銀行",
+    sampleColumns: ["日付", "摘要", "支払い金額（円）"],
+    normalize: (r) => {
+      const pay  = parseFloat(String(r["支払い金額（円）"] || 0).replace(/,/g, "")) || 0;
+      const recv = parseFloat(String(r["預かり金額（円）"] || 0).replace(/,/g, "")) || 0;
+      return {
+        date:     (r["日付"] || "").replace(/\//g, "-"),
+        label:    (r["摘要"] || "不明").trim(),
+        category: "その他",
+        amount:   pay > 0 ? -pay : recv,
+        type:     pay > 0 ? "expense" : "income",
+      };
+    },
+  },
+
+  sbi: {
+    label: "住信SBIネット銀行",
+    sampleColumns: ["日付", "内容", "出金金額(円)", "入金金額(円)"],
+    normalize: (r) => {
+      const date = (r["日付"] || "").replace(/\//g, "-").trim();
+      if (!date.match(/^\d{4}-\d{2}-\d{2}$/)) return null;
+      const label = (r["内容"] || "不明").trim()
+        .replace(/[Ａ-Ｚａ-ｚ０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
+        .trim();
+      const outStr = String(r["出金金額(円)"] || "").replace(/[,，\s]/g, "");
+      const inStr  = String(r["入金金額(円)"] || "").replace(/[,，\s]/g, "");
+      const out = parseFloat(outStr) || 0;
+      const inc = parseFloat(inStr)  || 0;
+      if (!out && !inc) return null;
+      return { date, label, category: "その他", amount: out > 0 ? -out : inc, type: out > 0 ? "expense" : "income" };
+    },
+  },
+
+  paypay: {
+    label: "PayPay",
+    sampleColumns: ["取引日", "出金金額（円）", "取引先", "取引内容"],
+    normalize: (r) => {
+      const content = (r["取引内容"] || "").trim();
+
+      // 無視する行
+      if (content === "ポイント、残高の獲得") return null;
+
+      const dateRaw = (r["取引日"] || "").slice(0, 10);
+      const date    = dateRaw.replace(/\//g, "-");
+      if (!date.match(/^\d{4}-\d{2}-\d{2}$/)) return null;
+
+      const label  = (r["取引先"] || r["取引内容"] || "不明").trim();
+      const outStr = String(r["出金金額（円）"] || "").replace(/[,，\-\s]/g, "");
+      const inStr  = String(r["入金金額（円）"] || "").replace(/[,，\-\s]/g, "");
+      const out = parseFloat(outStr) || 0;
+      const inc = parseFloat(inStr)  || 0;
+      if (!out && !inc) return null;
+
+      if (content === "チャージ") {
+        // 銀行→PayPayの振替。銀行CSV側で計上するためこちらはisTransfer=true
+        return { date, label: `PayPay チャージ（${label}）`, category: "その他", amount: inc, type: "income", isTransfer: true };
+      }
+      if (content === "受け取った金額") {
+        return { date, label, category: "割り勘戻り", amount: inc, type: "income" };
+      }
+      if (content === "送った金額") {
+        return { date, label: `PayPay送金（${label}）`, category: "その他", amount: -out, type: "expense", shareType: "personal" };
+      }
+      // 支払い・請求書払い
+      return { date, label, category: "その他", amount: out > 0 ? -out : inc, type: out > 0 ? "expense" : "income" };
+    },
+  },
+
+  recruit: {
+    label: "リクルートカード",
+    sampleColumns: ["ご利用日", "ご利用先など", "ご利用金額(￥)"],
+    normalize: (r) => {
+      const date = (r["ご利用日"] || "").trim().replace(/\//g, "-");
+      if (!date.match(/^\d{4}-\d{2}-\d{2}$/)) return null;
+      const label  = (r["ご利用先など"] || "不明").trim();
+      const amtStr = String(r["ご利用金額(￥)"] || r["お支払い金額(￥)"] || "0").replace(/[,，]/g, "");
+      const amount = parseFloat(amtStr) || 0;
+      if (!amount) return null;
+      return { date, label, category: "その他", amount: -Math.abs(amount), type: "expense" };
+    },
+  },
+
+  epos: {
+    label: "エポスカード",
+    sampleColumns: ["ご利用日", "ご利用先など", "ご利用金額(円)"],
+    normalize: (r) => {
+      let dateRaw = (r["ご利用日"] || "").trim();
+      let date;
+      const m1 = dateRaw.match(/^(\d{2})\s+(\d{2})\s+(\d{2})$/);
+      if (m1) { date = `20${m1[1]}-${m1[2]}-${m1[3]}`; }
+      else { date = dateRaw.replace(/\//g, "-"); }
+      if (!date.match(/^\d{4}-\d{2}-\d{2}$/)) return null;
+      const label  = (r["ご利用先など"] || "不明").trim().replace(/^[A-Z]{2}\//,"").replace(/　+/g," ").trim();
+      const amtStr = String(r["ご利用金額(円)"] || r["お支払金額(円)"] || "0").replace(/[,，]/g,"");
+      const amount = parseFloat(amtStr) || 0;
+      if (!amount) return null;
+      return { date, label, category: "その他", amount: -Math.abs(amount), type: "expense" };
+    },
+  },
+
+  smbc: {
+    label: "三井住友カード / Amazonマスター",
+    sampleColumns: ["日付（1行目カード名）", "店舗名", "金額"],
+    normalize: (r) => {
+      const col0 = r[0] || r["0"] || "";
+      const col1 = r[1] || r["1"] || "";
+      const col5 = r[5] || r["5"] || "";
+
+      const dateRaw = String(col0).trim();
+      if (!dateRaw.match(/^\d{4}\/\d{2}\/\d{2}$/)) return null;
+      const date = dateRaw.replace(/\//g, "-");
+
+      const label = String(col1 || "不明")
+        .replace(/[Ａ-Ｚａ-ｚ０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
+        .replace(/　/g, " ")
+        .trim();
+      if (!label) return null;
+
+      const amtStr = String(col5 || "0").replace(/[,，\s]/g, "");
+      const amount = parseFloat(amtStr) || 0;
+      if (!amount) return null;
+
+      return { date, label, category: "その他", amount: -Math.abs(amount), type: "expense" };
+    },
+  },
+};
