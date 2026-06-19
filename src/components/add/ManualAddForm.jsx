@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { todayStr } from "../../../utils/format";
-import { createTransaction, findDuplicateCandidates } from "../../../services/transaction";
-import { DEFAULT_CATEGORY_RULES } from "../../../constants";
+import { todayStr } from "../../utils/format";
+import { createTransaction, findDuplicateCandidates } from "../../services/transaction";
+import { DEFAULT_CATEGORY_RULES } from "../../constants";
 import { TransactionFormFields } from "../../common/TransactionFormFields";
 import { DuplicateCheckModal } from "../../common/DuplicateCheckModal";
 import { PrimaryButton } from "../../ui/PrimaryButton";
