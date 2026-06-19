@@ -105,6 +105,22 @@ export const DEFAULT_CATEGORY_RULES = [
   {id:"r120",keywords:["家具","家電","引越し","リフォーム","ヤマダ","ケーズデンキ","ヨドバシ","ビックカメラ"],category:"特別な支出",type:"expense",priority:85},
 ];
 
+// ── 銀行明細のカード引き落とし名称 → CSVフォーマットIDのマッピング ──
+// 銀行CSVの「内容」列に含まれるキーワードと、対応するカードフォーマットIDを紐付け
+// ユーザーはこのマッピングを設定画面で追加・編集できる
+export const BANK_CARD_MAPPING = [
+  { bankKeyword: "ミツイスミトモカード",  formatId: "smbc",    label: "三井住友カード" },
+  { bankKeyword: "エポスカード",          formatId: "epos",    label: "エポスカード" },
+  { bankKeyword: "セゾン",               formatId: "saison",  label: "セゾンカード" },
+  { bankKeyword: "イデミツクレジツト",    formatId: "idemitsu",label: "出光クレジット" },
+  { bankKeyword: "ポケットカード",        formatId: "pocket",  label: "ポケットカード" },
+  { bankKeyword: "ジェーシービー",        formatId: "jcb",     label: "JCBカード" },
+  { bankKeyword: "ＪＣＢ",              formatId: "jcb",     label: "JCBカード" },
+  { bankKeyword: "楽天カード",            formatId: "rakuten", label: "楽天カード" },
+  { bankKeyword: "アマゾン",             formatId: "smbc",    label: "Amazonマスター" },
+  { bankKeyword: "オリコ",              formatId: "orico",   label: "オリコカード" },
+];
+
 export const CSV_FORMATS = {
   generic: {
     label: "汎用（アプリ標準）",
