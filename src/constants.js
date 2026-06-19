@@ -51,7 +51,6 @@ export const DEFAULT_CATS = [
   {id:"c24", name:"保険",        emoji:"🛡", type:"expense"},
   {id:"c14", name:"投資",        emoji:"📈", type:"expense"},
   {id:"c9",  name:"その他",      emoji:"📦", type:"expense"},
-
   // ── 収入 ─────────────────────────────────────────────────────
   {id:"c10", name:"給料",        emoji:"💴", type:"income"},
   {id:"c11", name:"副業",        emoji:"💻", type:"income"},
@@ -71,13 +70,13 @@ export const DEFAULT_CATEGORY_RULES = [
   {id:"r023",keywords:["はま寿司","くら寿司","スシロー","サイゼリヤ","ガスト"],category:"外食",type:"expense",priority:88},
   {id:"r030",keywords:["suica","pasmo"],category:"交通費",type:"expense",priority:92},
   {id:"r031",keywords:["タクシー","taxi","uber","新幹線","jr","駐車場"],category:"交通費",type:"expense",priority:88},
-  {id:"r040",keywords:["eneos","エネオス","出光","コスモ","自動車","給油"],category:"自動車",type:"expense",priority:93},
-  {id:"r050",keywords:["東京電力","関西電力","電気代","電力"],category:"水道・光熱費",type:"expense",priority:92},
-  {id:"r051",keywords:["東京ガス","大阪ガス","ガス代"],category:"水道・光熱費",type:"expense",priority:92},
+  {id:"r040",keywords:["eneos","エネオス","出光","コスモ","ガソリン","給油"],category:"ガソリン",type:"expense",priority:93},
+  {id:"r050",keywords:["東京電力","関西電力","電気代","電力"],category:"光熱費",type:"expense",priority:92},
+  {id:"r051",keywords:["東京ガス","大阪ガス","ガス代"],category:"光熱費",type:"expense",priority:92},
   {id:"r060",keywords:["ドコモ","au","ソフトバンク","楽天モバイル"],category:"通信費",type:"expense",priority:92},
-  {id:"r070",keywords:["netflix","ネットフリックス","spotify","amazon prime","disney+"],category:"趣味・娯楽",type:"expense",priority:95},
-  {id:"r071",keywords:["映画","シネマ","toho"],category:"趣味・娯楽",type:"expense",priority:88},
-  {id:"r080",keywords:["病院","クリニック","薬局","マツキヨ"],category:"健康・医療",type:"expense",priority:88},
+  {id:"r070",keywords:["netflix","ネットフリックス","spotify","amazon prime","disney+"],category:"娯楽",type:"expense",priority:95},
+  {id:"r071",keywords:["映画","シネマ","toho"],category:"娯楽",type:"expense",priority:88},
+  {id:"r080",keywords:["病院","クリニック","薬局","マツキヨ"],category:"医療費",type:"expense",priority:88},
   {id:"r090",keywords:["給与","給料","月給"],category:"給料",type:"income",priority:95},
   {id:"r091",keywords:["ボーナス","賞与"],category:"ボーナス",type:"income",priority:95},
   {id:"r092",keywords:["フリーランス","業務委託","報酬"],category:"副業",type:"income",priority:90},
@@ -93,21 +92,11 @@ export const DEFAULT_CATEGORY_RULES = [
   {id:"r109",keywords:["sbi証券","sbi","投信積立"],category:"投資",type:"expense",priority:95},
   {id:"r110",keywords:["楽天モバイル","rakuten mobile"],category:"通信費",type:"expense",priority:92},
   {id:"r111",keywords:["レンタカー","ニコニコレンタカー"],category:"交通費",type:"expense",priority:88},
-  {id:"r112",keywords:["google play","googleplay"],category:"趣味・娯楽",type:"expense",priority:93},
+  {id:"r112",keywords:["google play","googleplay"],category:"娯楽",type:"expense",priority:93},
   {id:"r113",keywords:["プレミアム商品券","商品券"],category:"その他",type:"expense",priority:70},
-  // 新カテゴリ対応ルール
-  {id:"r114",keywords:["美容院","理髪","ヘアカット","美容室","サロン","コスメ","化粧品","ユニクロ","gu","しまむら"],category:"衣服・美容",type:"expense",priority:88},
-  {id:"r115",keywords:["家賃","地代","住宅ローン","管理費","積立金"],category:"住宅",type:"expense",priority:92},
-  {id:"r116",keywords:["生命保険","医療保険","損保","火災保険","自動車保険"],category:"保険",type:"expense",priority:92},
-  {id:"r117",keywords:["水道代","水道局","水道料金"],category:"水道・光熱費",type:"expense",priority:92},
-  {id:"r118",keywords:["飲み会","合コン","冠婚葬祭","お祝い","プレゼント代"],category:"交際費",type:"expense",priority:88},
-  {id:"r119",keywords:["スクール","習いごと","塾","学費","書籍","bookoff","ブックオフ"],category:"教養・教育",type:"expense",priority:88},
-  {id:"r120",keywords:["家具","家電","引越し","リフォーム","ヤマダ","ケーズデンキ","ヨドバシ","ビックカメラ"],category:"特別な支出",type:"expense",priority:85},
 ];
 
 // ── 銀行明細のカード引き落とし名称 → CSVフォーマットIDのマッピング ──
-// 銀行CSVの「内容」列に含まれるキーワードと、対応するカードフォーマットIDを紐付け
-// ユーザーはこのマッピングを設定画面で追加・編集できる
 export const BANK_CARD_MAPPING = [
   { bankKeyword: "ミツイスミトモカード",  formatId: "smbc",    label: "三井住友カード" },
   { bankKeyword: "エポスカード",          formatId: "epos",    label: "エポスカード" },
@@ -191,8 +180,8 @@ export const CSV_FORMATS = {
 
       // 取引内容別に種類を設定
       if (content === "チャージ") {
-        // チャージは収入（PayPay残高への入金）
-        return { date, label: `PayPay チャージ（${label}）`, category: "その他収入", amount: inc, type: "income" };
+        // チャージは銀行→PayPayの振替なので収支に計上しない
+        return { date, label: `PayPay チャージ（${label}）`, category: "その他", amount: inc, type: "income", isTransfer: true };
       }
       if (content === "受け取った金額") {
         // 割り勘戻り・送金受取
