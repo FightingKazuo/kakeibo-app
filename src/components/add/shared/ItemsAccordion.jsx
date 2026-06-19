@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { fmtCurrency } from "../../../utils/format";
+import { fmtCurrency } from "../../utils/format";
 import { ItemTypeToggle } from "./ItemTypeToggle";
 
 // ─── 品目リスト（アコーディオン）────────────────────────────
