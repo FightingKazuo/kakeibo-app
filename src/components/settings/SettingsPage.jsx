@@ -9,7 +9,7 @@ import { EmojiPicker } from "../common/EmojiPicker";
 import { getAllTaxRules, removeTaxRule } from "../../services/taxLearning";
 
 export function SettingsPage({
-  categories, onAddCat, onUpdateCat, onDeleteCat,
+  categories, onAddCat, onUpdateCat, onDeleteCat, onReorderCat, onResetCategories,
   learnedRules, onDeleteRule,
   transactions, onAdd,
   onReset,
@@ -750,6 +750,24 @@ export function SettingsPage({
                 <p className="text-xl font-bold text-gray-800">{categories?.length || 0}</p>
                 <p className="text-xs text-gray-400">カテゴリ数</p>
               </div>
+            </div>
+          </div>
+          {/* カテゴリリセット */}
+          <div className="rounded-2xl overflow-hidden border border-indigo-200">
+            <div className="bg-indigo-50 px-4 py-3 border-b border-indigo-200">
+              <p className="text-xs font-bold text-indigo-600 uppercase tracking-wide">🔄 カテゴリ更新</p>
+            </div>
+            <div className="bg-white px-4 py-3 space-y-2">
+              <p className="text-xs text-gray-500">カテゴリをデフォルト（マネーフォワード準拠）にリセットします。予算設定・取引データは消えません。カテゴリ名を変更している場合は上書きされます。</p>
+              <button
+                onClick={() => {
+                  if (window.confirm("カテゴリをデフォルトに戻しますか？\n※予算・取引データは消えません")) {
+                    onResetCategories?.();
+                  }
+                }}
+                className="w-full px-4 py-3 text-sm font-semibold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-xl transition-colors">
+                カテゴリをデフォルトに戻す
+              </button>
             </div>
           </div>
           <div className="rounded-2xl overflow-hidden border border-rose-200">
