@@ -17,7 +17,7 @@ export function SettingsPage({
   pointAccounts, onAddPointAccount, onUpdatePointAccount, onDeletePointAccount,
   shareId, inviteUrl, onJoinShare, syncStatus,
 }) {
-  const [tab,        setTab]       = useState("categories");
+  const [tab,        setTab]       = useState(null);
   const [showAdd,    setShowAdd]   = useState(false);
   const [newName,    setNewName]   = useState("");
   const [newEmoji,   setNewEmoji]  = useState("📦");
@@ -130,34 +130,46 @@ export function SettingsPage({
   const storageRatio = Math.min(100, Math.round((parseFloat(storageUsed) / 5) * 100));
 
   const TABS = [
-    { id:"categories",    label:"カテゴリ"    },
-    { id:"members",       label:"メンバー"    },
-    { id:"points",        label:"ポイント口座" },
-    { id:"share",         label:"共有設定"    },
-    { id:"datalinks",     label:"データ取得"  },
-    { id:"transfer",      label:"振替設定"    },
-    { id:"taxrules",      label:"消費税学習"  },
-    { id:"rules",         label:"学習ルール"   },
-    { id:"backup",        label:"バックアップ" },
-    { id:"data",          label:"データ"       },
+    { id:"categories",    label:"カテゴリ",    icon:"🏷️" },
+    { id:"members",       label:"メンバー",    icon:"👥" },
+    { id:"points",        label:"ポイント口座", icon:"💳" },
+    { id:"share",         label:"共有設定",    icon:"🔗" },
+    { id:"datalinks",     label:"データ取得",  icon:"📥" },
+    { id:"transfer",      label:"振替設定",    icon:"🔄" },
+    { id:"taxrules",      label:"消費税学習",  icon:"🧾" },
+    { id:"rules",         label:"学習ルール",  icon:"🧠" },
+    { id:"backup",        label:"バックアップ",icon:"💾" },
+    { id:"data",          label:"データ管理",  icon:"⚙️" },
   ];
 
-  return (
+  // タブ未選択時はメニュー一覧を表示
+  if (!tab) return (
     <div className="pb-24">
       <div className="bg-white px-4 pt-12 pb-4 border-b border-gray-100">
         <h1 className="text-xl font-bold text-gray-900">設定</h1>
       </div>
+      <div className="px-4 py-4">
+        <div className="bg-white rounded-2xl overflow-hidden border border-gray-100">
+          {TABS.map((t, i) => (
+            <button key={t.id} onClick={() => setTab(t.id)}
+              className="w-full flex items-center gap-3 px-4 py-4 border-b border-gray-50 last:border-b-0 hover:bg-gray-50 active:bg-gray-100 transition-colors text-left">
+              <span className="text-xl w-8 text-center">{t.icon}</span>
+              <span className="flex-1 text-sm font-medium text-gray-800">{t.label}</span>
+              <span className="text-gray-300 text-sm">›</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
 
-      {/* タブ */}
-      <div className="flex gap-1 px-4 py-3 overflow-x-auto">
-        {TABS.map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)}
-            className={`px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all ${
-              tab === t.id ? "bg-indigo-500 text-white" : "bg-gray-100 text-gray-500"
-            }`}>
-            {t.label}
-          </button>
-        ))}
+  return (
+    <div className="pb-24">
+      <div className="bg-white px-4 pt-12 pb-4 border-b border-gray-100 flex items-center gap-3">
+        <button onClick={() => setTab(null)} className="text-gray-400 text-xl leading-none">‹</button>
+        <h1 className="text-xl font-bold text-gray-900">
+          {TABS.find(t => t.id === tab)?.icon} {TABS.find(t => t.id === tab)?.label}
+        </h1>
       </div>
 
       {/* ── 消費税学習 タブ ── */}
