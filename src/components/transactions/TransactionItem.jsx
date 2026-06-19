@@ -5,6 +5,7 @@ import { SourceBadge } from "../ui/SourceBadge";
 export function TransactionItem({
   transaction: t, categories, members, pointAccounts,
   onEdit, onDelete, onUpdateSharing, onUpdateTransfer,
+  learnedRules,
   // 選択モード用
   selectMode, selected, onSelect,
 }) {
@@ -21,6 +22,12 @@ export function TransactionItem({
   const isSplit    = !!t._splitType;
   const splitType  = t._splitType;  // "shared" | "personal" | "partner"
   const displayAmt = t._splitAmt ?? Math.abs(t.amount);
+
+  // 学習済みチェック（store名が学習ルールのキーワードと一致）
+  const isLearned = !isSplit && !!learnedRules?.some(r =>
+    r.keywords?.some(kw => t.label?.toLowerCase().includes(kw.toLowerCase()) || kw.toLowerCase().includes(t.label?.toLowerCase()))
+    && r.category === t.category
+  );
 
   const handleMainClick = () => {
     if (selectMode) { onSelect?.(t.id); return; }
@@ -68,13 +75,16 @@ export function TransactionItem({
           <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
             <p className="text-sm font-medium text-gray-800 truncate">{t.label}</p>
             {!isSplit && t.source && t.source !== "manual" && <SourceBadge source={t.source} />}
+            {isLearned && (
+              <span className="text-xs bg-violet-100 text-violet-500 px-1.5 py-0.5 rounded-full">🧠学習済み</span>
+            )}
             {isTransfer && <span className="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full">振替</span>}
             {/* 分割バッジ */}
             {isSplit && splitType === "shared"   && <span className="text-xs bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded-full font-medium">🤝共有分</span>}
             {isSplit && splitType === "personal" && <span className="text-xs bg-rose-100 text-rose-500 px-1.5 py-0.5 rounded-full font-medium">👤個人分</span>}
             {isSplit && splitType === "partner"  && <span className="text-xs bg-purple-100 text-purple-500 px-1.5 py-0.5 rounded-full font-medium">👥相手分</span>}
-            {/* 支払者未設定警告（非分割のみ・paidByが未設定の場合のみ） */}
-            {!isSplit && t.type === "expense" && !t.paidBy && t.shareType !== "personal" && t.shareType !== "partner" && !isTransfer && (
+            {/* 支払者未設定警告（非分割のみ） */}
+            {!isSplit && t.type === "expense" && !t.paidBy && t.shareType !== "personal" && t.shareType !== "partner" && (
               <span className="text-xs bg-rose-100 text-rose-500 px-1.5 py-0.5 rounded-full">⚠️未設定</span>
             )}
           </div>
@@ -89,7 +99,7 @@ export function TransactionItem({
                   <span className="text-xs bg-indigo-50 text-indigo-500 px-1.5 py-0.5 rounded-full font-medium">
                     👤{paidByMember.name}払い
                   </span>
-                ) : t.paidBy ? null : t.type === "expense" && t.shareType !== "personal" && t.shareType !== "partner" && !isTransfer && (
+                ) : t.type === "expense" && t.shareType !== "personal" && t.shareType !== "partner" && (
                   <span className="text-xs bg-rose-50 text-rose-400 px-1.5 py-0.5 rounded-full font-medium">
                     ⚠️支払者未設定
                   </span>
