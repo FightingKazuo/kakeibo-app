@@ -34,14 +34,12 @@ const splitTransaction = (tx) => {
   return rows.length > 0 ? rows : [tx];
 };
 
-export function TransactionListPage({ transactions, categories, members, pointAccounts, onEdit, onDelete, onUpdate, onNavigate }) {
+export function TransactionListPage({ transactions, categories, members, pointAccounts, learnedRules, onEdit, onDelete, onUpdate, onNavigate }) {
   const [q,           setQ]           = useState("");
   const [selMonth,    setSelMonth]    = useState("all");
   const [srcFilter,   setSrcFilter]   = useState("all");
   const [shareFilter, setShareFilter] = useState("all"); // all/shared/personal/partner
   const [errFilter,   setErrFilter]   = useState(false);
-  const [sortKey,     setSortKey]     = useState("date");   // "date" | "amount" | "category"
-  const [sortDir,     setSortDir]     = useState("desc");   // "asc" | "desc"
 
   // 選択モード
   const [selectMode,  setSelectMode]  = useState(false);
@@ -66,26 +64,12 @@ export function TransactionListPage({ transactions, categories, members, pointAc
   // 分割表示行を生成してからshareFilterを適用
   const displayRows = useMemo(() => {
     const rows = filtered.flatMap(t => splitTransaction(t));
-    const filtered2 = shareFilter === "all" ? rows : rows.filter(r => {
+    if (shareFilter === "all") return rows;
+    return rows.filter(r => {
       const effectiveType = r._splitType || r.shareType || "shared";
       return effectiveType === shareFilter;
     });
-
-    // ソート
-    return [...filtered2].sort((a, b) => {
-      let v;
-      if (sortKey === "date") {
-        v = a.date.localeCompare(b.date);
-      } else if (sortKey === "amount") {
-        v = Math.abs(a._splitAmt ?? a.amount) - Math.abs(b._splitAmt ?? b.amount);
-      } else if (sortKey === "category") {
-        v = (a.category || "").localeCompare(b.category || "", "ja");
-      } else {
-        v = 0;
-      }
-      return sortDir === "asc" ? v : -v;
-    });
-  }, [filtered, shareFilter, sortKey, sortDir]);
+  }, [filtered, shareFilter]);
 
   // 合計（分割行の場合は_splitAmtを使用）
   const totals = useMemo(() => ({
@@ -231,26 +215,14 @@ export function TransactionListPage({ transactions, categories, members, pointAc
         )}
       </div>
 
-      {/* 件数・合計・ソート */}
-      <div className="px-4 py-2 bg-gray-50 border-b border-gray-100 flex justify-between items-center text-xs text-gray-500">
-        <span className="flex items-center gap-1.5">
-          <span>{displayRows.length}件</span>
-          <span className="text-gray-300">|</span>
+      {/* 件数・合計 */}
+      <div className="px-4 py-2 bg-gray-50 border-b border-gray-100 flex justify-between text-xs text-gray-500">
+        <span>{displayRows.length}件</span>
+        <span>
           <span className="text-emerald-500 font-semibold">+{fmtCurrency(totals.income)}</span>
-          <span className="text-gray-300">/</span>
+          {" / "}
           <span className="text-rose-500 font-semibold">-{fmtCurrency(totals.expense)}</span>
         </span>
-        <div className="flex items-center gap-1.5">
-          {[["date","日付"],["amount","金額"],["category","カテゴリ"]].map(([key, label]) => (
-            <button key={key}
-              onClick={() => { if (sortKey === key) { setSortDir(d => d === "asc" ? "desc" : "asc"); } else { setSortKey(key); setSortDir(key === "category" ? "asc" : "desc"); } }}
-              className={`px-2 py-1 rounded-lg font-semibold transition-all ${
-                sortKey === key ? "bg-indigo-500 text-white" : "bg-white text-gray-400 border border-gray-200"
-              }`}>
-              {label}{sortKey === key ? (sortDir === "desc" ? " ↓" : " ↑") : ""}
-            </button>
-          ))}
-        </div>
       </div>
 
       {/* ── 選択モードの操作バー ── */}
@@ -314,6 +286,7 @@ export function TransactionListPage({ transactions, categories, members, pointAc
               categories={categories}
               members={members}
               pointAccounts={pointAccounts}
+              learnedRules={learnedRules}
               onEdit={selectMode ? undefined : onEdit}
               onDelete={selectMode ? undefined : onDelete}
               onUpdateSharing={handleUpdateSharing}
