@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, PieChart, Pie, Cell } from "recharts";
+import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, PieChart, Pie, Cell, BarChart, Bar } from "recharts";
 import { toYM, fmtCurrency } from "../../utils/format";
 import { PIE_COLORS } from "../../constants";
 import { MonthSelector } from "../common/MonthSelector";
@@ -161,6 +161,43 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
     </div>
   );
 
+  // ── 月次レポート用データ ──────────────────────────────────
+  const monthlyReport = useMemo(() => {
+    const months = [...new Set(transactions.map(t => toYM(t.date)))].sort().reverse().slice(0, 6);
+    return months.map(m => {
+      const mt    = transactions.filter(t => toYM(t.date) === m);
+      const inc   = mt.filter(t => t.type === "income").reduce((s, t) => s + t.amount, 0);
+      const exp   = mt.filter(t => t.type === "expense").reduce((s, t) => s + Math.abs(t.amount), 0);
+      const days  = new Date(parseInt(m.slice(0,4)), parseInt(m.slice(5,7)), 0).getDate();
+      const bycat = mt.filter(t => t.type === "expense")
+        .reduce((acc, t) => { acc[t.category] = (acc[t.category]||0) + Math.abs(t.amount); return acc; }, {});
+      const topCat = Object.entries(bycat).sort((a,b) => b[1]-a[1])[0];
+      return { ym: m, label: m.slice(5)+"月", inc, exp, bal: inc-exp, days, dailyAvg: Math.round(exp/days), topCat };
+    });
+  }, [transactions]);
+
+  // カテゴリ別月次推移（上位5カテゴリ）
+  const catTrendData = useMemo(() => {
+    const months = [...new Set(transactions.map(t => toYM(t.date)))].sort().slice(-6);
+    const topCats = Object.entries(
+      transactions.filter(t => t.type === "expense")
+        .reduce((acc, t) => { acc[t.category] = (acc[t.category]||0)+Math.abs(t.amount); return acc; }, {})
+    ).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([n])=>n);
+
+    return months.map(m => {
+      const row = { month: m.slice(5)+"月" };
+      const mt  = transactions.filter(t => toYM(t.date) === m && t.type === "expense");
+      topCats.forEach(cat => {
+        row[cat] = mt.filter(t => t.category === cat).reduce((s,t) => s+Math.abs(t.amount), 0);
+      });
+      return { ...row, _cats: topCats };
+    });
+  }, [transactions]);
+
+  const catTrendCats = catTrendData[0]?._cats || [];
+  const CAT_COLORS   = ["#6366f1","#f43f5e","#10b981","#f59e0b","#8b5cf6"];
+
+
   return (
     <div className="pb-20">
       <div className="bg-white px-4 pt-12 pb-3 border-b border-gray-100">
@@ -169,6 +206,7 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
         <div className="flex gap-2 mb-3">
           {[
             { id: "analysis",   label: "📊 分析"   },
+            { id: "report",     label: "📈 月次"   },
             { id: "settlement", label: "💸 精算"   },
           ].map(t => (
             <button key={t.id} onClick={() => setTab(t.id)}
@@ -286,8 +324,81 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
         </div>
       )}
 
-      {/* ── 精算タブ ── */}
-      {tab === "settlement" && (
+      {/* ── 月次レポートタブ ── */}
+      {tab === "report" && (
+        <div className="px-4 py-5 space-y-5">
+          {/* 直近6ヶ月サマリー表 */}
+          <div className="bg-white rounded-2xl p-4 border border-gray-100">
+            <p className="text-xs font-semibold text-gray-500 mb-3 uppercase tracking-wide">直近6ヶ月</p>
+            <div className="space-y-3">
+              {monthlyReport.map((r, i) => (
+                <div key={r.ym} className={`rounded-xl p-3 ${i === 0 ? "bg-indigo-50 border border-indigo-100" : "bg-gray-50"}`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className={`text-sm font-bold ${i === 0 ? "text-indigo-700" : "text-gray-700"}`}>{r.label}</span>
+                    {i > 0 && monthlyReport[i-1] && (
+                      <span className={`text-xs font-semibold ${r.exp > monthlyReport[i-1]?.exp ? "text-rose-500" : "text-emerald-500"}`}>
+                        {r.exp > monthlyReport[i-1]?.exp ? "▲" : "▼"}
+                        {Math.abs(Math.round(((r.exp - monthlyReport[i-1]?.exp) / (monthlyReport[i-1]?.exp||1)) * 100))}%
+                      </span>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-4 gap-1 text-xs">
+                    <div className="text-center">
+                      <p className="text-gray-400">収入</p>
+                      <p className="font-bold text-emerald-600">{fmtCurrency(r.inc)}</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-gray-400">支出</p>
+                      <p className="font-bold text-rose-600">{fmtCurrency(r.exp)}</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-gray-400">収支</p>
+                      <p className={`font-bold ${r.bal >= 0 ? "text-indigo-600" : "text-orange-500"}`}>{r.bal >= 0 ? "+" : ""}{fmtCurrency(r.bal)}</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-gray-400">1日均</p>
+                      <p className="font-bold text-gray-600">{fmtCurrency(r.dailyAvg)}</p>
+                    </div>
+                  </div>
+                  {r.topCat && (
+                    <p className="text-xs text-gray-400 mt-1.5">
+                      最多: {categories.find(c=>c.name===r.topCat[0])?.emoji} {r.topCat[0]} {fmtCurrency(r.topCat[1])}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* カテゴリ別推移グラフ */}
+          {catTrendData.length > 0 && catTrendCats.length > 0 && (
+            <div className="bg-white rounded-2xl p-4 border border-gray-100">
+              <p className="text-xs font-semibold text-gray-500 mb-3 uppercase tracking-wide">カテゴリ別支出推移</p>
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={catTrendData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                  <XAxis dataKey="month" tick={{ fontSize: 10 }} />
+                  <YAxis tick={{ fontSize: 9 }} tickFormatter={v => `${(v/10000).toFixed(0)}万`} width={32} />
+                  <Tooltip formatter={(v, n) => [`¥${v.toLocaleString()}`, n]} />
+                  {catTrendCats.map((cat, i) => (
+                    <Bar key={cat} dataKey={cat} stackId="a" fill={CAT_COLORS[i % CAT_COLORS.length]} />
+                  ))}
+                </BarChart>
+              </ResponsiveContainer>
+              <div className="flex flex-wrap gap-2 mt-3">
+                {catTrendCats.map((cat, i) => (
+                  <div key={cat} className="flex items-center gap-1">
+                    <div className="w-2.5 h-2.5 rounded-full" style={{ background: CAT_COLORS[i] }} />
+                    <span className="text-xs text-gray-500">{categories.find(c=>c.name===cat)?.emoji} {cat}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+
         <div className="px-4 py-5 space-y-4">
 
           {/* 期間選択 */}
