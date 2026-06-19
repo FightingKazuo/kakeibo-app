@@ -9,59 +9,10 @@ import { BalanceCard } from "./BalanceCard";
 import { RecentExpenseCard } from "./RecentExpenseCard";
 import { TransactionItem } from "../transactions/TransactionItem";
 
-const APP_VERSION = "v2.8.3";
+const APP_VERSION = "v2.7.6";
 
 // カテゴリバーのカラーパレット
 const BAR_COLORS = ["#6366f1","#f43f5e","#10b981","#f59e0b","#3b82f6","#8b5cf6","#ec4899","#14b8a6"];
-
-// ── 予算進捗バー ──────────────────────────────────────────────
-function BudgetProgress({ categories, currentMonthTxs }) {
-  const budgetCats = categories.filter(c => c.type === "expense" && c.budget > 0);
-  if (budgetCats.length === 0) return null;
-
-  const spentMap = useMemo(() =>
-    currentMonthTxs
-      .filter(t => t.type === "expense")
-      .reduce((acc, t) => {
-        acc[t.category] = (acc[t.category] || 0) + Math.abs(t.amount);
-        return acc;
-      }, {}),
-    [currentMonthTxs]
-  );
-
-  return (
-    <div className="mx-4 md:mx-0 mt-4 md:mt-0 bg-white rounded-2xl p-4 border border-gray-100">
-      <p className="text-xs font-semibold text-gray-500 mb-3 uppercase tracking-wide">今月の予算</p>
-      <div className="space-y-3">
-        {budgetCats.map(cat => {
-          const spent = spentMap[cat.name] || 0;
-          const pct   = Math.min((spent / cat.budget) * 100, 100);
-          const over  = spent > cat.budget;
-          const warn  = pct >= 80 && !over;
-          const barColor = over ? "bg-rose-500" : warn ? "bg-amber-400" : "bg-indigo-400";
-          return (
-            <div key={cat.id}>
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-xs font-medium text-gray-700">{cat.emoji} {cat.name}</span>
-                <span className={`text-xs font-bold ${over ? "text-rose-500" : warn ? "text-amber-500" : "text-gray-500"}`}>
-                  {fmtCurrency(spent)}
-                  <span className="font-normal text-gray-400"> / {fmtCurrency(cat.budget)}</span>
-                  {over && <span className="ml-1">⚠️</span>}
-                </span>
-              </div>
-              <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                <div
-                  className={`h-full rounded-full transition-all duration-500 ${barColor}`}
-                  style={{ width: `${pct}%` }}
-                />
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
 
 // カテゴリ別支出バーチャート（カーソルで金額表示）
 function CategoryBar({ catExpenses, categories, maxAmt }) {
@@ -106,7 +57,7 @@ function CategoryBar({ catExpenses, categories, maxAmt }) {
   );
 }
 
-export function HomePage({ transactions, categories, pointAccounts, onNavigate }) {
+export function HomePage({ transactions, categories, pointAccounts, learnedRules, onNavigate }) {
   const now       = new Date();
   const currentYM = now.toISOString().slice(0, 7);
 
@@ -173,9 +124,6 @@ export function HomePage({ transactions, categories, pointAccounts, onNavigate }
             month={now.getMonth() + 1}
           />
 
-          {/* 予算進捗 */}
-          <BudgetProgress categories={categories} currentMonthTxs={currentMonthTxs} />
-
           {/* 最近7日 */}
           <RecentExpenseCard amount={last7DaysExpense} />
 
@@ -241,7 +189,7 @@ export function HomePage({ transactions, categories, pointAccounts, onNavigate }
             </div>
             <div className="bg-white rounded-2xl overflow-hidden shadow-sm border border-gray-100">
               {transactions.slice(0, 8).map(t => (
-                <TransactionItem key={t.id} transaction={t} categories={categories} />
+                <TransactionItem key={t.id} transaction={t} categories={categories} learnedRules={learnedRules} />
               ))}
               {transactions.length === 0 && (
                 <p className="text-xs text-gray-400 text-center py-8">取引データがありません</p>
