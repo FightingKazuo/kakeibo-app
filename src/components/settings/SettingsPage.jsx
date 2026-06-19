@@ -668,46 +668,64 @@ export function SettingsPage({
               <PrimaryButton onClick={handleAdd}>追加する</PrimaryButton>
             </div>
           )}
-          <div className="bg-white rounded-2xl overflow-hidden border border-gray-100">
-            {categories.map(cat => (
-              <div key={cat.id} className="flex items-center gap-3 px-4 py-3 border-b border-gray-50 last:border-b-0">
-                {editingId === cat.id ? (
-                  <>
-                    <button
-                      onClick={() => { setEmojiPickerFor(cat.id); setShowEmojiPicker(true); }}
-                      className="w-10 h-10 text-xl bg-gray-50 border border-gray-200 rounded-lg flex items-center justify-center hover:bg-gray-100">
-                      {editEmoji}
-                    </button>
-                    <div className="flex-1 flex flex-col gap-1.5">
-                      <input type="text" value={editName} onChange={e => setEditName(e.target.value)}
-                        className="w-full text-sm px-2 py-1 bg-gray-50 border border-gray-200 rounded-lg outline-none" />
-                      <div className="flex items-center gap-1">
-                        <span className="text-xs text-gray-400">月予算 ¥</span>
-                        <input type="number" value={editBudget} onChange={e => setEditBudget(e.target.value)}
-                          placeholder="未設定"
-                          className="flex-1 text-xs px-2 py-1 bg-gray-50 border border-gray-200 rounded-lg outline-none" />
+          {["expense", "income"].map(type => {
+            const typeCats = categories.filter(c => c.type === type);
+            if (typeCats.length === 0) return null;
+            return (
+              <div key={type}>
+                <p className={`text-xs font-bold mb-2 px-1 ${type === "expense" ? "text-rose-400" : "text-emerald-500"}`}>
+                  {type === "expense" ? "💸 支出カテゴリ" : "💰 収入カテゴリ"}
+                </p>
+                <div className="bg-white rounded-2xl overflow-hidden border border-gray-100">
+                  {typeCats.map((cat) => {
+                    const idx = categories.findIndex(c => c.id === cat.id);
+                    const typeIdx = typeCats.findIndex(c => c.id === cat.id);
+                    return (
+                      <div key={cat.id} className="flex items-center gap-3 px-4 py-3 border-b border-gray-50 last:border-b-0">
+                        {editingId === cat.id ? (
+                          <>
+                            <button
+                              onClick={() => { setEmojiPickerFor(cat.id); setShowEmojiPicker(true); }}
+                              className="w-10 h-10 text-xl bg-gray-50 border border-gray-200 rounded-lg flex items-center justify-center hover:bg-gray-100">
+                              {editEmoji}
+                            </button>
+                            <div className="flex-1 flex flex-col gap-1.5">
+                              <input type="text" value={editName} onChange={e => setEditName(e.target.value)}
+                                className="w-full text-sm px-2 py-1 bg-gray-50 border border-gray-200 rounded-lg outline-none" />
+                              <div className="flex items-center gap-1">
+                                <span className="text-xs text-gray-400">月予算 ¥</span>
+                                <input type="number" value={editBudget} onChange={e => setEditBudget(e.target.value)}
+                                  placeholder="未設定"
+                                  className="flex-1 text-xs px-2 py-1 bg-gray-50 border border-gray-200 rounded-lg outline-none" />
+                              </div>
+                            </div>
+                            <button onClick={() => { onUpdateCat({...cat, name:editName, emoji:editEmoji, budget: editBudget ? Number(editBudget) : null}); setEditingId(null); }} className="text-xs text-indigo-500 font-semibold">保存</button>
+                            <button onClick={() => setEditingId(null)} className="text-xs text-gray-400">×</button>
+                          </>
+                        ) : (
+                          <>
+                            <div className="flex flex-col gap-0.5">
+                              <button onClick={() => moveCategory(idx, -1)} disabled={typeIdx === 0}
+                                className="w-8 h-7 flex items-center justify-center text-gray-400 hover:text-indigo-500 hover:bg-indigo-50 disabled:opacity-20 disabled:cursor-not-allowed transition-colors rounded-md text-sm">▲</button>
+                              <button onClick={() => moveCategory(idx, 1)} disabled={typeIdx === typeCats.length - 1}
+                                className="w-8 h-7 flex items-center justify-center text-gray-400 hover:text-indigo-500 hover:bg-indigo-50 disabled:opacity-20 disabled:cursor-not-allowed transition-colors rounded-md text-sm">▼</button>
+                            </div>
+                            <span className="text-xl">{cat.emoji}</span>
+                            <div className="flex-1">
+                              <p className="text-sm font-medium text-gray-800">{cat.name}</p>
+                              {cat.budget ? <p className="text-xs text-indigo-400">予算 ¥{cat.budget.toLocaleString()}</p> : null}
+                            </div>
+                            <button onClick={() => { setEditingId(cat.id); setEditName(cat.name); setEditEmoji(cat.emoji); setEditBudget(cat.budget ?? ""); }} className="text-xs text-gray-400 hover:text-indigo-500 px-2">✏️</button>
+                            <button onClick={() => { if(window.confirm(`「${cat.name}」を削除しますか？`)) onDeleteCat(cat.id); }} className="text-gray-300 hover:text-rose-400 text-xl">×</button>
+                          </>
+                        )}
                       </div>
-                    </div>
-                    <button onClick={() => { onUpdateCat({...cat, name:editName, emoji:editEmoji, budget: editBudget ? Number(editBudget) : null}); setEditingId(null); }} className="text-xs text-indigo-500 font-semibold">保存</button>
-                    <button onClick={() => setEditingId(null)} className="text-xs text-gray-400">×</button>
-                  </>
-                ) : (
-                  <>
-                    <span className="text-xl">{cat.emoji}</span>
-                    <div className="flex-1">
-                      <p className="text-sm font-medium text-gray-800">{cat.name}</p>
-                      <p className="text-xs text-gray-400">
-                        {cat.type === "expense" ? "支出" : "収入"}
-                        {cat.budget ? <span className="ml-1.5 text-indigo-400">予算 ¥{cat.budget.toLocaleString()}</span> : null}
-                      </p>
-                    </div>
-                    <button onClick={() => { setEditingId(cat.id); setEditName(cat.name); setEditEmoji(cat.emoji); setEditBudget(cat.budget ?? ""); }} className="text-xs text-gray-400 hover:text-indigo-500 px-2">✏️</button>
-                    <button onClick={() => { if(window.confirm(`「${cat.name}」を削除しますか？`)) onDeleteCat(cat.id); }} className="text-gray-300 hover:text-rose-400 text-xl">×</button>
-                  </>
-                )}
+                    );
+                  })}
+                </div>
               </div>
-            ))}
-          </div>
+            );
+          })}
         </div>
       )}
 
