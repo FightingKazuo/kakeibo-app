@@ -9,6 +9,7 @@ import {
   fetchTransactions, upsertTransaction, deleteTransaction, upsertTransactions,
   fetchCategories, fetchLearnedRules, fetchMembers, fetchPointAccounts,
   saveCategories, saveLearnedRules, saveMembers, savePointAccounts,
+  fetchImportHistory, saveImportHistory,
   testConnection,
 } from "./utils/supabase";
 import { learnTransferKeyword } from "./services/csvParser";
@@ -77,18 +78,20 @@ export default function App() {
   const [members,       setMembers]       = useState(DEFAULT_MEMBERS);
   const [pointAccounts, setPointAccounts] = useState(DEFAULT_POINT_ACCOUNTS);
   const [editingTx,     setEditingTx]     = useState(null);
+  const [importHistory, setImportHistory] = useState({});
 
   // ── 初回ロード：Supabaseからデータ取得 ──────────────────
   useEffect(() => {
     const load = async () => {
       setIsLoading(true);
       try {
-        const [txs, cats, rules, mems, points] = await Promise.all([
+        const [txs, cats, rules, mems, points, importHist] = await Promise.all([
           fetchTransactions(shareId),
           fetchCategories(shareId),
           fetchLearnedRules(shareId),
           fetchMembers(shareId),
           fetchPointAccounts(shareId),
+          fetchImportHistory(shareId),
         ]);
 
         if (txs && txs.length > 0) {
@@ -101,6 +104,7 @@ export default function App() {
         setCategories(cats    || loadStorage(STORAGE_KEYS.CATEGORIES, DEFAULT_CATS));
         setLearnedRules(rules || loadStorage(STORAGE_KEYS.RULES, []));
         setMembers(mems       || loadStorage(STORAGE_KEYS.MEMBERS, DEFAULT_MEMBERS));
+        setImportHistory(importHist || {});
 
         // ポイント口座：既存データにデフォルト口座が欠けていたら補完
         const loadedPoints = points || loadStorage(STORAGE_KEYS.POINT_ACCOUNTS, DEFAULT_POINT_ACCOUNTS);
@@ -217,6 +221,11 @@ export default function App() {
     try { await savePointAccounts(shareId, newAccounts); } catch {}
   };
 
+  const handleImportHistoryChange = async (newHistory) => {
+    setImportHistory(newHistory);
+    try { await saveImportHistory(shareId, newHistory); } catch {}
+  };
+
   const handleLearn = (label, cat, type) => {
     const newRules = learnCategoryRule(label, cat, type, learnedRules);
     handleLearnedRulesChange(newRules);
@@ -328,9 +337,11 @@ export default function App() {
           learnedRules={learnedRules}
           members={members}
           pointAccounts={pointAccountsWithBalance}
+          importHistory={importHistory}
           onAdd={handleAdd}
           onDelete={handleDelete}
           onLearnRule={handleLearn}
+          onImportHistoryChange={handleImportHistoryChange}
         />;
       case "analysis":
         return <AnalysisPage transactions={transactions} categories={categories} members={members} pointAccounts={pointAccountsWithBalance} onUpdate={handleUpdate} />;
