@@ -42,6 +42,8 @@ const TRANSFER_STORAGE_KEY = "kakeibo_transfer_keywords";
 const DEFAULT_TRANSFER_KEYWORDS = [
   "SBIハイブリッド預金", "振替", "ことら送金",
   "振込＊コバヤシ", "振込手数料",
+  "フリカエ　ＰＡＹＰＡＹ", "フリカエ PAYPAY",  // PayPayチャージ
+  "ＳＢＩハイブリッド",
 ];
 
 export const getTransferKeywords = () => {
@@ -192,24 +194,30 @@ export const parseCSVText = (text, formatId, importHistory = {}) => {
 
         const tx = { ...n, date: safeDate(n.date), amount: amt, _i: i };
 
+        // ── 住信SBI銀行：PayPayチャージ（フリカエ ＰＡＹＰＡＹ）──
+        // 銀行→PayPayの振替なので収支には計上しない（isTransfer扱い）
+        // ただしPayPay残高増加として記録するため pointTransfer フラグを立てる
+        if (formatId === "sbi" && /ＰＡＹＰＡＹ|PAYPAY/i.test(tx.label) && tx.label.includes("フリカエ")) {
+          tx.isTransfer    = true;
+          tx.isPointCharge = true; // PayPay残高増加フラグ
+        }
+
         // ── 住信SBI銀行のカード引き落とし行にフラグ ──────
-        if (formatId === "sbi" && amt < 0 && isCardWithdrawal(tx.label)) {
+        if (formatId === "sbi" && amt < 0 && isCardWithdrawal(tx.label) && !tx.isTransfer) {
           const alreadyImported = isCardAlreadyImported(tx.label, tx.date, importHistory);
           if (alreadyImported) {
-            // 取り込み済み → 自動スキップ（isCardWithdrawal=trueで重複扱い）
             tx.isCardWithdrawal = true;
-            tx.cardImportStatus = "imported"; // スキップ理由を記録
+            tx.cardImportStatus = "imported";
           } else {
-            // 未取り込み → 黄色警告で表示（ユーザーが判断）
             tx.isCardWithdrawal = false;
-            tx.cardImportStatus = "unknown"; // 警告フラグ
+            tx.cardImportStatus = "unknown";
             tx.isCardWarning    = true;
           }
-          tx.cardFormatId = getCardFormatId(tx.label); // どのカードか記録
+          tx.cardFormatId = getCardFormatId(tx.label);
         }
 
         // ── 振替フラグ（SBI銀行の振替行を自動検出）──────
-        if (formatId === "sbi" && isTransferLabel(tx.label)) {
+        if (formatId === "sbi" && !tx.isTransfer && isTransferLabel(tx.label)) {
           tx.isTransfer = true;
         }
 
