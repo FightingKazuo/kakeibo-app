@@ -4,19 +4,36 @@
 // Shift-JIS / UTF-8 / UTF-8 BOM に対応
 // ============================================================
 import Papa from "papaparse";
-import { CSV_FORMATS } from "../constants";
+import { CSV_FORMATS, BANK_CARD_MAPPING } from "../constants";
 import { safeAmount, safeDate } from "../utils/format";
 
 // ─── カード引き落とし系のキーワード（銀行明細の重複判定用）──
 const CARD_WITHDRAWAL_KEYWORDS = [
-  "口座振替", "カード引き落とし", "クレジット", "エポス", "三井住友",
-  "イデミツクレジット", "jcb", "ＪＣＢ", "ポケットカード",
-  "アマゾン", "amazon", "AMAZON",
+  "口座振替", "カード引き落とし", "クレジット",
+  ...BANK_CARD_MAPPING.map(m => m.bankKeyword),
 ];
 
+// 銀行明細の行がカード引き落としかどうか判定
 const isCardWithdrawal = (label) => {
   const lower = label.toLowerCase();
   return CARD_WITHDRAWAL_KEYWORDS.some(kw => lower.includes(kw.toLowerCase()));
+};
+
+// カード引き落とし行が「取り込み済み」かどうかをimportHistoryで判定
+// importHistory: { "smbc_2026-06": true, "epos_2026-05": true, ... }
+export const isCardAlreadyImported = (label, date, importHistory) => {
+  if (!importHistory || !date) return false;
+  const ym = date.slice(0, 7); // "2026-06"
+  const mapping = BANK_CARD_MAPPING.find(m => label.includes(m.bankKeyword));
+  if (!mapping) return false;
+  const key = `${mapping.formatId}_${ym}`;
+  return !!importHistory[key];
+};
+
+// 銀行明細の引き落とし行に対応するカードフォーマットIDを返す
+export const getCardFormatId = (label) => {
+  const mapping = BANK_CARD_MAPPING.find(m => label.includes(m.bankKeyword));
+  return mapping?.formatId || null;
 };
 
 // ─── 振替キーワード管理 ──────────────────────────────────────
@@ -126,8 +143,11 @@ export const detectCSVFormat = (text) => {
 
 /**
  * CSV テキストをパースして取引配列に変換する
+ * @param {string} text - CSVテキスト
+ * @param {string} formatId - フォーマットID
+ * @param {object} importHistory - 取り込み済みカード履歴 { "smbc_2026-06": true, ... }
  */
-export const parseCSVText = (text, formatId) => {
+export const parseCSVText = (text, formatId, importHistory = {}) => {
   let processText = text;
 
   // ── リクルートカード専用前処理 ──────────────────────────
@@ -173,10 +193,19 @@ export const parseCSVText = (text, formatId) => {
         const tx = { ...n, date: safeDate(n.date), amount: amt, _i: i };
 
         // ── 住信SBI銀行のカード引き落とし行にフラグ ──────
-        // 「口座振替」「カード」などのキーワードを含む支出は
-        // カード明細と重複する可能性があるためフラグを立てる
         if (formatId === "sbi" && amt < 0 && isCardWithdrawal(tx.label)) {
-          tx.isCardWithdrawal = true;
+          const alreadyImported = isCardAlreadyImported(tx.label, tx.date, importHistory);
+          if (alreadyImported) {
+            // 取り込み済み → 自動スキップ（isCardWithdrawal=trueで重複扱い）
+            tx.isCardWithdrawal = true;
+            tx.cardImportStatus = "imported"; // スキップ理由を記録
+          } else {
+            // 未取り込み → 黄色警告で表示（ユーザーが判断）
+            tx.isCardWithdrawal = false;
+            tx.cardImportStatus = "unknown"; // 警告フラグ
+            tx.isCardWarning    = true;
+          }
+          tx.cardFormatId = getCardFormatId(tx.label); // どのカードか記録
         }
 
         // ── 振替フラグ（SBI銀行の振替行を自動検出）──────
