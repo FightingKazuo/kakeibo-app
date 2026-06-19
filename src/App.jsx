@@ -240,9 +240,37 @@ export default function App() {
   }));
 
   const navigate = (page) => {
+    // 同じページなら何もしない
+    if (page === currentPage) return;
+    // ホーム以外への遷移はhistoryに積む
+    if (page !== "home") {
+      history.pushState({ page }, "", window.location.pathname);
+    } else {
+      // ホームへ戻る場合はhistoryをクリア
+      history.replaceState({ page: "home" }, "", window.location.pathname);
+    }
     setCurrentPage(page);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
+
+  // iOSスワイプバック・ブラウザバック対応
+  useEffect(() => {
+    // 初期状態をhistoryに設定
+    history.replaceState({ page: currentPage }, "", window.location.pathname);
+
+    const handlePopState = (e) => {
+      const page = e.state?.page || "home";
+      setCurrentPage(page);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      // ホームに戻ったらhistoryを再設定（これ以上戻れないようにする）
+      if (page === "home") {
+        history.replaceState({ page: "home" }, "", window.location.pathname);
+      }
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
 
   // ── 招待リンク生成 ────────────────────────────────────────
   const inviteUrl = `${window.location.origin}?share=${shareId}`;
