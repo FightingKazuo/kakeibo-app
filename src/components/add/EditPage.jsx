@@ -68,6 +68,18 @@ export function EditPage({ transaction, categories, allRules, learnedRules, memb
 
   const displayCats = categories.filter(c => c.type === type);
 
+  const [editCatMode,  setEditCatMode]  = useState(false);
+  const [selectedItems, setSelectedItems] = useState(new Set());
+
+  const toggleItemSelect = (idx) => setSelectedItems(prev => {
+    const next = new Set(prev); next.has(idx) ? next.delete(idx) : next.add(idx); return next;
+  });
+
+  const applyItemCategory = (catName) => {
+    setItems(p => p.map((item, i) => selectedItems.has(i) ? { ...item, category: catName } : item));
+    setSelectedItems(new Set()); setEditCatMode(false);
+  };
+
   // 品目編集
   const updateItemAmount = (idx, unitPrice) => {
     setItems(p => p.map((item, i) => {
@@ -223,12 +235,42 @@ export function EditPage({ transaction, categories, allRules, learnedRules, memb
         {/* 品目編集 */}
         {items.length > 0 && (
           <div>
-            <label className="block text-xs font-semibold text-gray-500 mb-2">
-              品目（共有/個人/相手・金額変更）
-              <span className={`ml-2 px-1.5 py-0.5 rounded text-xs ${isTaxExclusive ? "bg-amber-100 text-amber-600" : "bg-gray-100 text-gray-500"}`}>
-                {taxLabel}
-              </span>
-            </label>
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-xs font-semibold text-gray-500">
+                品目（共有/個人/相手・金額変更）
+                <span className={`ml-2 px-1.5 py-0.5 rounded text-xs ${isTaxExclusive ? "bg-amber-100 text-amber-600" : "bg-gray-100 text-gray-500"}`}>
+                  {taxLabel}
+                </span>
+              </label>
+              <button onClick={() => { setEditCatMode(p => !p); setSelectedItems(new Set()); }}
+                className={`text-xs px-2.5 py-1 rounded-full border transition-all ${editCatMode ? "bg-indigo-500 text-white border-indigo-500" : "bg-indigo-50 text-indigo-500 border-indigo-200"}`}>
+                🏷️ カテゴリー変更
+              </button>
+            </div>
+
+            {/* カテゴリー一括変更UI */}
+            {editCatMode && (
+              <div className="mb-3 bg-indigo-50 rounded-xl p-3 border border-indigo-100 space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-semibold text-indigo-600">
+                    {selectedItems.size === 0 ? "変更する品目を選択してください" : `${selectedItems.size}件を選択中`}
+                  </p>
+                  <button onClick={() => setSelectedItems(new Set(items.map((_, i) => i)))}
+                    className="text-xs text-indigo-400 border border-indigo-200 px-2 py-0.5 rounded-lg bg-white">全選択</button>
+                </div>
+                {selectedItems.size > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {displayCats.map(cat => (
+                      <button key={cat.id} onClick={() => applyItemCategory(cat.name)}
+                        className="px-2.5 py-1 rounded-full text-xs border bg-white text-gray-600 border-gray-200 hover:bg-indigo-500 hover:text-white hover:border-indigo-500 transition-all">
+                        {cat.emoji} {cat.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="border border-gray-100 rounded-xl overflow-hidden">
               {items.map((item, i) => {
                 // 税抜きの場合はamountExclTaxを表示、なければamountをそのまま
@@ -245,8 +287,19 @@ export function EditPage({ transaction, categories, allRules, learnedRules, memb
                     item.type === "partner"  ? "bg-purple-50" : "bg-white"
                   }`}>
                     <div className="flex items-center justify-between mb-2">
-                      <p className="text-xs font-medium text-gray-800 flex-1 truncate mr-2">{item.name}</p>
-                      <ItemTypeToggle type={item.type || "shared"} onChange={t => updateItemType(i, t)} />
+                      <div className="flex items-center gap-2 flex-1 min-w-0">
+                        {editCatMode && (
+                          <input type="checkbox" checked={selectedItems.has(i)} onChange={() => toggleItemSelect(i)}
+                            className="accent-indigo-500 w-4 h-4 flex-shrink-0" />
+                        )}
+                        <p className="text-xs font-medium text-gray-800 flex-1 truncate mr-2">{item.name}</p>
+                        {item.category && item.category !== category && item.category !== "その他" && (
+                          <span className="text-xs bg-indigo-50 text-indigo-500 px-1.5 py-0.5 rounded-full border border-indigo-100 flex-shrink-0">
+                            {displayCats.find(c => c.name === item.category)?.emoji} {item.category}
+                          </span>
+                        )}
+                      </div>
+                      {!editCatMode && <ItemTypeToggle type={item.type || "shared"} onChange={t => updateItemType(i, t)} />}
                     </div>
                     <div className="flex items-center gap-1.5">
                       <span className="text-xs text-gray-400">単価</span>
