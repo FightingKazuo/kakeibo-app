@@ -279,63 +279,59 @@ export const testGeminiKey = async (apiKey) => {
 };
 
 // ─── レシート画像解析（画像直接送信）────────────────────────
-const RECEIPT_PROMPT = `このレシート画像から情報を抽出してください。JSONのみ出力（コードブロック不要）：
-{
-  "storeName": "店舗名（例: ダイソー静岡川合店）",
-  "date": "YYYY-MM-DD",
-  "totalAmount": 税込合計金額の整数,
-  "items": [{"name":"商品名","unitPrice":単価整数,"quantity":数量整数,"amount":合計整数}]
-}
+// プロンプト1：ヘッダー情報のみ（軽量）
+const RECEIPT_HEADER_PROMPT = `このレシート画像から以下の情報のみを抽出してください。JSONのみ出力：
+{"storeName":"店舗名","date":"YYYY-MM-DD","totalAmount":税込合計金額の整数}
+・totalAmountは最下部の「合計」または「お会計」の税込金額
+・外税の場合は小計＋消費税の合計値`;
 
-【重要な抽出ルール】
+// プロンプト2：品目リストのみ（専用）
+const RECEIPT_ITEMS_PROMPT = `このレシート画像の品目リストをJSONで出力してください。JSONのみ出力：
+{"items":[{"name":"商品名","unitPrice":単価整数,"quantity":数量整数,"amount":合計整数}]}
 
-■ 数量・単価の読み方
-・「NコX単価」「N点×単価」「N×単価」形式は必ず数量と単価に分解する
-  例: 「2コX単148  ¥296」→ unitPrice:148, quantity:2, amount:296
-  例: 「3コX単39   ¥117」→ unitPrice:39, quantity:3, amount:117
-  例: 「やきそば 3コX単98 ¥294」→ unitPrice:98, quantity:3, amount:294
-・次の行に「NコX単価」が続く場合は、前の行の商品名とセットで1品目として扱う
-
-■ 割引・値引きの読み方
-・マイナス金額（-○○、▲○○）は割引として必ずamountをマイナス値にする
-  例: 「操作割引 -102」→ name:"操作割引", amount:-102
-  例: 「亀田柿の種 -20」→ name:"亀田柿の種割引", amount:-20
-・「¥○○から¥○○に致します」は値引き行なので割引として1品目追加する
-  例: 「¥208から  ¥188に致します」→ name:"値引き", amount:-20
-
-■ 除外する行
-・小計・合計・外税・消費税・内税・お預り・お釣り・クレジット・ポイント行は除外
-・バーコード番号（4513454100821等の長い数字）は除外
-・「(10%対象 ¥○○)」などの税区分の説明行は除外
-
-■ totalAmount
-・レシート最下部の「合計」または「お会計」の税込金額
-・外税方式の場合: 小計＋消費税の合計値
-
-・不明な値は0を使用`;
+ルール：
+・「NコX単価」「@価格×N」→ unitPrice・quantityを分解する（例:「@118×3個」→unitPrice:118,quantity:3）
+・マイナス金額（割引・値引き）→ amountをマイナス値にする（例:-38）
+・「¥○○から¥○○に致します」→ 差額をマイナスで1品目追加
+・小計・合計・消費税・お預り・お釣り・クレジット・ポイント行は除外
+・バーコード番号（長い数字列）は除外
+・数量が明示されていない場合はquantity:1`;
 
 export const analyzeWithGemini = async (imageFile, apiKey, onProgress) => {
   onProgress?.(10);
   const { base64, mimeType } = await fileToBase64(imageFile);
-  onProgress?.(40);
-  const parsed = await callGemini(apiKey, [
-    { text: RECEIPT_PROMPT },
+  onProgress?.(30);
+
+  // 第1段階：ヘッダー情報（軽量・確実）
+  const header = await callGemini(apiKey, [
+    { text: RECEIPT_HEADER_PROMPT },
     { inline_data: { mime_type: mimeType, data: base64 } },
-  ], 4096);
+  ], 256);
+  onProgress?.(55);
+
+  // 第2段階：品目リスト（専用プロンプト・大きめトークン）
+  let itemsParsed = { items: [] };
+  try {
+    itemsParsed = await callGemini(apiKey, [
+      { text: RECEIPT_ITEMS_PROMPT },
+      { inline_data: { mime_type: mimeType, data: base64 } },
+    ], 8192);
+  } catch (e) {
+    console.warn("品目取得失敗（ヘッダーのみで続行）:", e.message);
+  }
   onProgress?.(100);
 
-  const items = Array.isArray(parsed.items) ? parsed.items.map(item => {
-    const unitPrice = Math.abs(Number(item.unitPrice) || Number(item.amount) || 0);
+  const items = Array.isArray(itemsParsed.items) ? itemsParsed.items.map(item => {
+    const unitPrice = Math.abs(Number(item.unitPrice) || Math.abs(Number(item.amount)) || 0);
     const quantity  = Math.max(1, Number(item.quantity) || 1);
-    // amountが明示されていれば優先、なければ単価×数量
-    const amount    = Number(item.amount) || (unitPrice * quantity);
+    const amount    = Number(item.amount) !== 0 ? Number(item.amount) : (unitPrice * quantity);
     return { ...item, unitPrice, quantity, amount };
   }) : [];
 
   return {
-    storeName:   String(parsed.storeName   || "").trim(),
-    date:        String(parsed.date        || "").trim(),
-    totalAmount: Number(parsed.totalAmount) || 0,
+    storeName:   String(header.storeName   || "").trim(),
+    date:        String(header.date        || "").trim(),
+    totalAmount: Number(header.totalAmount) || 0,
     items,
   };
 };
