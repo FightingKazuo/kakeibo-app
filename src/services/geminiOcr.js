@@ -70,7 +70,7 @@ const callGemini = async (apiKey, parts, maxTokens = 8192) => {
   const errors  = [];
   const body    = JSON.stringify({
     contents: [{ parts }],
-    generationConfig: { temperature: 0.1, maxOutputTokens: maxTokens },
+    generationConfig: { temperature: 0.1, maxOutputTokens: maxTokens, responseMimeType: "application/json" },
   });
 
   for (const { base, model } of ENDPOINTS) {
@@ -280,13 +280,12 @@ export const testGeminiKey = async (apiKey) => {
 
 // ─── レシート画像解析（画像直接送信）────────────────────────
 // プロンプト1：ヘッダー情報のみ（軽量）
-const RECEIPT_HEADER_PROMPT = `このレシート画像から以下の情報のみを抽出してください。JSONのみ出力：
-{"storeName":"店舗名","date":"YYYY-MM-DD","totalAmount":税込合計金額の整数}
-・totalAmountは最下部の「合計」または「お会計」の税込金額
-・外税の場合は小計＋消費税の合計値`;
+const RECEIPT_HEADER_PROMPT = `レシート画像から店舗名・日付・合計金額を抽出。必ずJSONのみ出力しMarkdownコードブロック不使用：
+{"storeName":"店舗名","date":"YYYY-MM-DD","totalAmount":税込合計整数}
+totalAmountは最下部の「合計」の税込金額（外税なら小計＋消費税）。`;
 
 // プロンプト2：品目リストのみ（専用）
-const RECEIPT_ITEMS_PROMPT = `このレシート画像の品目リストをJSONで出力してください。JSONのみ出力：
+const RECEIPT_ITEMS_PROMPT = `レシート画像の品目リストを抽出。必ずJSONのみ出力しMarkdownコードブロック不使用：
 {"items":[{"name":"商品名","unitPrice":単価整数,"quantity":数量整数,"amount":合計整数}]}
 
 ルール：
@@ -306,7 +305,7 @@ export const analyzeWithGemini = async (imageFile, apiKey, onProgress) => {
   const header = await callGemini(apiKey, [
     { text: RECEIPT_HEADER_PROMPT },
     { inline_data: { mime_type: mimeType, data: base64 } },
-  ], 256);
+  ], 512);
   onProgress?.(55);
 
   // 第2段階：品目リスト（専用プロンプト・大きめトークン）
