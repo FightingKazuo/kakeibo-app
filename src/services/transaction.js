@@ -49,6 +49,8 @@ export const createTransaction = ({
   // 振替フラグ
   isTransfer        = false,
   isCardWithdrawal  = false,
+  // ウエルシア20日等：精算時に使う実質金額（÷1.5など）
+  shareAmount       = null,
 } = {}) => {
   const now = new Date().toISOString();
   return {
@@ -66,6 +68,7 @@ export const createTransaction = ({
     pointAccountId:   pointAccountId    || null,
     isTransfer:       isTransfer        || false,
     isCardWithdrawal: isCardWithdrawal  || false,
+    shareAmount:      shareAmount !== null ? safeAmount(shareAmount) : null,
 
     store:  store
       ? { name: String(store.name || "").trim(), branch: String(store.branch || "") }
@@ -124,6 +127,7 @@ export const normalizeTransaction = (raw) => {
     pointAccountId:   raw.pointAccountId  || null,
     isTransfer:       raw.isTransfer      || false,
     isCardWithdrawal: raw.isCardWithdrawal || false,
+    shareAmount:      raw.shareAmount != null ? safeAmount(raw.shareAmount) : null,
 
     store,
     items,
