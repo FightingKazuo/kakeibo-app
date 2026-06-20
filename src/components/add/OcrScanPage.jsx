@@ -411,6 +411,13 @@ export function OcrScanPage({ categories, allRules, learnedRules, members, point
                 </p>
               </div>
             )}
+            {/* 品目が空で切れた場合の警告 */}
+            {ocrItems.length === 0 && ocrAmount && (
+              <div className="bg-orange-50 rounded-xl p-3 border border-orange-200">
+                <p className="text-xs font-semibold text-orange-700">📋 品目が読み取れませんでした</p>
+                <p className="text-xs text-orange-500 mt-0.5">品目数が多すぎてレスポンスが途中で切れた可能性があります。金額・店舗名を確認して登録してください。</p>
+              </div>
+            )}
             <div>
               <label className="block text-xs font-semibold text-gray-500 mb-2">店舗名</label>
               <input type="text" value={ocrLabel}
