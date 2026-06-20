@@ -68,8 +68,7 @@ export function TransactionItem({
         ) : (
           <button
             onClick={() => onCatFilter?.(t.category)}
-            className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-xl flex-shrink-0 hover:bg-indigo-100 active:bg-indigo-200 transition-colors"
-            title={`${t.category}でフィルター`}>
+            className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-xl flex-shrink-0 active:bg-indigo-100 transition-colors">
             {isTransfer ? "🔄" : cat?.emoji || "📦"}
           </button>
         )}
@@ -191,7 +190,7 @@ export function TransactionItem({
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5 flex-wrap">
                     <p className="text-xs text-gray-700 truncate">{item.name || "（商品名なし）"}</p>
-                    {/* カテゴリーバッジ：品目カテゴリーが取引カテゴリーと異なる場合に強調表示 */}
+                    {/* 品目カテゴリーバッジ：取引カテゴリーと異なれば青、同じならグレー */}
                     {item.category && item.category !== "その他" && (
                       <button
                         onClick={() => onCatFilter?.(item.category)}
