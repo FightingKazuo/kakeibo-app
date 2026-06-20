@@ -171,9 +171,9 @@ export function OcrScanPage({ categories, allRules, learnedRules, members, point
         // 自分払い+WAON: WAONはshareAmount分だけ消費
         ...(waonConsumeAmount ? { pointConsumeAmount: waonConsumeAmount } : {}),
       };
-      if (finalSharedAmt > 0) txsToAdd.push(createTransaction({ ...base, amount: -finalSharedAmt, items: sharedItems.map(({ name, amount: a, quantity, taxRate }) => ({ name, amount: a, quantity, type: "shared", taxRate })) }));
-      if (personAmt  > 0) txsToAdd.push(createTransaction({ ...base, label: `${label}（個人）`,            amount: -personAmt,  items: personalItems.map(({ name, amount: a, quantity, taxRate }) => ({ name, amount: a, quantity, type: "personal", taxRate })) }));
-      if (partnerAmt > 0) txsToAdd.push(createTransaction({ ...base, label: `${label}（パートナー負担）`, amount: -partnerAmt, items: partnerItems.map(({ name, amount: a, quantity, taxRate }) => ({ name, amount: a, quantity, type: "partner", taxRate })) }));
+      if (finalSharedAmt > 0) txsToAdd.push(createTransaction({ ...base, amount: -finalSharedAmt, items: sharedItems.map(({ name, amount: a, quantity, taxRate, category }) => ({ name, amount: a, quantity, type: "shared",   taxRate, category })) }));
+      if (personAmt  > 0) txsToAdd.push(createTransaction({ ...base, label: `${label}（個人）`,            amount: -personAmt,  items: personalItems.map(({ name, amount: a, quantity, taxRate, category }) => ({ name, amount: a, quantity, type: "personal", taxRate, category })) }));
+      if (partnerAmt > 0) txsToAdd.push(createTransaction({ ...base, label: `${label}（パートナー負担）`, amount: -partnerAmt, items: partnerItems.map(({ name, amount: a, quantity, taxRate, category }) => ({ name, amount: a, quantity, type: "partner",  taxRate, category })) }));
     }
 
     if (txsToAdd.length === 0) {
