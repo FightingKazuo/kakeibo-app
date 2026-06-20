@@ -76,8 +76,12 @@ export function EditPage({ transaction, categories, allRules, learnedRules, memb
   });
 
   const applyItemCategory = (catName) => {
+    if (selectedItems.size === 0) return;
     setItems(p => p.map((item, i) => selectedItems.has(i) ? { ...item, category: catName } : item));
-    setSelectedItems(new Set()); setEditCatMode(false);
+    const count = selectedItems.size;
+    setSelectedItems(new Set());
+    // モードは維持して変更を確認できるようにする
+    alert(`✅ ${count}件のカテゴリーを「${catName}」に変更しました`);
   };
 
   // 品目編集
@@ -293,8 +297,12 @@ export function EditPage({ transaction, categories, allRules, learnedRules, memb
                             className="accent-indigo-500 w-4 h-4 flex-shrink-0" />
                         )}
                         <p className="text-xs font-medium text-gray-800 flex-1 truncate mr-2">{item.name}</p>
-                        {item.category && item.category !== category && item.category !== "その他" && (
-                          <span className="text-xs bg-indigo-50 text-indigo-500 px-1.5 py-0.5 rounded-full border border-indigo-100 flex-shrink-0">
+                        {item.category && item.category !== "その他" && (
+                          <span className={`text-xs px-1.5 py-0.5 rounded-full border flex-shrink-0 ${
+                            item.category !== category
+                              ? "bg-indigo-50 text-indigo-600 border-indigo-200 font-medium"
+                              : "bg-gray-50 text-gray-400 border-gray-200"
+                          }`}>
                             {displayCats.find(c => c.name === item.category)?.emoji} {item.category}
                           </span>
                         )}
