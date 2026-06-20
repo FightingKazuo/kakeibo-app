@@ -320,7 +320,7 @@ export default function App() {
   const renderPage = () => {
     switch (currentPage) {
       case "home":
-        return <HomePage transactions={transactions} categories={categories} pointAccounts={pointAccountsWithBalance} learnedRules={learnedRules} onNavigate={navigate} />;
+        return <HomePage transactions={transactions} categories={categories} pointAccounts={pointAccountsWithBalance} learnedRules={learnedRules} importHistory={importHistory} onNavigate={navigate} />;
       case "list":
         return <TransactionListPage
           transactions={transactions}
@@ -333,6 +333,7 @@ export default function App() {
           onNavigate={navigate}
         />;
       case "add":
+      case "add-csv":
         return <AddPage
           categories={categories}
           existingTransactions={transactions}
@@ -378,7 +379,7 @@ export default function App() {
           syncStatus={syncStatus}
         />;
       default:
-        return <HomePage transactions={transactions} categories={categories} pointAccounts={pointAccountsWithBalance} learnedRules={learnedRules} onNavigate={navigate} />;
+        return <HomePage transactions={transactions} categories={categories} pointAccounts={pointAccountsWithBalance} learnedRules={learnedRules} importHistory={importHistory} onNavigate={navigate} />;
     }
   };
 
