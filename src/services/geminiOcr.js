@@ -323,8 +323,13 @@ export const analyzeWithGemini = async (imageFile, apiKey, onProgress) => {
   const items = Array.isArray(itemsParsed.items) ? itemsParsed.items.map(item => {
     const unitPrice = Math.abs(Number(item.unitPrice) || Math.abs(Number(item.amount)) || 0);
     const quantity  = Math.max(1, Number(item.quantity) || 1);
-    const amount    = Number(item.amount) !== 0 ? Number(item.amount) : (unitPrice * quantity);
-    return { ...item, unitPrice, quantity, amount };
+    let   amount    = Number(item.amount) !== 0 ? Number(item.amount) : (unitPrice * quantity);
+    // 割引・値引き判定：名前に割引キーワードがあるのにamountが正の場合は強制マイナス
+    const name = String(item.name || "");
+    const isDiscount = name.includes("割引") || name.includes("値引") || name.includes("から") ||
+                       name.includes("に致します") || name.includes("まとめ値引") || name.startsWith("-");
+    if (isDiscount && amount > 0) amount = -amount;
+    return { ...item, unitPrice, quantity, amount, isDiscount };
   }) : [];
 
   return {
