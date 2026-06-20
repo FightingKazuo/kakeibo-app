@@ -5,7 +5,7 @@ import { SourceBadge } from "../ui/SourceBadge";
 export function TransactionItem({
   transaction: t, categories, members, pointAccounts,
   onEdit, onDelete, onUpdateSharing, onUpdateTransfer,
-  learnedRules,
+  learnedRules, onCatFilter,
   // 選択モード用
   selectMode, selected, onSelect,
 }) {
@@ -66,9 +66,12 @@ export function TransactionItem({
             {selected && <span className="text-white text-xs">✓</span>}
           </button>
         ) : (
-          <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-xl flex-shrink-0">
+          <button
+            onClick={() => onCatFilter?.(t.category)}
+            className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-xl flex-shrink-0 hover:bg-indigo-100 active:bg-indigo-200 transition-colors"
+            title={`${t.category}でフィルター`}>
             {isTransfer ? "🔄" : cat?.emoji || "📦"}
-          </div>
+          </button>
         )}
 
         <div className="flex-1 min-w-0 overflow-hidden" onClick={handleMainClick}>
@@ -188,11 +191,17 @@ export function TransactionItem({
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5 flex-wrap">
                     <p className="text-xs text-gray-700 truncate">{item.name || "（商品名なし）"}</p>
-                    {/* 取引カテゴリーと異なる品目カテゴリーのみバッジ表示 */}
-                    {item.category && item.category !== t.category && item.category !== "その他" && (
-                      <span className="text-xs bg-indigo-50 text-indigo-500 px-1.5 py-0.5 rounded-full border border-indigo-100 flex-shrink-0">
+                    {/* カテゴリーバッジ：品目カテゴリーが取引カテゴリーと異なる場合に強調表示 */}
+                    {item.category && item.category !== "その他" && (
+                      <button
+                        onClick={() => onCatFilter?.(item.category)}
+                        className={`text-xs px-1.5 py-0.5 rounded-full border flex-shrink-0 transition-colors ${
+                          item.category !== t.category
+                            ? "bg-indigo-50 text-indigo-600 border-indigo-200 font-medium"
+                            : "bg-gray-50 text-gray-400 border-gray-200"
+                        }`}>
                         {categories?.find(c => c.name === item.category)?.emoji} {item.category}
-                      </span>
+                      </button>
                     )}
                   </div>
                   {item.quantity > 1 && (
