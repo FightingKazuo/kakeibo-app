@@ -17,25 +17,45 @@ const ENDPOINTS = [
 ];
 
 // ─── FileReader で base64 化（iOS 全形式対応）────────────────
+// ─── 画像を圧縮してbase64化（iPhoneの高解像度写真対策）────────
 const fileToBase64 = (file) =>
   new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result   = reader.result;
-      const base64   = result.split(",")[1];
-      const mimeType = result.split(":")[1]?.split(";")[0] || file.type || "image/jpeg";
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const MAX = 1280; // 長辺の最大px
+      let { width, height } = img;
+      if (width > MAX || height > MAX) {
+        if (width > height) { height = Math.round(height * MAX / width); width = MAX; }
+        else                { width  = Math.round(width  * MAX / height); height = MAX; }
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = width; canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0, width, height);
+      const dataUrl  = canvas.toDataURL("image/jpeg", 0.80); // JPEG 80%
+      const base64   = dataUrl.split(",")[1];
+      const mimeType = "image/jpeg";
       resolve({ base64, mimeType });
     };
-    reader.onerror = () => reject(new Error("ファイルの読み込みに失敗しました"));
-    reader.readAsDataURL(file);
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      // 圧縮失敗時はそのまま送る
+      const reader = new FileReader();
+      reader.onload  = () => resolve({ base64: reader.result.split(",")[1], mimeType: file.type || "image/jpeg" });
+      reader.onerror = () => reject(new Error("ファイルの読み込みに失敗しました"));
+      reader.readAsDataURL(file);
+    };
+    img.src = url;
   });
 
-// ─── 20秒タイムアウト ────────────────────────────────────────
+// ─── 40秒タイムアウト ────────────────────────────────────────
 const fetchWithTimeout = (url, options) =>
   Promise.race([
     fetch(url, options),
     new Promise((_, reject) =>
-      setTimeout(() => reject(new Error("TIMEOUT")), 20000)
+      setTimeout(() => reject(new Error("TIMEOUT")), 40000)
     ),
   ]);
 
@@ -78,7 +98,7 @@ const callGemini = async (apiKey, parts, maxTokens = 2048) => {
         break;
       } catch (e) {
         if (e.message === "TIMEOUT") {
-          throw new Error("⏱ タイムアウト（20秒）\nGeminiに接続できません。ネット接続を確認してください。");
+          throw new Error("⏱ タイムアウト（40秒）\nGeminiに接続できません。ネット接続を確認してください。");
         }
         throw new Error(`ネットワークエラー: ${e.message}`);
       }
