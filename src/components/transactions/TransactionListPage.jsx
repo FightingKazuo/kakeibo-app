@@ -38,7 +38,9 @@ export function TransactionListPage({ transactions, categories, members, pointAc
   const [q,           setQ]           = useState("");
   const [selMonth,    setSelMonth]    = useState("all");
   const [srcFilter,   setSrcFilter]   = useState("all");
-  const [shareFilter, setShareFilter] = useState("all"); // all/shared/personal/partner
+  const [shareFilter, setShareFilter]   = useState("all");
+  const [catFilter,   setCatFilter]     = useState("");        // カテゴリーフィルター
+  const [showCatPicker, setShowCatPicker] = useState(false);   // カテゴリー選択モーダル
   const [errFilter,   setErrFilter]   = useState(false);
 
   // 選択モード
@@ -56,7 +58,8 @@ export function TransactionListPage({ transactions, categories, members, pointAc
     transactions
       .filter(t => selMonth === "all" || toYM(t.date) === selMonth)
       .filter(t => srcFilter === "all" || t.source === srcFilter)
-      .filter(t => t.label.includes(q) || t.category.includes(q))
+      .filter(t => !q || t.label.includes(q) || t.category.includes(q) || t.items?.some(i => i.name?.includes(q)))
+      .filter(t => !catFilter || t.category === catFilter || t.items?.some(i => i.category === catFilter))
       .filter(t => !errFilter || (t.type === "expense" && !t.paidBy && t.shareType !== "personal" && t.shareType !== "partner")),
     [transactions, selMonth, srcFilter, q, errFilter]
   );
@@ -206,6 +209,81 @@ export function TransactionListPage({ transactions, categories, members, pointAc
                 </button>
               ))}
             </div>
+
+            {/* カテゴリーフィルターボタン */}
+            <div className="flex gap-2 overflow-x-auto pb-0.5 no-scrollbar">
+              <button
+                onClick={() => setShowCatPicker(true)}
+                className={`flex-shrink-0 px-3 py-1 rounded-full text-xs font-semibold border transition-all ${
+                  catFilter
+                    ? "bg-emerald-500 text-white border-emerald-500"
+                    : "bg-white text-gray-500 border-gray-200"
+                }`}>
+                {catFilter
+                  ? `${categories.find(c => c.name === catFilter)?.emoji || "🏷️"} ${catFilter} ×`
+                  : "🏷️ カテゴリー"}
+              </button>
+              {catFilter && (
+                <button onClick={() => setCatFilter("")}
+                  className="flex-shrink-0 px-3 py-1 rounded-full text-xs font-semibold border bg-white text-gray-400 border-gray-200">
+                  解除
+                </button>
+              )}
+            </div>
+
+            {/* カテゴリー選択モーダル */}
+            {showCatPicker && (
+              <div className="fixed inset-0 bg-black/40 z-50 flex items-end" onClick={() => setShowCatPicker(false)}>
+                <div className="bg-white rounded-t-2xl w-full p-5 space-y-4 max-h-[70vh] overflow-y-auto"
+                  onClick={e => e.stopPropagation()}>
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-bold text-gray-900">カテゴリーを選択</p>
+                    <button onClick={() => setShowCatPicker(false)} className="text-gray-400 text-xl">×</button>
+                  </div>
+                  {/* 選択解除 */}
+                  <button
+                    onClick={() => { setCatFilter(""); setShowCatPicker(false); }}
+                    className={`w-full py-2.5 rounded-xl text-sm font-semibold border transition-all ${
+                      !catFilter ? "bg-gray-700 text-white border-gray-700" : "bg-white text-gray-500 border-gray-200"
+                    }`}>
+                    すべて（フィルター解除）
+                  </button>
+                  <div>
+                    <p className="text-xs font-semibold text-rose-400 mb-2">💸 支出</p>
+                    <div className="grid grid-cols-3 gap-2">
+                      {categories.filter(c => c.type === "expense").map(cat => (
+                        <button key={cat.id}
+                          onClick={() => { setCatFilter(cat.name); setShowCatPicker(false); }}
+                          className={`py-2.5 rounded-xl text-xs font-semibold border transition-all ${
+                            catFilter === cat.name
+                              ? "bg-emerald-500 text-white border-emerald-500"
+                              : "bg-white text-gray-600 border-gray-200"
+                          }`}>
+                          {cat.emoji}<br/>{cat.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold text-emerald-500 mb-2">💰 収入</p>
+                    <div className="grid grid-cols-3 gap-2">
+                      {categories.filter(c => c.type === "income").map(cat => (
+                        <button key={cat.id}
+                          onClick={() => { setCatFilter(cat.name); setShowCatPicker(false); }}
+                          className={`py-2.5 rounded-xl text-xs font-semibold border transition-all ${
+                            catFilter === cat.name
+                              ? "bg-emerald-500 text-white border-emerald-500"
+                              : "bg-white text-gray-600 border-gray-200"
+                          }`}>
+                          {cat.emoji}<br/>{cat.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            </div>
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">🔍</span>
               <input type="text" value={q} onChange={e => setQ(e.target.value)} placeholder="カテゴリや内容で検索..."
@@ -291,6 +369,7 @@ export function TransactionListPage({ transactions, categories, members, pointAc
               onDelete={selectMode ? undefined : onDelete}
               onUpdateSharing={handleUpdateSharing}
               onUpdateTransfer={handleUpdateTransfer}
+              onCatFilter={(cat) => { setCatFilter(cat); }}
               selectMode={selectMode}
               selected={selectedIds.has(t.id)}
               onSelect={selectMode ? toggleSelect : enterSelectMode}
