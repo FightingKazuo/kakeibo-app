@@ -152,9 +152,26 @@ const callGemini = async (apiKey, parts, maxTokens = 2048) => {
     }
 
     // ─ 成功 ─
-    const data = await res.json();
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-    if (!text) throw new Error("Gemini から応答が空でした");
+    const data       = await res.json();
+    const candidate  = data.candidates?.[0];
+    const text       = candidate?.content?.parts?.[0]?.text || "";
+    const finishReason = candidate?.finishReason || "";
+
+    if (!text) {
+      // finishReasonで原因を詳細表示
+      if (finishReason === "SAFETY") {
+        throw new Error("Geminiがレシート画像をブロックしました（安全フィルター）\n別の画像で試してください");
+      } else if (finishReason === "RECITATION") {
+        throw new Error("Geminiから応答が空でした（著作権フィルター）\n別の画像で試してください");
+      } else if (finishReason === "MAX_TOKENS") {
+        throw new Error("Geminiの応答が長すぎて途中で切れました\n再試行してください");
+      } else if (data.promptFeedback?.blockReason) {
+        throw new Error(`Geminiにブロックされました: ${data.promptFeedback.blockReason}\nAPIキーを確認してください`);
+      } else {
+        // キーが期限切れの場合はprompFeedbackなしで空になることが多い
+        throw new Error(`Geminiから応答が空でした（finishReason: ${finishReason || "不明"}）\nAPIキーが期限切れの可能性があります。AI Studioで新しいキーを発行してください`);
+      }
+    }
 
     // { ... } を直接抽出（コードブロック有無に関わらず確実に動く）
     const jsonStart = text.indexOf("{");
