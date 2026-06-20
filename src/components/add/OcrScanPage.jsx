@@ -119,6 +119,11 @@ export function OcrScanPage({ categories, allRules, learnedRules, members, point
   });
 
   const registerOcr = (label, amount, date, cat, items) => {
+    // 品目カテゴリー未設定のものは取引カテゴリーを引き継ぐ
+    const itemsWithCat = (items || []).map(item => ({
+      ...item,
+      category: (item.category && item.category !== "その他") ? item.category : cat,
+    }));
     if (!amount || !label) { alert("金額と内容を入力してください"); return; }
     onLearnRule?.(label, cat, "expense");
     if (ocrOrigLabel) saveCorrection(ocrOrigLabel, label, cat);
@@ -131,7 +136,7 @@ export function OcrScanPage({ categories, allRules, learnedRules, members, point
     const hist = [{ label, amount, date, cat }, ...ocrHistory].slice(0, 5);
     setOcrHistory(hist); saveStorage(STORAGE_KEYS.OCR_HISTORY, hist);
 
-    let finalItems = items || [];
+    let finalItems = itemsWithCat;
     let remainder  = 0;
     if (finalItems.length > 0) {
       const { items: converted, remainder: rem, isTaxExclusive } = calcTaxInclusive(finalItems, receiptTotal);
@@ -259,8 +264,13 @@ export function OcrScanPage({ categories, allRules, learnedRules, members, point
       setOcrLabel(r.label); setOcrAmount(r.amount); setOcrDate(r.date); setOcrCat(r.cat); setOcrConfidence(r.confidence); setOcrItems(r.items);
       // ウエルシア20日自動検出
       if (isWelcia20(r.label, r.date)) {
-        const waon = (pointAccounts || []).find(a => a.name === "WAON" || a.id === "pa2");
-        if (waon) { setOcrPayMethod(waon.id); setOcrShareAmount(Math.round(Number(r.amount) / 1.5)); }
+        const waon   = (pointAccounts || []).find(a => a.name === "WAON" || a.id === "pa2");
+        const selfId = members?.[0]?.id || null;
+        if (waon) {
+          setOcrPayMethod(waon.id);
+          setOcrPaidBy(selfId);  // 自分払いとして自動設定
+          setOcrShareAmount(Math.round(Number(r.amount) / 1.5));
+        }
       }
       setOcrStep("review");
     } else { setOcrStep("multi-review"); }
