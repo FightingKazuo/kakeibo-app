@@ -11,10 +11,10 @@ export const GEMINI_OCR_VERSION = "v8";
 
 const ENDPOINTS = [
   { base: "https://generativelanguage.googleapis.com/v1beta/models", model: "gemini-2.5-flash" },
+  { base: "https://generativelanguage.googleapis.com/v1beta/models", model: "gemini-1.5-flash-latest" },  // クォータ超過時のフォールバック
   { base: "https://generativelanguage.googleapis.com/v1beta/models", model: "gemini-2.5-flash-lite" },
   { base: "https://generativelanguage.googleapis.com/v1/models",     model: "gemini-2.5-flash" },
   { base: "https://generativelanguage.googleapis.com/v1beta/models", model: "gemini-2.5-flash-preview-05-20" },
-  { base: "https://generativelanguage.googleapis.com/v1beta/models", model: "gemini-1.5-flash-latest" },
 ];
 
 // ─── FileReader で base64 化（iOS 全形式対応）────────────────
@@ -90,37 +90,31 @@ const callGemini = async (apiKey, parts, maxTokens = 2048) => {
     // ─── 429: レスポンスボディを取得して詳細を表示（v7変更点）───
     if (res.status === 429) {
       let detail = "";
+      let isQuotaExhausted = false;
+      let isRateLimit      = false;
       try {
         const errBody = await res.json();
         const msg     = errBody?.error?.message || "";
         const status  = errBody?.error?.status  || "";
         detail = msg ? `\n詳細: ${msg.slice(0, 120)}` : "";
-        // RESOURCE_EXHAUSTEDはQuota超過、RATE_LIMIT_EXCEEDEDはRPM超過
-        if (status === "RESOURCE_EXHAUSTED" || msg.includes("quota") || msg.includes("Quota")) {
-          throw new Error(
-            `⚠️ 本日のQuota上限に達しました（429 RESOURCE_EXHAUSTED）\n` +
-            `明日（太平洋時間の午前0時）にリセットされます。${detail}\n\n` +
-            `対処法:\n` +
-            `・明日また試す\n` +
-            `・Google AI Studioで使用量を確認する\n` +
-            `・有料プランにアップグレードする`
-          );
-        }
-        if (msg.includes("rate") || msg.includes("Rate") || status === "RATE_LIMIT_EXCEEDED") {
-          throw new Error(
-            `⚠️ レート上限（429 RATE_LIMIT_EXCEEDED）\n` +
-            `1〜2分待ってから再試行してください。${detail}`
-          );
-        }
-      } catch (e) {
-        // すでにErrorをthrowしていればそのまま再throw
-        if (e.message.includes("429") || e.message.includes("Quota") || e.message.includes("レート")) throw e;
+        isQuotaExhausted = status === "RESOURCE_EXHAUSTED" || msg.includes("quota") || msg.includes("Quota");
+        isRateLimit      = msg.includes("rate") || msg.includes("Rate") || status === "RATE_LIMIT_EXCEEDED";
+      } catch {}
+
+      if (isQuotaExhausted) {
+        // Quota超過 → 次のモデルで試す（フォールバック）
+        errors.push(`${model}(429 QUOTA): Quota超過→次のモデルへ`);
+        continue;
       }
-      // 詳細不明の429
-      throw new Error(
-        `⚠️ リクエスト上限（429）${detail}\n` +
-        `1〜2分待っても続く場合は本日のQuota上限の可能性があります。`
-      );
+      if (isRateLimit) {
+        throw new Error(
+          `⚠️ レート上限（429 RATE_LIMIT_EXCEEDED）\n` +
+          `1〜2分待ってから再試行してください。${detail}`
+        );
+      }
+      // 詳細不明の429 → 次のモデルで試す
+      errors.push(`${model}(429): 上限→次のモデルへ`);
+      continue;
     }
 
     // 404 = モデル未対応 → 次を試す
@@ -182,6 +176,19 @@ const callGemini = async (apiKey, parts, maxTokens = 2048) => {
       } catch {}
     }
     throw new Error(`JSON解析失敗(${model}):\n${text.slice(0, 60)}`);
+  }
+
+  // すべてのモデルでQuota超過の場合
+  const allQuota = errors.every(e => e.includes("QUOTA") || e.includes("上限"));
+  if (allQuota) {
+    throw new Error(
+      `⚠️ すべてのモデルでQuota上限に達しました\n` +
+      `明日（太平洋時間0時）にリセットされます。\n\n` +
+      `対処法:\n` +
+      `・しばらく待ってから再試行\n` +
+      `・Google AI Studioで使用量を確認\n` +
+      `・有料プランにアップグレード`
+    );
   }
 
   throw new Error(
