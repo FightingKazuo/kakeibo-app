@@ -34,8 +34,10 @@ export function ItemsAccordion({ items, onToggleType, onEditAmount, onEditQuanti
   const applyCategory = (catName) => {
     if (selected.size === 0) return;
     selected.forEach(idx => onToggleCategory?.(idx, catName));
+    const count = selected.size;
     setSelected(new Set());
-    setEditMode(false);
+    // モードを維持して変更を確認できるようにする
+    alert(`✅ ${count}件のカテゴリーを「${catName}」に変更しました`);
   };
 
   return (
@@ -108,9 +110,13 @@ export function ItemsAccordion({ items, onToggleType, onEditAmount, onEditQuanti
                       className="accent-indigo-500 flex-shrink-0 w-4 h-4" />
                   )}
                   <p className="text-xs font-medium text-gray-800 flex-1 truncate">{item.name}</p>
-                  {/* カテゴリーバッジ（取引カテゴリーと異なる場合のみ表示） */}
-                  {item.category && hasMixedCat && (
-                    <span className="text-xs bg-indigo-50 text-indigo-500 px-1.5 py-0.5 rounded-full border border-indigo-100 flex-shrink-0">
+                  {/* カテゴリーバッジ：常に表示（取引と同じならグレー、異なれば青） */}
+                  {!editMode && item.category && item.category !== "その他" && (
+                    <span className={`text-xs px-1.5 py-0.5 rounded-full border flex-shrink-0 ${
+                      hasMixedCat && item.category !== items[0]?.category
+                        ? "bg-indigo-50 text-indigo-600 border-indigo-200 font-medium"
+                        : "bg-gray-50 text-gray-400 border-gray-200"
+                    }`}>
                       {categories?.find(c => c.name === item.category)?.emoji} {item.category}
                     </span>
                   )}
