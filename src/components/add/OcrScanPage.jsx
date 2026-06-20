@@ -29,6 +29,14 @@ export function OcrScanPage({ categories, allRules, learnedRules, members, point
   const [ocrQueueIdx,   setOcrQueueIdx]   = useState(0);
   const [ocrPaidBy,     setOcrPaidBy]     = useState("");
   const [ocrPayMethod,  setOcrPayMethod]  = useState("cash");
+  const [ocrShareAmount, setOcrShareAmount] = useState(null); // ウエルシア20日用精算金額
+
+  // ウエルシア20日デー判定
+  const isWelcia20 = (label, date) => {
+    const isWelcia = /ウエルシア|welcia/i.test(label);
+    const is20th   = date?.slice(8, 10) === "20";
+    return isWelcia && is20th;
+  };
   const [ocrResults,    setOcrResults]    = useState([]);
   const [ocrApiKey,     setOcrApiKey]     = useState(() => loadStorage("OCR_API_KEY", "") || "");
   const [ocrCorrections, setOcrCorrections] = useState(() => loadStorage(STORAGE_KEYS.OCR_CORRECTIONS, {}) || {});
@@ -144,7 +152,20 @@ export function OcrScanPage({ categories, allRules, learnedRules, members, point
       const partnerAmt = partnerItems.reduce((s, i) => s + i.amount, 0);
       const finalSharedAmt = sharedAmt + (receiptTotal - (sharedAmt + personAmt + partnerAmt));
 
-      const base = { date, label, category: cat, type: "expense", source: "ocr", paidBy: ocrPaidBy || null, paymentMethod: ocrPayMethod, pointAccountId: ocrPayMethod !== "cash" ? ocrPayMethod : null };
+      const selfId    = members?.[0]?.id || null;
+      const isSelfPay = !ocrPaidBy || ocrPaidBy === selfId;
+      // ウエルシア20日：自分払いのみWAONから引く（shareAmountが設定済みの場合）
+      const waonConsumeAmount = (ocrShareAmount && isSelfPay) ? ocrShareAmount : null;
+
+      const base = {
+        date, label, category: cat, type: "expense", source: "ocr",
+        paidBy: ocrPaidBy || null,
+        paymentMethod: ocrPayMethod,
+        pointAccountId: ocrPayMethod !== "cash" ? ocrPayMethod : null,
+        shareAmount: ocrShareAmount || null,
+        // 自分払い+WAON: WAONはshareAmount分だけ消費
+        ...(waonConsumeAmount ? { pointConsumeAmount: waonConsumeAmount } : {}),
+      };
       if (finalSharedAmt > 0) txsToAdd.push(createTransaction({ ...base, amount: -finalSharedAmt, items: sharedItems.map(({ name, amount: a, quantity, taxRate }) => ({ name, amount: a, quantity, type: "shared", taxRate })) }));
       if (personAmt  > 0) txsToAdd.push(createTransaction({ ...base, label: `${label}（個人）`,            amount: -personAmt,  items: personalItems.map(({ name, amount: a, quantity, taxRate }) => ({ name, amount: a, quantity, type: "personal", taxRate })) }));
       if (partnerAmt > 0) txsToAdd.push(createTransaction({ ...base, label: `${label}（パートナー負担）`, amount: -partnerAmt, items: partnerItems.map(({ name, amount: a, quantity, taxRate }) => ({ name, amount: a, quantity, type: "partner", taxRate })) }));
@@ -235,7 +256,13 @@ export function OcrScanPage({ categories, allRules, learnedRules, members, point
     if (fileArr.length === 1) {
       const r = results[0];
       if (!r.ok && r.error) { setOcrError(r.error); setOcrStep("upload"); return; }
-      setOcrLabel(r.label); setOcrAmount(r.amount); setOcrDate(r.date); setOcrCat(r.cat); setOcrConfidence(r.confidence); setOcrItems(r.items); setOcrStep("review");
+      setOcrLabel(r.label); setOcrAmount(r.amount); setOcrDate(r.date); setOcrCat(r.cat); setOcrConfidence(r.confidence); setOcrItems(r.items);
+      // ウエルシア20日自動検出
+      if (isWelcia20(r.label, r.date)) {
+        const waon = (pointAccounts || []).find(a => a.name === "WAON" || a.id === "pa2");
+        if (waon) { setOcrPayMethod(waon.id); setOcrShareAmount(Math.round(Number(r.amount) / 1.5)); }
+      }
+      setOcrStep("review");
     } else { setOcrStep("multi-review"); }
   };
 
@@ -352,6 +379,20 @@ export function OcrScanPage({ categories, allRules, learnedRules, members, point
         {/* ── review（1枚）── */}
         {ocrStep === "review" && (
           <div className="space-y-4">
+            {/* ウエルシア20日バナー */}
+            {ocrShareAmount && (
+              <div className="bg-blue-50 rounded-xl p-3 border border-blue-200">
+                <p className="text-xs font-bold text-blue-700 mb-1">🛒 ウエルシア20日ポイント1.5倍デー</p>
+                <p className="text-xs text-blue-600 leading-relaxed">
+                  WAON払いを検出しました。精算時の共有費用は実質消費額
+                  <span className="font-bold"> ¥{ocrShareAmount.toLocaleString()}</span>（合計÷1.5）で計算します。
+                </p>
+                <div className="flex items-center gap-2 mt-2">
+                  <button onClick={() => setOcrShareAmount(null)}
+                    className="text-xs text-blue-400 underline">解除する</button>
+                </div>
+              </div>
+            )}
             {ocrConfidence !== null && (
               <div className="bg-amber-50 rounded-xl p-3 border border-amber-100">
                 <p className="text-xs text-amber-700 font-semibold">
@@ -393,8 +434,16 @@ export function OcrScanPage({ categories, allRules, learnedRules, members, point
             </div>
             {ocrItems.length > 0 && (
               <div>
-                <label className="block text-xs font-semibold text-gray-500 mb-2">品目（共有/個人を選択）</label>
-                <ItemsAccordion items={ocrItems} onToggleType={toggleOcrItemType} onEditAmount={editOcrItemAmount} onEditQuantity={editOcrItemQuantity} totalAmount={Number(ocrAmount)} />
+                <label className="block text-xs font-semibold text-gray-500 mb-2">品目（共有/個人・カテゴリを選択）</label>
+                <ItemsAccordion
+                  items={ocrItems}
+                  onToggleType={toggleOcrItemType}
+                  onEditAmount={editOcrItemAmount}
+                  onEditQuantity={editOcrItemQuantity}
+                  totalAmount={Number(ocrAmount)}
+                  categories={categories}
+                  onToggleCategory={(idx, cat) => setOcrItems(p => p.map((item, i) => i === idx ? { ...item, category: cat } : item))}
+                />
               </div>
             )}
             {members && members.length > 0 && (
