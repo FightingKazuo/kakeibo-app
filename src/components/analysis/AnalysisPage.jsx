@@ -96,11 +96,12 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
 
     target.forEach(t => {
       const payerId = t.paidBy || defaultPayer;
+      // shareAmountがあれば精算はその金額を使う（ウエルシア20日等）
+      const settleAmt = t.shareAmount != null ? Math.abs(t.shareAmount) : Math.abs(t.amount);
       if (paidMap[payerId] !== undefined) {
-        paidMap[payerId] += Math.abs(t.amount);
+        paidMap[payerId] += settleAmt;
       } else {
-        // 不明な支払者はデフォルト（自分）に集計
-        paidMap[defaultPayer] += Math.abs(t.amount);
+        paidMap[defaultPayer] += settleAmt;
       }
     });
 
