@@ -193,8 +193,45 @@ const callGemini = async (apiKey, parts, maxTokens = 2048) => {
 
 // ─── APIキー診断 ──────────────────────────────────────────────
 export const testGeminiKey = async (apiKey) => {
-  await callGemini(apiKey, [{ text: "Respond with: OK" }], 10);
-  return true;
+  // callGeminiはJSONを期待するため、直接fetchでテストする
+  const isOAuth = isOAuthLike(apiKey);
+  const base    = "https://generativelanguage.googleapis.com/v1beta/models";
+  const model   = "gemini-2.5-flash";
+  const body    = JSON.stringify({
+    contents: [{ parts: [{ text: "Say: OK" }] }],
+    generationConfig: { temperature: 0, maxOutputTokens: 10 },
+  });
+
+  const attempts = isOAuth
+    ? [
+        { url: `${base}/${model}:generateContent?key=${apiKey}`, headers: { "Content-Type": "application/json" } },
+        { url: `${base}/${model}:generateContent`,               headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` } },
+      ]
+    : [
+        { url: `${base}/${model}:generateContent?key=${apiKey}`, headers: { "Content-Type": "application/json" } },
+      ];
+
+  for (const attempt of attempts) {
+    try {
+      const res = await fetch(attempt.url, { method: "POST", headers: attempt.headers, body });
+      if (res.status === 200) {
+        const data = await res.json();
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+        if (text) return true;  // 何かテキストが返れば成功
+        // finishReasonを確認
+        const reason = data.candidates?.[0]?.finishReason;
+        if (reason === "STOP" || reason === "MAX_TOKENS") return true;
+        throw new Error(`応答が空です (finishReason: ${reason || "不明"})`);
+      }
+      if (res.status === 401) continue;
+      const err = await res.json().catch(() => ({}));
+      throw new Error(`HTTP ${res.status}: ${err?.error?.message || "不明なエラー"}`);
+    } catch (e) {
+      if (e.message.startsWith("HTTP") || e.message.startsWith("応答")) throw e;
+      // ネットワークエラーは次を試す
+    }
+  }
+  throw new Error("認証失敗: キーが無効か期限切れの可能性があります");
 };
 
 // ─── レシート画像解析（画像直接送信）────────────────────────
