@@ -40,8 +40,9 @@ export function TransactionListPage({ transactions, categories, members, pointAc
   const [srcFilter,     setSrcFilter]     = useState("all");
   const [shareFilter,   setShareFilter]   = useState("all");
   const [errFilter,     setErrFilter]     = useState(false);
-  const [catFilter,     setCatFilter]     = useState("");        // カテゴリーフィルター
-  const [showCatPicker, setShowCatPicker] = useState(false);    // カテゴリー選択モーダル
+  const [catFilter,     setCatFilter]     = useState("");
+  const [showCatPicker, setShowCatPicker] = useState(false);
+  const [sortBy,        setSortBy]        = useState("registered"); // registered/date/label/amount
 
   // 選択モード
   const [selectMode,  setSelectMode]  = useState(false);
@@ -62,18 +63,24 @@ export function TransactionListPage({ transactions, categories, members, pointAc
       // catFilter: 取引カテゴリー一致 または 品目カテゴリー一致
       .filter(t => !catFilter || t.category === catFilter || t.items?.some(i => i.category === catFilter))
       .filter(t => !errFilter || (t.type === "expense" && !t.paidBy && t.shareType !== "personal" && t.shareType !== "partner")),
-    [transactions, selMonth, srcFilter, q, errFilter]
+    [transactions, selMonth, srcFilter, q, catFilter, errFilter]
   );
 
-  // 分割表示行を生成してからshareFilterを適用
+  // 分割表示行を生成してからshareFilter・ソートを適用
   const displayRows = useMemo(() => {
     const rows = filtered.flatMap(t => splitTransaction(t));
-    if (shareFilter === "all") return rows;
-    return rows.filter(r => {
+    const shared = shareFilter === "all" ? rows : rows.filter(r => {
       const effectiveType = r._splitType || r.shareType || "shared";
       return effectiveType === shareFilter;
     });
-  }, [filtered, shareFilter]);
+    // ソート
+    return [...shared].sort((a, b) => {
+      if (sortBy === "date")       return b.date?.localeCompare(a.date ?? "") ?? 0;
+      if (sortBy === "label")      return (a.label ?? "").localeCompare(b.label ?? "");
+      if (sortBy === "amount")     return Math.abs(b._splitAmt ?? b.amount) - Math.abs(a._splitAmt ?? a.amount);
+      return 0; // registered: 元の順番（登録順）
+    });
+  }, [filtered, shareFilter, sortBy]);
 
   // 合計（分割行の場合は_splitAmtを使用）
   const totals = useMemo(() => ({
@@ -277,6 +284,25 @@ export function TransactionListPage({ transactions, categories, members, pointAc
                 </div>
               </div>
             )}
+
+            {/* 並び替えボタン */}
+            <div className="flex gap-1.5 overflow-x-auto pb-0.5 no-scrollbar">
+              {[
+                ["registered", "登録順"],
+                ["date",       "日付順"],
+                ["label",      "項目順"],
+                ["amount",     "金額順"],
+              ].map(([id, lb]) => (
+                <button key={id} onClick={() => setSortBy(id)}
+                  className={`flex-shrink-0 px-3 py-1 rounded-full text-xs font-semibold border transition-all ${
+                    sortBy === id
+                      ? "bg-gray-700 text-white border-gray-700"
+                      : "bg-white text-gray-500 border-gray-200"
+                  }`}>
+                  {lb}
+                </button>
+              ))}
+            </div>
 
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">🔍</span>
