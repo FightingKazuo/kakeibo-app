@@ -66,7 +66,7 @@ const isOAuthLike = (key) =>
   key.startsWith("AQ.") || key.startsWith("ya29.") || key.startsWith("AQ ");
 
 // ─── Gemini API 呼び出し ─────────────────────────────────────
-const callGemini = async (apiKey, parts, maxTokens = 2048) => {
+const callGemini = async (apiKey, parts, maxTokens = 8192) => {
   const errors  = [];
   const body    = JSON.stringify({
     contents: [{ parts }],
@@ -194,6 +194,24 @@ const callGemini = async (apiKey, parts, maxTokens = 2048) => {
         return JSON.parse(text.slice(jsonStart, jsonEnd + 1));
       } catch {}
     }
+
+    // レスポンスが途中で切れた場合：storeName・date・totalAmountだけでも取り出す
+    if (jsonStart !== -1) {
+      const partial = text.slice(jsonStart);
+      const storeMatch = partial.match(/"storeName"\s*:\s*"([^"]+)"/);
+      const dateMatch  = partial.match(/"date"\s*:\s*"([^"]+)"/);
+      const totalMatch = partial.match(/"totalAmount"\s*:\s*(\d+)/);
+      if (storeMatch || totalMatch) {
+        return {
+          storeName:   storeMatch?.[1]  || "",
+          date:        dateMatch?.[1]?.slice(0, 10) || "",
+          totalAmount: totalMatch ? Number(totalMatch[1]) : 0,
+          items:       [],  // 品目は空（途中で切れたため）
+          _truncated:  true,
+        };
+      }
+    }
+
     throw new Error(`JSON解析失敗(${model}):\n${text.slice(0, 60)}`);
   }
 
