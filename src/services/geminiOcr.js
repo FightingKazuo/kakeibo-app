@@ -10,11 +10,10 @@
 export const GEMINI_OCR_VERSION = "v8";
 
 const ENDPOINTS = [
-  { base: "https://generativelanguage.googleapis.com/v1beta/models", model: "gemini-2.5-flash" },
-  { base: "https://generativelanguage.googleapis.com/v1beta/models", model: "gemini-1.5-flash-latest" },  // クォータ超過時のフォールバック
-  { base: "https://generativelanguage.googleapis.com/v1beta/models", model: "gemini-2.5-flash-lite" },
-  { base: "https://generativelanguage.googleapis.com/v1/models",     model: "gemini-2.5-flash" },
-  { base: "https://generativelanguage.googleapis.com/v1beta/models", model: "gemini-2.5-flash-preview-05-20" },
+  { base: "https://generativelanguage.googleapis.com/v1beta/models", model: "gemini-2.5-flash"        }, // ① 最高精度
+  { base: "https://generativelanguage.googleapis.com/v1beta/models", model: "gemini-2.5-flash-lite"   }, // ② 高精度（2.5世代）
+  { base: "https://generativelanguage.googleapis.com/v1beta/models", model: "gemini-1.5-flash-latest" }, // ③ 標準（最終フォールバック）
+  { base: "https://generativelanguage.googleapis.com/v1/models",     model: "gemini-2.5-flash"        }, // ④ APIv1でのリトライ
 ];
 
 // ─── FileReader で base64 化（iOS 全形式対応）────────────────
