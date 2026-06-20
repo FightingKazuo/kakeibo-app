@@ -283,7 +283,6 @@ export function TransactionListPage({ transactions, categories, members, pointAc
                 </div>
               </div>
             )}
-            </div>
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">🔍</span>
               <input type="text" value={q} onChange={e => setQ(e.target.value)} placeholder="カテゴリや内容で検索..."
