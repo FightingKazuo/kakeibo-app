@@ -186,7 +186,15 @@ export function TransactionItem({
             {t.items.map((item, i) => (
               <div key={i} className="flex items-center justify-between py-2">
                 <div className="flex-1 min-w-0">
-                  <p className="text-xs text-gray-700 truncate">{item.name || "（商品名なし）"}</p>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <p className="text-xs text-gray-700 truncate">{item.name || "（商品名なし）"}</p>
+                    {/* 取引カテゴリーと異なる品目カテゴリーのみバッジ表示 */}
+                    {item.category && item.category !== t.category && item.category !== "その他" && (
+                      <span className="text-xs bg-indigo-50 text-indigo-500 px-1.5 py-0.5 rounded-full border border-indigo-100 flex-shrink-0">
+                        {categories?.find(c => c.name === item.category)?.emoji} {item.category}
+                      </span>
+                    )}
+                  </div>
                   {item.quantity > 1 && (
                     <p className="text-xs text-gray-400">×{item.quantity}{item.unitPrice ? ` @¥${item.unitPrice.toLocaleString()}` : ""}</p>
                   )}
