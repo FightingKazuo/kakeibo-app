@@ -9,7 +9,7 @@ import { BalanceCard } from "./BalanceCard";
 import { RecentExpenseCard } from "./RecentExpenseCard";
 import { TransactionItem } from "../transactions/TransactionItem";
 
-const APP_VERSION = "v3.0.2";
+const APP_VERSION = "v3.0.0";
 const BAR_COLORS = ["#6366f1","#f43f5e","#10b981","#f59e0b","#3b82f6","#8b5cf6","#ec4899","#14b8a6"];
 
 // ── 今月サマリーカード ────────────────────────────────────────
@@ -146,7 +146,95 @@ function CategoryBar({ catExpenses, categories }) {
   );
 }
 
-export function HomePage({ transactions, categories, pointAccounts, learnedRules, onNavigate }) {
+// ─── CSV取り込み状況 ─────────────────────────────────────────
+const CSV_SOURCES = [
+  { id: "sbi",     label: "住信SBI銀行",        icon: "🏦" },
+  { id: "epos",    label: "エポスカード",         icon: "💳" },
+  { id: "smbc",    label: "三井住友カード",       icon: "💳" },
+  { id: "paypay",  label: "PayPay",              icon: "💛" },
+  { id: "recruit", label: "リクルートカード",     icon: "💳" },
+  { id: "mufg",    label: "三菱UFJ銀行",          icon: "🏦" },
+];
+
+function CsvImportStatus({ importHistory, onNavigate }) {
+  const now = new Date();
+  const currentYM  = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const prevDate   = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const prevYM     = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, "0")}`;
+  const hist       = importHistory || {};
+
+  const currentDone = CSV_SOURCES.filter(s => hist[`${s.id}_${currentYM}`]);
+  const currentTodo = CSV_SOURCES.filter(s => !hist[`${s.id}_${currentYM}`]);
+  const prevDone    = CSV_SOURCES.filter(s => hist[`${s.id}_${prevYM}`]);
+  const prevTodo    = CSV_SOURCES.filter(s => !hist[`${s.id}_${prevYM}`]);
+
+  // 今月・前月ともに全部完了なら表示しない
+  if (currentTodo.length === 0 && prevTodo.length === 0) return null;
+
+  const fmtYM = (ym) => {
+    const [y, m] = ym.split("-");
+    return `${y.slice(2)}年${parseInt(m)}月`;
+  };
+
+  return (
+    <div className="mx-4 md:mx-0 mt-4">
+      <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-50">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-bold text-gray-800">📊 CSV取り込み状況</span>
+            {currentTodo.length > 0 && (
+              <span className="text-xs bg-rose-100 text-rose-600 font-semibold px-2 py-0.5 rounded-full">
+                {currentTodo.length}件未取込
+              </span>
+            )}
+          </div>
+          <button onClick={() => onNavigate?.("add-csv")}
+            className="text-xs text-indigo-500 font-semibold bg-indigo-50 px-3 py-1.5 rounded-full">
+            取り込む →
+          </button>
+        </div>
+
+        {/* 今月 */}
+        <div className="px-4 py-3 border-b border-gray-50">
+          <p className="text-xs font-semibold text-gray-500 mb-2">{fmtYM(currentYM)}（今月）</p>
+          <div className="space-y-1.5">
+            {CSV_SOURCES.map(s => {
+              const done = !!hist[`${s.id}_${currentYM}`];
+              return (
+                <div key={s.id} className="flex items-center gap-2">
+                  <span className={`w-4 h-4 rounded-full flex items-center justify-center text-xs flex-shrink-0 ${
+                    done ? "bg-emerald-100 text-emerald-600" : "bg-rose-100 text-rose-400"
+                  }`}>
+                    {done ? "✓" : "!"}
+                  </span>
+                  <span className="text-xs text-gray-600">{s.icon} {s.label}</span>
+                  {!done && <span className="text-xs text-rose-400 font-medium ml-auto">未取込</span>}
+                  {done  && <span className="text-xs text-emerald-400 font-medium ml-auto">✅</span>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* 前月（未完了のものがある場合のみ） */}
+        {prevTodo.length > 0 && (
+          <div className="px-4 py-3 bg-amber-50">
+            <p className="text-xs font-semibold text-amber-600 mb-2">⚠️ {fmtYM(prevYM)}（先月）も未取込あり</p>
+            <div className="flex flex-wrap gap-1.5">
+              {prevTodo.map(s => (
+                <span key={s.id} className="text-xs bg-amber-100 text-amber-600 px-2 py-0.5 rounded-full">
+                  {s.icon} {s.label}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export function HomePage({ transactions, categories, pointAccounts, learnedRules, importHistory, onNavigate }) {
   const now       = new Date();
   const currentYM = now.toISOString().slice(0, 7);
   const prevDate  = new Date(now.getFullYear(), now.getMonth() - 1, 1);
@@ -226,6 +314,9 @@ export function HomePage({ transactions, categories, pointAccounts, learnedRules
 
           {/* 予算進捗 */}
           <BudgetProgress categories={categories} currentMonthTxs={currentMonthTxs} />
+
+          {/* CSV取り込み状況 */}
+          <CsvImportStatus importHistory={importHistory} onNavigate={onNavigate} />
 
           {/* 最近7日 */}
           <RecentExpenseCard amount={last7DaysExpense} />
