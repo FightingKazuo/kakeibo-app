@@ -7,7 +7,7 @@ import { EmptyState } from "../ui/EmptyState";
 
 export function AnalysisPage({ transactions, categories, members, pointAccounts, onUpdate }) {
   const [tab,          setTab]          = useState("analysis");
-  const [selectedCat,  setSelectedCat]  = useState(null); // カテゴリー明細モーダル
+  const [showSettleTxs, setShowSettleTxs] = useState(false);
   const [selMonth, setSelMonth] = useState("all");
 
   // ── 精算用 期間指定 ──
@@ -138,7 +138,7 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
       if (receiversClone[ri].remaining < 1) ri++;
     }
 
-    return { balances, totalShared, perPerson, settlements, txCount: target.length };
+    return { balances, totalShared, perPerson, settlements, txCount: target.length, target };
   }, [transactions, members, settleDateFrom, settleDateTo]);
 
   // ── 支払者未設定の取引 ──────────────────────────────────────
@@ -304,109 +304,25 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
               <ResponsiveContainer width="100%" height={160}>
                 <PieChart>
                   <Pie data={catData} cx="50%" cy="50%" innerRadius={40} outerRadius={70} dataKey="value"
-                    label={({ name, percent }) => `${name} ${Math.round(percent * 100)}%`} labelLine={false}
-                    onClick={(d) => setSelectedCat(d.name)}>
+                    label={({ name, percent }) => `${name} ${Math.round(percent * 100)}%`} labelLine={false}>
                     {catData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
                   </Pie>
                   <Tooltip formatter={v => `¥${v.toLocaleString()}`} />
                 </PieChart>
               </ResponsiveContainer>
-              <div className="mt-3 divide-y divide-gray-50">
+              <div className="mt-3 space-y-1">
                 {catData.map((d, i) => (
-                  <button key={d.name} onClick={() => setSelectedCat(d.name)}
-                    className="w-full flex items-center justify-between py-3 px-2 hover:bg-gray-50 active:bg-gray-100 transition-colors">
-                    <div className="flex items-center gap-3">
-                      <div className="w-4 h-4 rounded-full flex-shrink-0" style={{ background: PIE_COLORS[i % PIE_COLORS.length] }} />
-                      <span className="text-sm text-gray-700 font-medium">{d.emoji} {d.name}</span>
-                    </div>
+                  <div key={d.name} className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <span className="text-sm font-bold text-gray-800">{fmtCurrency(d.value)}</span>
-                      <span className="text-gray-300 text-base">›</span>
+                      <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: PIE_COLORS[i % PIE_COLORS.length] }} />
+                      <span className="text-xs text-gray-600">{d.emoji} {d.name}</span>
                     </div>
-                  </button>
+                    <span className="text-xs font-semibold text-gray-700">{fmtCurrency(d.value)}</span>
+                  </div>
                 ))}
               </div>
-              <p className="text-xs text-gray-400 text-center mt-2 pb-1">タップで明細を表示</p>
             </div>
           )}
-
-          {/* カテゴリー明細モーダル */}
-          {selectedCat && (() => {
-            const cat = categories.find(c => c.name === selectedCat);
-            // 品目カテゴリーも含めて該当取引を抽出
-            const catTxs = filtered.filter(t => t.type === "expense" && (
-              t.category === selectedCat || t.items?.some(i =>
-                (i.category && i.category !== "その他") ? i.category === selectedCat : t.category === selectedCat
-              )
-            ));
-            // 品目カテゴリーで絞り込んだ金額を算出
-            const catTotal = catTxs.reduce((s, t) => {
-              const items = t.items || [];
-              if (items.length > 0) {
-                const matched = items.filter(i =>
-                  (i.category && i.category !== "その他") ? i.category === selectedCat : t.category === selectedCat
-                );
-                return s + matched.reduce((ss, i) => ss + Math.abs(i.amount), 0);
-              }
-              return s + Math.abs(t.amount);
-            }, 0);
-
-            return (
-              <div className="fixed inset-0 bg-white z-50 flex flex-col">
-                {/* ヘッダー */}
-                <div className="bg-white px-4 pt-12 pb-4 border-b border-gray-100 flex items-center gap-3 flex-shrink-0">
-                  <button onClick={() => setSelectedCat(null)}
-                    className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-gray-600 text-lg font-bold flex-shrink-0">
-                    ‹
-                  </button>
-                  <div className="flex items-center gap-2 flex-1 min-w-0">
-                    <span className="text-2xl">{cat?.emoji}</span>
-                    <div>
-                      <p className="text-base font-bold text-gray-900">{selectedCat}</p>
-                      <p className="text-xs text-rose-500 font-semibold">{fmtCurrency(catTotal)}</p>
-                    </div>
-                  </div>
-                </div>
-                {/* 明細リスト（フル高さでスクロール） */}
-                <div className="flex-1 overflow-y-auto pb-8">
-                  <div className="divide-y divide-gray-50">
-                    {catTxs.map(t => {
-                      const matchedItems = (t.items || []).filter(i =>
-                        (i.category && i.category !== "その他") ? i.category === selectedCat : t.category === selectedCat
-                      );
-                      const dispAmt = matchedItems.length > 0
-                        ? matchedItems.reduce((s, i) => s + Math.abs(i.amount), 0)
-                        : Math.abs(t.amount);
-                      return (
-                        <div key={t.id} className="px-5 py-3">
-                          <div className="flex items-center justify-between">
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium text-gray-800 truncate">{t.label}</p>
-                              <p className="text-xs text-gray-400">{t.date}{t.category !== selectedCat ? ` · ${t.category}内` : ""}</p>
-                            </div>
-                            <p className="text-sm font-bold text-rose-500 ml-3 flex-shrink-0">-{fmtCurrency(dispAmt)}</p>
-                          </div>
-                          {matchedItems.length > 0 && matchedItems.length < (t.items?.length || 0) && (
-                            <div className="mt-1.5 space-y-0.5">
-                              {matchedItems.map((item, i) => (
-                                <div key={i} className="flex justify-between pl-3 border-l-2 border-indigo-100">
-                                  <p className="text-xs text-gray-500 truncate">{item.name}</p>
-                                  <p className="text-xs text-gray-600 font-medium ml-2">¥{Math.abs(item.amount).toLocaleString()}</p>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                    {catTxs.length === 0 && (
-                      <div className="px-5 py-12 text-center text-sm text-gray-400">該当する取引がありません</div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            );
-          })()}
         </div>
       )}
 
@@ -667,9 +583,7 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
                   {settlementData.settlements.map((s, i) => (
                     <div key={i} className="bg-white rounded-xl p-3 flex items-center justify-between">
                       <div>
-                        <p className="text-sm font-bold text-gray-800">
-                          {s.from} → {s.to}
-                        </p>
+                        <p className="text-sm font-bold text-gray-800">{s.from} → {s.to}</p>
                         <p className="text-xs text-gray-400 mt-0.5">が支払う</p>
                       </div>
                       <p className="text-lg font-bold text-indigo-600">{fmtCurrency(s.amount)}</p>
@@ -681,6 +595,48 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
                   <p className="text-2xl mb-2">✅</p>
                   <p className="text-sm font-bold text-emerald-700">精算不要です！</p>
                   <p className="text-xs text-emerald-500 mt-1">支払いが均等になっています</p>
+                </div>
+              )}
+
+              {/* 精算対象取引一覧 */}
+              {settlementData.target && settlementData.target.length > 0 && (
+                <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+                  <button
+                    onClick={() => setShowSettleTxs(p => !p)}
+                    className="w-full flex items-center justify-between px-4 py-3 text-left">
+                    <div>
+                      <p className="text-xs font-bold text-gray-700">📋 精算対象の取引（{settlementData.target.length}件）</p>
+                      <p className="text-xs text-gray-400 mt-0.5">タップで一覧を表示</p>
+                    </div>
+                    <span className="text-gray-400">{showSettleTxs ? "▲" : "▼"}</span>
+                  </button>
+                  {showSettleTxs && (
+                    <div className="divide-y divide-gray-50 border-t border-gray-100">
+                      {settlementData.target.map(t => {
+                        const settleAmt = t.shareAmount != null ? Math.abs(t.shareAmount) : Math.abs(t.amount);
+                        const payer = members.find(m => m.id === t.paidBy);
+                        return (
+                          <div key={t.id} className="px-4 py-3">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="flex-1 min-w-0">
+                                <p className="text-xs font-medium text-gray-800 truncate">{t.label}</p>
+                                <p className="text-xs text-gray-400">{t.date} · {payer?.name || "支払者不明"}</p>
+                                {t.memo && <p className="text-xs text-indigo-500 mt-0.5">📝 {t.memo}</p>}
+                              </div>
+                              <p className="text-xs font-bold text-rose-500 flex-shrink-0">
+                                -{fmtCurrency(settleAmt)}
+                                {t.shareAmount != null && t.shareAmount !== Math.abs(t.amount) && (
+                                  <span className="text-gray-400 font-normal line-through ml-1 text-xs">
+                                    {fmtCurrency(Math.abs(t.amount))}
+                                  </span>
+                                )}
+                              </p>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
             </>
