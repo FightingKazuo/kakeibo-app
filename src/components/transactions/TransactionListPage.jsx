@@ -34,15 +34,37 @@ const splitTransaction = (tx) => {
   return rows.length > 0 ? rows : [tx];
 };
 
+// catFiltersで品目カテゴリーごとに分割
+const splitByCatFilter = (tx, catFilters) => {
+  if (!catFilters || catFilters.size === 0) return [tx];
+  const items = tx.items || [];
+  if (items.length === 0) return catFilters.has(tx.category) ? [tx] : [];
+  const groups = {};
+  items.forEach(item => {
+    const cat = (item.category && item.category !== "その他") ? item.category : tx.category;
+    if (!catFilters.has(cat)) return;
+    if (!groups[cat]) groups[cat] = [];
+    groups[cat].push(item);
+  });
+  if (Object.keys(groups).length === 0) return [];
+  return Object.entries(groups).map(([cat, catItems]) => ({
+    ...tx,
+    _catSplit:    true,
+    _catSplitCat: cat,
+    _splitAmt:    catItems.reduce((s, i) => s + Math.abs(i.amount), 0),
+    items:        catItems,
+  }));
+};
+
 export function TransactionListPage({ transactions, categories, members, pointAccounts, learnedRules, onEdit, onDelete, onUpdate, onNavigate }) {
   const [q,             setQ]             = useState("");
   const [selMonth,      setSelMonth]      = useState("all");
   const [srcFilter,     setSrcFilter]     = useState("all");
   const [shareFilter,   setShareFilter]   = useState("all");
   const [errFilter,     setErrFilter]     = useState(false);
-  const [catFilter,     setCatFilter]     = useState("");
+  const [catFilters,    setCatFilters]    = useState(new Set());
   const [showCatPicker, setShowCatPicker] = useState(false);
-  const [sortBy,        setSortBy]        = useState("registered"); // registered/date/label/amount
+  const [sortBy,        setSortBy]        = useState("registered");
 
   // 選択モード
   const [selectMode,  setSelectMode]  = useState(false);
@@ -60,48 +82,12 @@ export function TransactionListPage({ transactions, categories, members, pointAc
       .filter(t => selMonth === "all" || toYM(t.date) === selMonth)
       .filter(t => srcFilter === "all" || t.source === srcFilter)
       .filter(t => !q || t.label.includes(q) || t.category.includes(q) || t.items?.some(i => i.name?.includes(q)))
-      // catFilter: 取引カテゴリー一致 または 品目カテゴリー一致
-      .filter(t => !catFilter || t.category === catFilter || t.items?.some(i => i.category === catFilter))
+      .filter(t => catFilters.size === 0 || catFilters.has(t.category) || t.items?.some(i => catFilters.has(i.category)))
       .filter(t => !errFilter || (t.type === "expense" && !t.paidBy && t.shareType !== "personal" && t.shareType !== "partner")),
-    [transactions, selMonth, srcFilter, q, catFilter, errFilter]
+    [transactions, selMonth, srcFilter, q, catFilters, errFilter]
   );
 
-  // catFiltersが設定されている場合、品目カテゴリーごとに取引を分割
-// 重複チェックは元のamountで行うため _catSplit フラグで区別
-const splitByCatFilter = (tx, catFilters) => {
-  if (!catFilters || catFilters.size === 0) return [tx];
-  const items = tx.items || [];
-  if (items.length === 0) {
-    // 品目なし：取引カテゴリーがフィルターに含まれればそのまま
-    return catFilters.has(tx.category) ? [tx] : [];
-  }
-
-  // 品目をカテゴリーごとにグループ化
-  const groups = {};
-  items.forEach(item => {
-    const cat = (item.category && item.category !== "その他") ? item.category : tx.category;
-    if (!catFilters.has(cat)) return; // フィルター外は除外
-    if (!groups[cat]) groups[cat] = [];
-    groups[cat].push(item);
-  });
-
-  // 取引カテゴリー自体がフィルターに含まれていて品目グループがない場合
-  if (Object.keys(groups).length === 0) return [];
-
-  // カテゴリーごとに分割行を生成
-  return Object.entries(groups).map(([cat, catItems]) => {
-    const amt = catItems.reduce((s, i) => s + Math.abs(i.amount), 0);
-    return {
-      ...tx,
-      _catSplit:    true,
-      _catSplitCat: cat,
-      _splitAmt:    amt,
-      items:        catItems,
-      // 表示ラベルにカテゴリーを付加
-      _catLabel:    cat,
-    };
-  });
-};
+  // 分割表示行を生成してからshareFilter・ソートを適用
   const displayRows = useMemo(() => {
     const rows = filtered.flatMap(t => splitTransaction(t));
     const shared = shareFilter === "all" ? rows : rows.filter(r => {
@@ -112,7 +98,6 @@ const splitByCatFilter = (tx, catFilters) => {
     const catSplit = catFilters.size > 0
       ? shared.flatMap(t => splitByCatFilter(t, catFilters))
       : shared;
-    // ソート
     return [...catSplit].sort((a, b) => {
       if (sortBy === "date")   return b.date?.localeCompare(a.date ?? "") ?? 0;
       if (sortBy === "label")  return (a.label ?? "").localeCompare(b.label ?? "");
@@ -121,7 +106,7 @@ const splitByCatFilter = (tx, catFilters) => {
     });
   }, [filtered, shareFilter, sortBy, catFilters]);
 
-  // 合計（catFilter分割後の_splitAmtベース）
+  // 合計（分割行の場合は_splitAmtを使用）
   const totals = useMemo(() => ({
     income:  displayRows.filter(t => t.type === "income").reduce((s, t) => s + Math.abs(t._splitAmt ?? t.amount), 0),
     expense: displayRows.filter(t => t.type === "expense").reduce((s, t) => s + Math.abs(t._splitAmt ?? t.amount), 0),
@@ -258,66 +243,83 @@ const splitByCatFilter = (tx, catFilters) => {
             </div>
 
             {/* カテゴリーフィルターボタン */}
-            <div className="flex gap-2 items-center">
-              <button
-                onClick={() => setShowCatPicker(true)}
+            <div className="flex gap-2 items-center flex-wrap">
+              <button onClick={() => setShowCatPicker(p => !p)}
                 className={`flex-shrink-0 px-3 py-1 rounded-full text-xs font-semibold border transition-all ${
-                  catFilter ? "bg-emerald-500 text-white border-emerald-500" : "bg-white text-gray-500 border-gray-200"
+                  catFilters.size > 0 ? "bg-emerald-500 text-white border-emerald-500" : "bg-white text-gray-500 border-gray-200"
                 }`}>
-                {catFilter
-                  ? `${categories.find(c => c.name === catFilter)?.emoji || "🏷️"} ${catFilter} ×`
-                  : "🏷️ カテゴリー"}
+                🏷️ カテゴリー{catFilters.size > 0 ? `（${catFilters.size}件）` : ""}
               </button>
-              {catFilter && (
-                <button onClick={() => setCatFilter("")}
+              {catFilters.size > 0 && (
+                <button onClick={() => setCatFilters(new Set())}
                   className="text-xs text-gray-400 border border-gray-200 bg-white px-2.5 py-1 rounded-full">
                   解除
                 </button>
               )}
+              {[...catFilters].map(name => (
+                <span key={name} className="flex items-center gap-1 text-xs bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-full">
+                  {categories.find(c => c.name === name)?.emoji} {name}
+                  <button onClick={() => setCatFilters(p => { const n = new Set(p); n.delete(name); return n; })} className="text-emerald-400">×</button>
+                </span>
+              ))}
             </div>
 
             {/* カテゴリー選択モーダル */}
             {showCatPicker && (
-              <div className="fixed inset-0 bg-black/40 z-50 flex items-end" onClick={() => setShowCatPicker(false)}>
-                <div className="bg-white rounded-t-2xl w-full p-5 space-y-4 max-h-[75vh] overflow-y-auto"
+              <div className="fixed inset-0 bg-black/40 z-50 flex flex-col justify-end" onClick={() => setShowCatPicker(false)}>
+                <div className="bg-white rounded-t-2xl w-full flex flex-col" style={{ maxHeight: "75vh" }}
                   onClick={e => e.stopPropagation()}>
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-bold text-gray-900">カテゴリーを選択</p>
-                    <button onClick={() => setShowCatPicker(false)} className="text-gray-400 text-2xl leading-none">×</button>
-                  </div>
-                  <button
-                    onClick={() => { setCatFilter(""); setShowCatPicker(false); }}
-                    className={`w-full py-2.5 rounded-xl text-sm font-semibold border ${
-                      !catFilter ? "bg-gray-700 text-white border-gray-700" : "bg-white text-gray-500 border-gray-200"
-                    }`}>
-                    すべて（フィルター解除）
-                  </button>
-                  <div>
-                    <p className="text-xs font-semibold text-rose-400 mb-2">💸 支出</p>
-                    <div className="grid grid-cols-3 gap-2">
-                      {categories.filter(c => c.type === "expense").map(cat => (
-                        <button key={cat.id}
-                          onClick={() => { setCatFilter(cat.name); setShowCatPicker(false); }}
-                          className={`py-3 rounded-xl text-xs font-semibold border transition-all ${
-                            catFilter === cat.name ? "bg-emerald-500 text-white border-emerald-500" : "bg-white text-gray-600 border-gray-200"
-                          }`}>
-                          {cat.emoji}<br/>{cat.name}
+                  <div className="p-5 pb-3 border-b border-gray-100 flex-shrink-0">
+                    <div className="flex items-center justify-between mb-3">
+                      <div>
+                        <p className="text-sm font-bold text-gray-900">カテゴリーを選択</p>
+                        <p className="text-xs text-gray-400">複数選択可</p>
+                      </div>
+                      <button onClick={() => setShowCatPicker(false)} className="text-gray-400 text-2xl leading-none">×</button>
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={() => setCatFilters(new Set())}
+                        className={`flex-1 py-2 rounded-xl text-xs font-semibold border ${
+                          catFilters.size === 0 ? "bg-gray-700 text-white border-gray-700" : "bg-white text-gray-500 border-gray-200"
+                        }`}>
+                        すべて解除
+                      </button>
+                      {catFilters.size > 0 && (
+                        <button onClick={() => setShowCatPicker(false)}
+                          className="flex-1 py-2 rounded-xl text-xs font-semibold bg-emerald-500 text-white border border-emerald-500">
+                          ✅ {catFilters.size}件で絞り込む
                         </button>
-                      ))}
+                      )}
                     </div>
                   </div>
-                  <div>
-                    <p className="text-xs font-semibold text-emerald-500 mb-2">💰 収入</p>
-                    <div className="grid grid-cols-3 gap-2">
-                      {categories.filter(c => c.type === "income").map(cat => (
-                        <button key={cat.id}
-                          onClick={() => { setCatFilter(cat.name); setShowCatPicker(false); }}
-                          className={`py-3 rounded-xl text-xs font-semibold border transition-all ${
-                            catFilter === cat.name ? "bg-emerald-500 text-white border-emerald-500" : "bg-white text-gray-600 border-gray-200"
-                          }`}>
-                          {cat.emoji}<br/>{cat.name}
-                        </button>
-                      ))}
+                  <div className="overflow-y-auto flex-1 p-5 space-y-4">
+                    <div>
+                      <p className="text-xs font-semibold text-rose-400 mb-2">💸 支出</p>
+                      <div className="grid grid-cols-3 gap-2">
+                        {categories.filter(c => c.type === "expense").map(cat => (
+                          <button key={cat.id}
+                            onClick={() => setCatFilters(p => { const n = new Set(p); n.has(cat.name) ? n.delete(cat.name) : n.add(cat.name); return n; })}
+                            className={`py-3 rounded-xl text-xs font-semibold border transition-all ${
+                              catFilters.has(cat.name) ? "bg-emerald-500 text-white border-emerald-500" : "bg-white text-gray-600 border-gray-200"
+                            }`}>
+                            {cat.emoji}<br/>{cat.name}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold text-emerald-500 mb-2">💰 収入</p>
+                      <div className="grid grid-cols-3 gap-2">
+                        {categories.filter(c => c.type === "income").map(cat => (
+                          <button key={cat.id}
+                            onClick={() => setCatFilters(p => { const n = new Set(p); n.has(cat.name) ? n.delete(cat.name) : n.add(cat.name); return n; })}
+                            className={`py-3 rounded-xl text-xs font-semibold border transition-all ${
+                              catFilters.has(cat.name) ? "bg-emerald-500 text-white border-emerald-500" : "bg-white text-gray-600 border-gray-200"
+                            }`}>
+                            {cat.emoji}<br/>{cat.name}
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -354,7 +356,7 @@ const splitByCatFilter = (tx, catFilters) => {
 
       {/* 件数・合計 */}
       <div className="px-4 py-2 bg-gray-50 border-b border-gray-100 flex justify-between text-xs text-gray-500">
-        <span>{displayRows.length}件</span>
+        <span>{displayRows.length}件{catFilters.size > 0 && <span className="text-emerald-600 ml-1">（{[...catFilters].join("・")}のみ）</span>}</span>
         <span>
           <span className="text-emerald-500 font-semibold">+{fmtCurrency(totals.income)}</span>
           {" / "}
