@@ -29,6 +29,7 @@ export function OcrScanPage({ categories, allRules, learnedRules, members, point
   const [ocrQueueIdx,   setOcrQueueIdx]   = useState(0);
   const [ocrPaidBy,     setOcrPaidBy]     = useState("");
   const [ocrPayMethod,  setOcrPayMethod]  = useState("cash");
+  const [ocrMemo,       setOcrMemo]       = useState("");
   const [ocrShareAmount, setOcrShareAmount] = useState(null); // ウエルシア20日用精算金額
 
   // ウエルシア20日デー判定
@@ -164,11 +165,11 @@ export function OcrScanPage({ categories, allRules, learnedRules, members, point
 
       const base = {
         date, label, category: cat, type: "expense", source: "ocr",
+        memo: ocrMemo || "",
         paidBy: ocrPaidBy || null,
         paymentMethod: ocrPayMethod,
         pointAccountId: ocrPayMethod !== "cash" ? ocrPayMethod : null,
         shareAmount: ocrShareAmount || null,
-        // 自分払い+WAON: WAONはshareAmount分だけ消費
         ...(waonConsumeAmount ? { pointConsumeAmount: waonConsumeAmount } : {}),
       };
       if (finalSharedAmt > 0) txsToAdd.push(createTransaction({ ...base, amount: -finalSharedAmt, items: sharedItems.map(({ name, amount: a, quantity, taxRate, category }) => ({ name, amount: a, quantity, type: "shared",   taxRate, category })) }));
@@ -501,6 +502,17 @@ export function OcrScanPage({ categories, allRules, learnedRules, members, point
                 </div>
               ) : null;
             })()}
+            {/* 備考欄 */}
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 mb-2">📝 備考（任意）</label>
+              <textarea
+                value={ocrMemo}
+                onChange={e => setOcrMemo(e.target.value)}
+                placeholder="例: ガソリン代（車通勤用）、家族旅行のホテル代 など"
+                rows={2}
+                className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-300 resize-none"
+              />
+            </div>
             <PrimaryButton onClick={() => registerOcr(ocrLabel, ocrAmount, ocrDate, ocrCat, ocrItems)}>
               {ocrItems.length > 0 && calcSplit(ocrItems).personal > 0 ? "✅ 2件に分けて登録（共有+個人）" : "✅ この内容で登録する"}
             </PrimaryButton>
