@@ -10,17 +10,20 @@ import { RulesTab }     from "./tabs/RulesTab";
 import { BackupTab }    from "./tabs/BackupTab";
 import { DataTab }      from "./tabs/DataTab";
 
+import { CsvSourcesTab } from "./tabs/CsvSourcesTab";
+
 const TABS = [
-  { id: "categories", label: "カテゴリ",    icon: "🏷️" },
-  { id: "members",    label: "メンバー",    icon: "👥" },
-  { id: "points",     label: "ポイント口座", icon: "💳" },
-  { id: "share",      label: "共有設定",    icon: "🔗" },
-  { id: "datalinks",  label: "データ取得",  icon: "📥" },
-  { id: "transfer",   label: "振替設定",    icon: "🔄" },
-  { id: "taxrules",   label: "消費税学習",  icon: "🧾" },
-  { id: "rules",      label: "学習ルール",  icon: "🧠" },
-  { id: "backup",     label: "バックアップ",icon: "💾" },
-  { id: "data",       label: "データ管理",  icon: "⚙️" },
+  { id: "categories", label: "カテゴリ",        icon: "🏷️" },
+  { id: "members",    label: "メンバー",         icon: "👥" },
+  { id: "points",     label: "ポイント口座",     icon: "💳" },
+  { id: "csvsources", label: "CSV管理",          icon: "📊" },
+  { id: "share",      label: "共有設定",         icon: "🔗" },
+  { id: "datalinks",  label: "データ取得",       icon: "📥" },
+  { id: "transfer",   label: "振替設定",         icon: "🔄" },
+  { id: "taxrules",   label: "消費税学習",       icon: "🧾" },
+  { id: "rules",      label: "学習ルール",       icon: "🧠" },
+  { id: "backup",     label: "バックアップ",     icon: "💾" },
+  { id: "data",       label: "データ管理",       icon: "⚙️" },
 ];
 
 export function SettingsPage({
@@ -81,6 +84,7 @@ export function SettingsPage({
       {tab === "points" && (
         <PointTab pointAccounts={pointAccounts} onAddPointAccount={onAddPointAccount} onUpdatePointAccount={onUpdatePointAccount} onDeletePointAccount={onDeletePointAccount} onAdd={onAdd} />
       )}
+      {tab === "csvsources" && <CsvSourcesTab />}
       {tab === "share" && (
         <ShareTab shareId={shareId} inviteUrl={inviteUrl} onJoinShare={onJoinShare} syncStatus={syncStatus} />
       )}
