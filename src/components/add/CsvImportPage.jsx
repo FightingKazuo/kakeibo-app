@@ -19,16 +19,14 @@ export function CsvImportPage({ categories, existingTransactions, members, point
   const [csvSummary,      setCsvSummary]      = useState(null);
   const [csvEditIdx,      setCsvEditIdx]      = useState(null);
   const [csvPdfLoading,   setCsvPdfLoading]   = useState(false);
-  // デフォルト設定（プレビュー前に設定）
-  const [defaultPaidBy,   setDefaultPaidBy]   = useState(null);    // null=自分(members[0])
-  const [defaultShareType,setDefaultShareType]= useState("shared"); // shared/personal/partner
 
   const geminiKey = loadStorage("GEMINI_API_KEY", "") || "";
   const fileRef   = useRef(null);
 
   const isDupRow     = (r) => r.isDuplicate || r.isCardWithdrawal || !!r.ocrDuplicate || r.isCardWarning || r.isTransfer;
-  const isHardDupRow = (r) => r.isDuplicate || r.isCardWithdrawal || r.isTransfer;
-  const isOcrOnlyDup = (r) => !r.isDuplicate && !r.isCardWithdrawal && !r.isTransfer && (!!r.ocrDuplicate || r.isCardWarning);
+  // isCardWarning（カード未取込?）はチェック可能 → isHardDupRowから除外
+  const isHardDupRow = (r) => r.isDuplicate || (r.isCardWithdrawal && !r.isCardWarning) || r.isTransfer;
+  const isOcrOnlyDup = (r) => !r.isDuplicate && !(r.isCardWithdrawal && !r.isCardWarning) && !r.isTransfer && (!!r.ocrDuplicate || r.isCardWarning);
 
   const updateCsvRow = (i, key, val) => setCsvRows(p => p.map((r, j) => j === i ? { ...r, [key]: val } : r));
 
@@ -138,7 +136,12 @@ export function CsvImportPage({ categories, existingTransactions, members, point
 
       const withDup = allRows.map(r => ({ ...r, isDuplicate: existKeys.has(DUPLICATE_KEY(r)), ocrDuplicate: !existKeys.has(DUPLICATE_KEY(r)) ? findOcrDup(r) : null }));
       const init = {};
-      withDup.forEach((r, i) => { init[i] = !r.isDuplicate && !r.isCardWithdrawal && !r.isTransfer; });
+      withDup.forEach((r, i) => {
+        // 通常行・カード未取込はON、振替・重複・取込済みはOFF
+        init[i] = !r.isDuplicate && !r.isCardWithdrawal && !r.isTransfer;
+        // isCardWarningは「未取込の可能性あり」→ デフォルトONでユーザーが判断
+        if (r.isCardWarning) init[i] = true;
+      });
       setCsvRows(withDup); setCsvChecked(init);
       setCsvStep(allRows.length === 0 ? "empty" : "preview");
     } catch { alert("ファイルの読み込みに失敗しました。"); }
@@ -150,17 +153,12 @@ export function CsvImportPage({ categories, existingTransactions, members, point
     const expTotal = toImport.filter(r => r.type === "expense").reduce((s, r) => s + Math.abs(r.amount), 0);
     const incTotal = toImport.filter(r => r.type === "income").reduce((s, r) => s + r.amount, 0);
     const selfId   = members?.[0]?.id || null;
-    const payerId  = defaultPaidBy ?? selfId;  // デフォルト支払者
     const payPayAccount = (pointAccounts || []).find(a => a.name === "PayPay");
     const isPayPay = csvDetected?.includes("PayPay") || csvDetected?.includes("paypay");
 
     toImport.forEach(r => {
       const enriched  = isPayPay && payPayAccount ? { ...r, pointAccountId: payPayAccount.id, paymentMethod: payPayAccount.id } : r;
-      const withPayer = enriched.type === "expense" ? {
-        ...enriched,
-        paidBy:    enriched.paidBy    || payerId,
-        shareType: enriched.shareType || defaultShareType,
-      } : enriched;
+      const withPayer = enriched.type === "expense" ? { ...enriched, paidBy: enriched.paidBy || selfId, shareType: enriched.shareType || "shared" } : enriched;
 
       // PayPayチャージ（銀行CSV）→ 支出＋PayPay残高増加
       if (r.isPointCharge && payPayAccount) {
@@ -256,39 +254,6 @@ export function CsvImportPage({ categories, existingTransactions, members, point
             <div className="flex justify-between items-center">
               <p className="text-sm font-bold text-gray-700">{csvRows.length}件を読み込みました</p>
               <button onClick={() => { setCsvStep("upload"); setCsvDetected(null); }} className="text-xs text-gray-400 underline">← 戻る</button>
-            </div>
-
-            {/* 支払者・共有設定 */}
-            <div className="bg-indigo-50 rounded-xl p-3 border border-indigo-100 space-y-2">
-              <p className="text-xs font-semibold text-indigo-700">⚙️ 取り込みデフォルト設定</p>
-              <div className="flex gap-2 items-center">
-                <p className="text-xs text-gray-500 w-14 flex-shrink-0">支払者</p>
-                <div className="flex gap-1.5 flex-wrap">
-                  {(members || []).map(m => (
-                    <button key={m.id} onClick={() => setDefaultPaidBy(m.id)}
-                      className={`px-2.5 py-1 rounded-full text-xs font-semibold border transition-all ${
-                        (defaultPaidBy ?? members?.[0]?.id) === m.id
-                          ? "bg-indigo-500 text-white border-indigo-500"
-                          : "bg-white text-gray-500 border-gray-200"
-                      }`}>
-                      👤 {m.name}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className="flex gap-2 items-center">
-                <p className="text-xs text-gray-500 w-14 flex-shrink-0">種別</p>
-                <div className="flex gap-1.5">
-                  {[["shared","🤝 共有","bg-indigo-500"],["personal","👤 個人","bg-rose-400"],["partner","👥 相手","bg-purple-400"]].map(([val, lb, color]) => (
-                    <button key={val} onClick={() => setDefaultShareType(val)}
-                      className={`px-2.5 py-1 rounded-full text-xs font-semibold border transition-all ${
-                        defaultShareType === val ? `${color} text-white border-transparent` : "bg-white text-gray-500 border-gray-200"
-                      }`}>
-                      {lb}
-                    </button>
-                  ))}
-                </div>
-              </div>
             </div>
             {csvDetected && (
               <div className={`rounded-xl px-3 py-2 border flex items-center gap-2 ${csvDetected !== "generic" ? "bg-emerald-50 border-emerald-200" : "bg-amber-50 border-amber-200"}`}>
