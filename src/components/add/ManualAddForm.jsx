@@ -10,6 +10,7 @@ export function ManualAddForm({ categories, allRules, learnedRules, members, poi
   const [type,           setType]          = useState("expense");
   const [amount,         setAmount]        = useState("");
   const [label,          setLabel]         = useState("");
+  const [memo,           setMemo]          = useState("");
   const [date,           setDate]          = useState(todayStr());
   const [category,       setCategory]      = useState("");
   const [paidBy,         setPaidBy]        = useState("");
@@ -34,7 +35,7 @@ export function ManualAddForm({ categories, allRules, learnedRules, members, poi
   const handleSubmit = () => {
     if (!amount || !category || !label) { alert("すべて入力してください"); return; }
     const tx = createTransaction({
-      date, label, category,
+      date, label, category, memo,
       amount:        type === "expense" ? -Number(amount) : Number(amount),
       type,          source: "manual",
       paidBy:        paidBy || null,
@@ -94,6 +95,16 @@ export function ManualAddForm({ categories, allRules, learnedRules, members, poi
               </button>
             ))}
           </div>
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-gray-500 mb-2">📝 備考（任意）</label>
+          <textarea
+            value={memo}
+            onChange={e => setMemo(e.target.value)}
+            placeholder="例: ガソリン代（車通勤用）、家族旅行のホテル代 など"
+            rows={2}
+            className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-300 resize-none"
+          />
         </div>
         <div className="mt-5">
           <PrimaryButton onClick={handleSubmit} variant={done ? "success" : "primary"}>
