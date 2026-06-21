@@ -311,22 +311,22 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
                   <Tooltip formatter={v => `¥${v.toLocaleString()}`} />
                 </PieChart>
               </ResponsiveContainer>
-              <div className="mt-3 space-y-1">
+              <div className="mt-3 divide-y divide-gray-50">
                 {catData.map((d, i) => (
                   <button key={d.name} onClick={() => setSelectedCat(d.name)}
-                    className="w-full flex items-center justify-between py-1.5 px-2 rounded-xl hover:bg-gray-50 active:bg-gray-100 transition-colors">
-                    <div className="flex items-center gap-2">
-                      <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: PIE_COLORS[i % PIE_COLORS.length] }} />
-                      <span className="text-xs text-gray-600">{d.emoji} {d.name}</span>
+                    className="w-full flex items-center justify-between py-3 px-2 hover:bg-gray-50 active:bg-gray-100 transition-colors">
+                    <div className="flex items-center gap-3">
+                      <div className="w-4 h-4 rounded-full flex-shrink-0" style={{ background: PIE_COLORS[i % PIE_COLORS.length] }} />
+                      <span className="text-sm text-gray-700 font-medium">{d.emoji} {d.name}</span>
                     </div>
                     <div className="flex items-center gap-2">
-                      <span className="text-xs font-semibold text-gray-700">{fmtCurrency(d.value)}</span>
-                      <span className="text-gray-300 text-xs">›</span>
+                      <span className="text-sm font-bold text-gray-800">{fmtCurrency(d.value)}</span>
+                      <span className="text-gray-300 text-base">›</span>
                     </div>
                   </button>
                 ))}
               </div>
-              <p className="text-xs text-gray-400 text-center mt-2">タップで明細を表示</p>
+              <p className="text-xs text-gray-400 text-center mt-2 pb-1">タップで明細を表示</p>
             </div>
           )}
 
@@ -352,10 +352,11 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
             }, 0);
 
             return (
-              <div className="fixed inset-0 bg-black/50 z-50 flex items-end" onClick={() => setSelectedCat(null)}>
-                <div className="bg-white rounded-t-2xl w-full max-h-[80vh] overflow-y-auto"
+              <div className="fixed inset-0 bg-black/50 z-50 flex flex-col justify-end" onClick={() => setSelectedCat(null)}>
+                <div className="bg-white rounded-t-2xl w-full flex flex-col" style={{ maxHeight: "85vh" }}
                   onClick={e => e.stopPropagation()}>
-                  <div className="sticky top-0 bg-white px-5 pt-5 pb-3 border-b border-gray-100">
+                  {/* ヘッダー固定 */}
+                  <div className="sticky top-0 bg-white px-5 pt-5 pb-3 border-b border-gray-100 flex-shrink-0">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <span className="text-2xl">{cat?.emoji}</span>
@@ -367,6 +368,7 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
                       <button onClick={() => setSelectedCat(null)} className="text-gray-400 text-2xl">×</button>
                     </div>
                   </div>
+                  <div className="overflow-y-auto flex-1">
                   <div className="divide-y divide-gray-50">
                     {catTxs.map(t => {
                       // 品目カテゴリーが一致する品目のみ
@@ -402,7 +404,8 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
                       <div className="px-5 py-8 text-center text-sm text-gray-400">該当する取引がありません</div>
                     )}
                   </div>
-                  <div className="h-8" />
+                  </div>
+                  <div className="h-8 flex-shrink-0" />
                 </div>
               </div>
             );
