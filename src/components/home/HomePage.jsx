@@ -163,13 +163,22 @@ function CsvImportStatus({ importHistory, onNavigate }) {
   const prevYM     = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, "0")}`;
   const hist       = importHistory || {};
 
-  const currentDone = CSV_SOURCES.filter(s => hist[`${s.id}_${currentYM}`]);
-  const currentTodo = CSV_SOURCES.filter(s => !hist[`${s.id}_${currentYM}`]);
-  const prevDone    = CSV_SOURCES.filter(s => hist[`${s.id}_${prevYM}`]);
-  const prevTodo    = CSV_SOURCES.filter(s => !hist[`${s.id}_${prevYM}`]);
+  // 設定から有効なCSVソースを取得
+  const activeIds = (() => {
+    try {
+      const saved = localStorage.getItem("kakeibo_active_csv_sources");
+      if (saved) return new Set(JSON.parse(saved));
+      return new Set(CSV_SOURCES.map(s => s.id));
+    } catch { return new Set(CSV_SOURCES.map(s => s.id)); }
+  })();
+  const activeSources = CSV_SOURCES.filter(s => activeIds.has(s.id));
 
-  // 今月・前月ともに全部完了なら表示しない
-  if (currentTodo.length === 0 && prevTodo.length === 0) return null;
+  const currentDone = activeSources.filter(s => hist[`${s.id}_${currentYM}`]);
+  const currentTodo = activeSources.filter(s => !hist[`${s.id}_${currentYM}`]);
+  const prevTodo    = activeSources.filter(s => !hist[`${s.id}_${prevYM}`]);
+
+  // 管理対象がない or 全部完了なら非表示
+  if (activeSources.length === 0 || (currentTodo.length === 0 && prevTodo.length === 0)) return null;
 
   const fmtYM = (ym) => {
     const [y, m] = ym.split("-");
@@ -198,7 +207,7 @@ function CsvImportStatus({ importHistory, onNavigate }) {
         <div className="px-4 py-3 border-b border-gray-50">
           <p className="text-xs font-semibold text-gray-500 mb-2">{fmtYM(currentYM)}（今月）</p>
           <div className="space-y-1.5">
-            {CSV_SOURCES.map(s => {
+            {activeSources.map(s => {
               const done = !!hist[`${s.id}_${currentYM}`];
               return (
                 <div key={s.id} className="flex items-center gap-2">
