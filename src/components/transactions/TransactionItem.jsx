@@ -5,7 +5,7 @@ import { SourceBadge } from "../ui/SourceBadge";
 export function TransactionItem({
   transaction: t, categories, members, pointAccounts,
   onEdit, onDelete, onUpdateSharing, onUpdateTransfer,
-  learnedRules, onCatFilter,
+  learnedRules, onCatFilter, catFilters,
   // 選択モード用
   selectMode, selected, onSelect,
 }) {
@@ -182,10 +182,23 @@ export function TransactionItem({
       )}
 
       {/* ── 品目リスト（展開時）── */}
-      {expanded && hasItems && !selectMode && (
+      {expanded && hasItems && !selectMode && (() => {
+        // catFiltersが設定されている場合は該当カテゴリーの品目のみ表示
+        const displayItems = catFilters && catFilters.size > 0
+          ? t.items.filter(item => {
+              const itemCat = (item.category && item.category !== "その他") ? item.category : t.category;
+              return catFilters.has(itemCat);
+            })
+          : t.items;
+        return (
         <div className="border-t border-gray-50 bg-gray-50 px-5 pb-3">
+          {catFilters && catFilters.size > 0 && displayItems.length < t.items.length && (
+            <p className="text-xs text-indigo-500 font-medium pt-2 pb-1">
+              🏷️ {[...catFilters].join("・")}の品目のみ表示（{displayItems.length}/{t.items.length}件）
+            </p>
+          )}
           <div className="divide-y divide-gray-100">
-            {t.items.map((item, i) => (
+            {displayItems.map((item, i) => (
               <div key={i} className="flex items-center justify-between py-2">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5 flex-wrap">
@@ -218,13 +231,18 @@ export function TransactionItem({
             ))}
           </div>
           <div className="flex justify-between pt-2 border-t border-gray-200 mt-1">
-            <p className="text-xs text-gray-400">品目合計</p>
+            <p className="text-xs text-gray-400">
+              {catFilters && catFilters.size > 0 && displayItems.length < t.items.length
+                ? `${[...catFilters].join("・")}合計`
+                : "品目合計"}
+            </p>
             <p className="text-xs font-semibold text-gray-600">
-              ¥{t.items.reduce((s, i) => s + Math.abs(i.amount || 0), 0).toLocaleString()}
+              ¥{displayItems.reduce((s, i) => s + Math.abs(i.amount || 0), 0).toLocaleString()}
             </p>
           </div>
         </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
