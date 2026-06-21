@@ -376,4 +376,3 @@ export function EditPage({ transaction, categories, allRules, learnedRules, memb
     </div>
   );
 }
-
