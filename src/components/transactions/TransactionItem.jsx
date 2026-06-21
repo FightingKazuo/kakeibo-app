@@ -21,7 +21,21 @@ export function TransactionItem({
   // 分割表示用
   const isSplit    = !!t._splitType;
   const splitType  = t._splitType;  // "shared" | "personal" | "partner"
-  const displayAmt = t._splitAmt ?? Math.abs(t.amount);
+  const isCatSplit = !!t._catSplitCat; // 品目カテゴリー分割行
+  const splitCat   = isCatSplit ? categories.find(c => c.name === t._catSplitCat) : null;
+  // catFiltersがある場合は品目カテゴリーが一致する品目のみの金額を表示
+  const displayAmt = (() => {
+    if (!catFilters || catFilters.size === 0) return t._splitAmt ?? Math.abs(t.amount);
+    const items = t.items || [];
+    if (items.length > 0) {
+      const matched = items.filter(item => {
+        const cat = (item.category && item.category !== "その他") ? item.category : t.category;
+        return catFilters.has(cat);
+      });
+      if (matched.length > 0) return matched.reduce((s, i) => s + Math.abs(i.amount), 0);
+    }
+    return catFilters.has(t.category) ? (t._splitAmt ?? Math.abs(t.amount)) : Math.abs(t.amount);
+  })();
 
   // 学習済みチェック（store名が学習ルールのキーワードと一致）
   const isLearned = !isSplit && !!learnedRules?.some(r =>
@@ -85,6 +99,12 @@ export function TransactionItem({
             {isSplit && splitType === "shared"   && <span className="text-xs bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded-full font-medium">🤝共有分</span>}
             {isSplit && splitType === "personal" && <span className="text-xs bg-rose-100 text-rose-500 px-1.5 py-0.5 rounded-full font-medium">👤個人分</span>}
             {isSplit && splitType === "partner"  && <span className="text-xs bg-purple-100 text-purple-500 px-1.5 py-0.5 rounded-full font-medium">👥相手分</span>}
+            {/* 品目カテゴリー分割バッジ */}
+            {isCatSplit && splitCat && (
+              <span className="text-xs bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full font-medium">
+                {splitCat.emoji} {splitCat.name}
+              </span>
+            )}
             {/* 支払者未設定警告（非分割のみ） */}
             {!isSplit && t.type === "expense" && !t.paidBy && t.shareType !== "personal" && t.shareType !== "partner" && (
               <span className="text-xs bg-rose-100 text-rose-500 px-1.5 py-0.5 rounded-full">⚠️未設定</span>
@@ -132,9 +152,17 @@ export function TransactionItem({
         </div>
 
         <div className="flex items-center gap-1.5 flex-shrink-0 ml-1">
-          <p className={`text-base font-bold tabular-nums whitespace-nowrap ${isIncome ? "text-emerald-600" : "text-rose-600"}`}>
-            {isIncome ? "+" : "-"}{fmtCurrency(displayAmt)}
-          </p>
+          <div className="text-right">
+            <p className={`text-base font-bold tabular-nums whitespace-nowrap ${isIncome ? "text-emerald-600" : "text-rose-600"}`}>
+              {isIncome ? "+" : "-"}{fmtCurrency(displayAmt)}
+            </p>
+            {/* フィルター中かつ金額が変わっている場合は元金額をグレーで表示 */}
+            {catFilters && catFilters.size > 0 && displayAmt !== (t._splitAmt ?? Math.abs(t.amount)) && (
+              <p className="text-xs text-gray-400 tabular-nums line-through">
+                {fmtCurrency(t._splitAmt ?? Math.abs(t.amount))}
+              </p>
+            )}
+          </div>
           {!selectMode && (
             <>
               {onEdit && (
