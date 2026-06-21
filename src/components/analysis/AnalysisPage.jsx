@@ -6,7 +6,8 @@ import { MonthSelector } from "../common/MonthSelector";
 import { EmptyState } from "../ui/EmptyState";
 
 export function AnalysisPage({ transactions, categories, members, pointAccounts, onUpdate }) {
-  const [tab,      setTab]      = useState("analysis");
+  const [tab,          setTab]          = useState("analysis");
+  const [selectedCat,  setSelectedCat]  = useState(null); // カテゴリー明細モーダル
   const [selMonth, setSelMonth] = useState("all");
 
   // ── 精算用 期間指定 ──
@@ -37,21 +38,8 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
   const totalExpense = useMemo(() => filtered.filter(t => t.type === "expense").reduce((s, t) => s + Math.abs(t.amount), 0), [filtered]);
 
   const catData = useMemo(() => {
-    const bycat = {};
-    filtered.filter(t => t.type === "expense").forEach(t => {
-      const items = t.items || [];
-      if (items.length > 0) {
-        // 品目カテゴリーがある品目はその品目カテゴリーで集計
-        // 品目カテゴリーがない品目は取引カテゴリーで集計
-        items.forEach(item => {
-          const cat = (item.category && item.category !== "その他") ? item.category : t.category;
-          bycat[cat] = (bycat[cat] || 0) + Math.abs(item.amount);
-        });
-      } else {
-        // 品目なし → 取引カテゴリーで集計
-        bycat[t.category] = (bycat[t.category] || 0) + Math.abs(t.amount);
-      }
-    });
+    const bycat = filtered.filter(t => t.type === "expense")
+      .reduce((acc, t) => { acc[t.category] = (acc[t.category] || 0) + Math.abs(t.amount); return acc; }, {});
     return Object.entries(bycat)
       .sort((a, b) => b[1] - a[1])
       .map(([name, value]) => ({ name, value, emoji: categories.find(c => c.name === name)?.emoji || "📦" }));
@@ -183,18 +171,8 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
       const inc   = mt.filter(t => t.type === "income").reduce((s, t) => s + t.amount, 0);
       const exp   = mt.filter(t => t.type === "expense").reduce((s, t) => s + Math.abs(t.amount), 0);
       const days  = new Date(parseInt(m.slice(0,4)), parseInt(m.slice(5,7)), 0).getDate();
-      const bycat = {};
-      mt.filter(t => t.type === "expense").forEach(t => {
-        const items = t.items || [];
-        if (items.length > 0) {
-          items.forEach(item => {
-            const cat = (item.category && item.category !== "その他") ? item.category : t.category;
-            bycat[cat] = (bycat[cat] || 0) + Math.abs(item.amount);
-          });
-        } else {
-          bycat[t.category] = (bycat[t.category] || 0) + Math.abs(t.amount);
-        }
-      });
+      const bycat = mt.filter(t => t.type === "expense")
+        .reduce((acc, t) => { acc[t.category] = (acc[t.category]||0) + Math.abs(t.amount); return acc; }, {});
       const topCat = Object.entries(bycat).sort((a,b) => b[1]-a[1])[0];
       return { ym: m, label: m.slice(5)+"月", inc, exp, bal: inc-exp, days, dailyAvg: Math.round(exp/days), topCat };
     });
@@ -203,39 +181,17 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
   // カテゴリ別月次推移（上位5カテゴリ）
   const catTrendData = useMemo(() => {
     const months = [...new Set(transactions.map(t => toYM(t.date)))].sort().slice(-6);
-
-    // 品目カテゴリー込みの全体集計でtopCatsを決定
-    const allBycat = {};
-    transactions.filter(t => t.type === "expense").forEach(t => {
-      const items = t.items || [];
-      if (items.length > 0) {
-        items.forEach(item => {
-          const cat = (item.category && item.category !== "その他") ? item.category : t.category;
-          allBycat[cat] = (allBycat[cat] || 0) + Math.abs(item.amount);
-        });
-      } else {
-        allBycat[t.category] = (allBycat[t.category] || 0) + Math.abs(t.amount);
-      }
-    });
-    const topCats = Object.entries(allBycat).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([n])=>n);
+    const topCats = Object.entries(
+      transactions.filter(t => t.type === "expense")
+        .reduce((acc, t) => { acc[t.category] = (acc[t.category]||0)+Math.abs(t.amount); return acc; }, {})
+    ).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([n])=>n);
 
     return months.map(m => {
       const row = { month: m.slice(5)+"月" };
       const mt  = transactions.filter(t => toYM(t.date) === m && t.type === "expense");
-      // 品目カテゴリー込みで各カテゴリー合計を算出
-      const mBycat = {};
-      mt.forEach(t => {
-        const items = t.items || [];
-        if (items.length > 0) {
-          items.forEach(item => {
-            const cat = (item.category && item.category !== "その他") ? item.category : t.category;
-            mBycat[cat] = (mBycat[cat] || 0) + Math.abs(item.amount);
-          });
-        } else {
-          mBycat[t.category] = (mBycat[t.category] || 0) + Math.abs(t.amount);
-        }
+      topCats.forEach(cat => {
+        row[cat] = mt.filter(t => t.category === cat).reduce((s,t) => s+Math.abs(t.amount), 0);
       });
-      topCats.forEach(cat => { row[cat] = mBycat[cat] || 0; });
       return { ...row, _cats: topCats };
     });
   }, [transactions]);
@@ -348,7 +304,8 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
               <ResponsiveContainer width="100%" height={160}>
                 <PieChart>
                   <Pie data={catData} cx="50%" cy="50%" innerRadius={40} outerRadius={70} dataKey="value"
-                    label={({ name, percent }) => `${name} ${Math.round(percent * 100)}%`} labelLine={false}>
+                    label={({ name, percent }) => `${name} ${Math.round(percent * 100)}%`} labelLine={false}
+                    onClick={(d) => setSelectedCat(d.name)}>
                     {catData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
                   </Pie>
                   <Tooltip formatter={v => `¥${v.toLocaleString()}`} />
@@ -356,17 +313,100 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
               </ResponsiveContainer>
               <div className="mt-3 space-y-1">
                 {catData.map((d, i) => (
-                  <div key={d.name} className="flex items-center justify-between">
+                  <button key={d.name} onClick={() => setSelectedCat(d.name)}
+                    className="w-full flex items-center justify-between py-1.5 px-2 rounded-xl hover:bg-gray-50 active:bg-gray-100 transition-colors">
                     <div className="flex items-center gap-2">
                       <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: PIE_COLORS[i % PIE_COLORS.length] }} />
                       <span className="text-xs text-gray-600">{d.emoji} {d.name}</span>
                     </div>
-                    <span className="text-xs font-semibold text-gray-700">{fmtCurrency(d.value)}</span>
-                  </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-semibold text-gray-700">{fmtCurrency(d.value)}</span>
+                      <span className="text-gray-300 text-xs">›</span>
+                    </div>
+                  </button>
                 ))}
               </div>
+              <p className="text-xs text-gray-400 text-center mt-2">タップで明細を表示</p>
             </div>
           )}
+
+          {/* カテゴリー明細モーダル */}
+          {selectedCat && (() => {
+            const cat = categories.find(c => c.name === selectedCat);
+            // 品目カテゴリーも含めて該当取引を抽出
+            const catTxs = filtered.filter(t => t.type === "expense" && (
+              t.category === selectedCat || t.items?.some(i =>
+                (i.category && i.category !== "その他") ? i.category === selectedCat : t.category === selectedCat
+              )
+            ));
+            // 品目カテゴリーで絞り込んだ金額を算出
+            const catTotal = catTxs.reduce((s, t) => {
+              const items = t.items || [];
+              if (items.length > 0) {
+                const matched = items.filter(i =>
+                  (i.category && i.category !== "その他") ? i.category === selectedCat : t.category === selectedCat
+                );
+                return s + matched.reduce((ss, i) => ss + Math.abs(i.amount), 0);
+              }
+              return s + Math.abs(t.amount);
+            }, 0);
+
+            return (
+              <div className="fixed inset-0 bg-black/50 z-50 flex items-end" onClick={() => setSelectedCat(null)}>
+                <div className="bg-white rounded-t-2xl w-full max-h-[80vh] overflow-y-auto"
+                  onClick={e => e.stopPropagation()}>
+                  <div className="sticky top-0 bg-white px-5 pt-5 pb-3 border-b border-gray-100">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="text-2xl">{cat?.emoji}</span>
+                        <div>
+                          <p className="text-sm font-bold text-gray-900">{selectedCat}</p>
+                          <p className="text-xs text-rose-500 font-semibold">{fmtCurrency(catTotal)}</p>
+                        </div>
+                      </div>
+                      <button onClick={() => setSelectedCat(null)} className="text-gray-400 text-2xl">×</button>
+                    </div>
+                  </div>
+                  <div className="divide-y divide-gray-50">
+                    {catTxs.map(t => {
+                      // 品目カテゴリーが一致する品目のみ
+                      const matchedItems = (t.items || []).filter(i =>
+                        (i.category && i.category !== "その他") ? i.category === selectedCat : t.category === selectedCat
+                      );
+                      const dispAmt = matchedItems.length > 0
+                        ? matchedItems.reduce((s, i) => s + Math.abs(i.amount), 0)
+                        : Math.abs(t.amount);
+                      return (
+                        <div key={t.id} className="px-5 py-3">
+                          <div className="flex items-center justify-between">
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-gray-800 truncate">{t.label}</p>
+                              <p className="text-xs text-gray-400">{t.date} · {t.category !== selectedCat ? `（${t.category}内の${selectedCat}品目）` : ""}</p>
+                            </div>
+                            <p className="text-sm font-bold text-rose-500 ml-3">-{fmtCurrency(dispAmt)}</p>
+                          </div>
+                          {matchedItems.length > 0 && matchedItems.length < (t.items?.length || 0) && (
+                            <div className="mt-1.5 space-y-0.5">
+                              {matchedItems.map((item, i) => (
+                                <div key={i} className="flex justify-between pl-3 border-l-2 border-indigo-100">
+                                  <p className="text-xs text-gray-500 truncate">{item.name}</p>
+                                  <p className="text-xs text-gray-600 font-medium ml-2">¥{Math.abs(item.amount).toLocaleString()}</p>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                    {catTxs.length === 0 && (
+                      <div className="px-5 py-8 text-center text-sm text-gray-400">該当する取引がありません</div>
+                    )}
+                  </div>
+                  <div className="h-8" />
+                </div>
+              </div>
+            );
+          })()}
         </div>
       )}
 
