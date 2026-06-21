@@ -274,7 +274,7 @@ export function TransactionListPage({ transactions, categories, members, pointAc
                     <div className="grid grid-cols-3 gap-2">
                       {categories.filter(c => c.type === "expense").map(cat => (
                         <button key={cat.id}
-                          onClick={() => setCatFilters(p => { const n = new Set(p); n.has(cat.name) ? n.delete(cat.name) : n.add(cat.name); return n; })
+                          onClick={() => setCatFilters(p => { const n = new Set(p); n.has(cat.name) ? n.delete(cat.name) : n.add(cat.name); return n; })}
                           className={`py-3 rounded-xl text-xs font-semibold border transition-all ${
                             catFilters.has(cat.name) ? "bg-emerald-500 text-white border-emerald-500" : "bg-white text-gray-600 border-gray-200"
                           }`}>
@@ -288,7 +288,7 @@ export function TransactionListPage({ transactions, categories, members, pointAc
                     <div className="grid grid-cols-3 gap-2">
                       {categories.filter(c => c.type === "income").map(cat => (
                         <button key={cat.id}
-                          onClick={() => setCatFilters(p => { const n = new Set(p); n.has(cat.name) ? n.delete(cat.name) : n.add(cat.name); return n; })
+                          onClick={() => setCatFilters(p => { const n = new Set(p); n.has(cat.name) ? n.delete(cat.name) : n.add(cat.name); return n; })}
                           className={`py-3 rounded-xl text-xs font-semibold border transition-all ${
                             catFilters.has(cat.name) ? "bg-emerald-500 text-white border-emerald-500" : "bg-white text-gray-600 border-gray-200"
                           }`}>
