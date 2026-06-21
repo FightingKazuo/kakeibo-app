@@ -37,8 +37,21 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
   const totalExpense = useMemo(() => filtered.filter(t => t.type === "expense").reduce((s, t) => s + Math.abs(t.amount), 0), [filtered]);
 
   const catData = useMemo(() => {
-    const bycat = filtered.filter(t => t.type === "expense")
-      .reduce((acc, t) => { acc[t.category] = (acc[t.category] || 0) + Math.abs(t.amount); return acc; }, {});
+    const bycat = {};
+    filtered.filter(t => t.type === "expense").forEach(t => {
+      const items = t.items || [];
+      if (items.length > 0) {
+        // 品目カテゴリーがある品目はその品目カテゴリーで集計
+        // 品目カテゴリーがない品目は取引カテゴリーで集計
+        items.forEach(item => {
+          const cat = (item.category && item.category !== "その他") ? item.category : t.category;
+          bycat[cat] = (bycat[cat] || 0) + Math.abs(item.amount);
+        });
+      } else {
+        // 品目なし → 取引カテゴリーで集計
+        bycat[t.category] = (bycat[t.category] || 0) + Math.abs(t.amount);
+      }
+    });
     return Object.entries(bycat)
       .sort((a, b) => b[1] - a[1])
       .map(([name, value]) => ({ name, value, emoji: categories.find(c => c.name === name)?.emoji || "📦" }));
@@ -170,8 +183,18 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
       const inc   = mt.filter(t => t.type === "income").reduce((s, t) => s + t.amount, 0);
       const exp   = mt.filter(t => t.type === "expense").reduce((s, t) => s + Math.abs(t.amount), 0);
       const days  = new Date(parseInt(m.slice(0,4)), parseInt(m.slice(5,7)), 0).getDate();
-      const bycat = mt.filter(t => t.type === "expense")
-        .reduce((acc, t) => { acc[t.category] = (acc[t.category]||0) + Math.abs(t.amount); return acc; }, {});
+      const bycat = {};
+      mt.filter(t => t.type === "expense").forEach(t => {
+        const items = t.items || [];
+        if (items.length > 0) {
+          items.forEach(item => {
+            const cat = (item.category && item.category !== "その他") ? item.category : t.category;
+            bycat[cat] = (bycat[cat] || 0) + Math.abs(item.amount);
+          });
+        } else {
+          bycat[t.category] = (bycat[t.category] || 0) + Math.abs(t.amount);
+        }
+      });
       const topCat = Object.entries(bycat).sort((a,b) => b[1]-a[1])[0];
       return { ym: m, label: m.slice(5)+"月", inc, exp, bal: inc-exp, days, dailyAvg: Math.round(exp/days), topCat };
     });
@@ -180,17 +203,39 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
   // カテゴリ別月次推移（上位5カテゴリ）
   const catTrendData = useMemo(() => {
     const months = [...new Set(transactions.map(t => toYM(t.date)))].sort().slice(-6);
-    const topCats = Object.entries(
-      transactions.filter(t => t.type === "expense")
-        .reduce((acc, t) => { acc[t.category] = (acc[t.category]||0)+Math.abs(t.amount); return acc; }, {})
-    ).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([n])=>n);
+
+    // 品目カテゴリー込みの全体集計でtopCatsを決定
+    const allBycat = {};
+    transactions.filter(t => t.type === "expense").forEach(t => {
+      const items = t.items || [];
+      if (items.length > 0) {
+        items.forEach(item => {
+          const cat = (item.category && item.category !== "その他") ? item.category : t.category;
+          allBycat[cat] = (allBycat[cat] || 0) + Math.abs(item.amount);
+        });
+      } else {
+        allBycat[t.category] = (allBycat[t.category] || 0) + Math.abs(t.amount);
+      }
+    });
+    const topCats = Object.entries(allBycat).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([n])=>n);
 
     return months.map(m => {
       const row = { month: m.slice(5)+"月" };
       const mt  = transactions.filter(t => toYM(t.date) === m && t.type === "expense");
-      topCats.forEach(cat => {
-        row[cat] = mt.filter(t => t.category === cat).reduce((s,t) => s+Math.abs(t.amount), 0);
+      // 品目カテゴリー込みで各カテゴリー合計を算出
+      const mBycat = {};
+      mt.forEach(t => {
+        const items = t.items || [];
+        if (items.length > 0) {
+          items.forEach(item => {
+            const cat = (item.category && item.category !== "その他") ? item.category : t.category;
+            mBycat[cat] = (mBycat[cat] || 0) + Math.abs(item.amount);
+          });
+        } else {
+          mBycat[t.category] = (mBycat[t.category] || 0) + Math.abs(t.amount);
+        }
       });
+      topCats.forEach(cat => { row[cat] = mBycat[cat] || 0; });
       return { ...row, _cats: topCats };
     });
   }, [transactions]);
