@@ -40,7 +40,7 @@ export function TransactionListPage({ transactions, categories, members, pointAc
   const [srcFilter,     setSrcFilter]     = useState("all");
   const [shareFilter,   setShareFilter]   = useState("all");
   const [errFilter,     setErrFilter]     = useState(false);
-  const [catFilter,     setCatFilter]     = useState("");
+  const [catFilters,    setCatFilters]    = useState(new Set());
   const [showCatPicker, setShowCatPicker] = useState(false);
   const [sortBy,        setSortBy]        = useState("registered"); // registered/date/label/amount
 
@@ -61,9 +61,9 @@ export function TransactionListPage({ transactions, categories, members, pointAc
       .filter(t => srcFilter === "all" || t.source === srcFilter)
       .filter(t => !q || t.label.includes(q) || t.category.includes(q) || t.items?.some(i => i.name?.includes(q)))
       // catFilter: 取引カテゴリー一致 または 品目カテゴリー一致
-      .filter(t => !catFilter || t.category === catFilter || t.items?.some(i => i.category === catFilter))
+      .filter(t => catFilters.size === 0 || catFilters.has(t.category) || t.items?.some(i => catFilters.has(i.category)))
       .filter(t => !errFilter || (t.type === "expense" && !t.paidBy && t.shareType !== "personal" && t.shareType !== "partner")),
-    [transactions, selMonth, srcFilter, q, catFilter, errFilter]
+    [transactions, selMonth, srcFilter, q, catFilters, errFilter]
   );
 
   // 分割表示行を生成してからshareFilter・ソートを適用
@@ -219,22 +219,26 @@ export function TransactionListPage({ transactions, categories, members, pointAc
             </div>
 
             {/* カテゴリーフィルターボタン */}
-            <div className="flex gap-2 items-center">
+            <div className="flex gap-2 items-center flex-wrap">
               <button
-                onClick={() => setShowCatPicker(true)}
+                onClick={() => setShowCatPicker(p => !p)}
                 className={`flex-shrink-0 px-3 py-1 rounded-full text-xs font-semibold border transition-all ${
-                  catFilter ? "bg-emerald-500 text-white border-emerald-500" : "bg-white text-gray-500 border-gray-200"
+                  catFilters.size > 0 ? "bg-emerald-500 text-white border-emerald-500" : "bg-white text-gray-500 border-gray-200"
                 }`}>
-                {catFilter
-                  ? `${categories.find(c => c.name === catFilter)?.emoji || "🏷️"} ${catFilter} ×`
-                  : "🏷️ カテゴリー"}
+                🏷️ カテゴリー{catFilters.size > 0 ? `（${catFilters.size}件）` : ""}
               </button>
-              {catFilter && (
-                <button onClick={() => setCatFilter("")}
+              {catFilters.size > 0 && (
+                <button onClick={() => setCatFilters(new Set())}
                   className="text-xs text-gray-400 border border-gray-200 bg-white px-2.5 py-1 rounded-full">
                   解除
                 </button>
               )}
+              {[...catFilters].map(name => (
+                <span key={name} className="flex items-center gap-1 text-xs bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-full">
+                  {categories.find(c => c.name === name)?.emoji} {name}
+                  <button onClick={() => setCatFilters(p => { const n = new Set(p); n.delete(name); return n; })} className="text-emerald-400">×</button>
+                </span>
+              ))}
             </div>
 
             {/* カテゴリー選択モーダル */}
@@ -243,24 +247,34 @@ export function TransactionListPage({ transactions, categories, members, pointAc
                 <div className="bg-white rounded-t-2xl w-full p-5 space-y-4 max-h-[75vh] overflow-y-auto"
                   onClick={e => e.stopPropagation()}>
                   <div className="flex items-center justify-between">
-                    <p className="text-sm font-bold text-gray-900">カテゴリーを選択</p>
+                    <div>
+                      <p className="text-sm font-bold text-gray-900">カテゴリーを選択</p>
+                      <p className="text-xs text-gray-400 mt-0.5">複数選択可（品目カテゴリーも対象）</p>
+                    </div>
                     <button onClick={() => setShowCatPicker(false)} className="text-gray-400 text-2xl leading-none">×</button>
                   </div>
-                  <button
-                    onClick={() => { setCatFilter(""); setShowCatPicker(false); }}
-                    className={`w-full py-2.5 rounded-xl text-sm font-semibold border ${
-                      !catFilter ? "bg-gray-700 text-white border-gray-700" : "bg-white text-gray-500 border-gray-200"
-                    }`}>
-                    すべて（フィルター解除）
-                  </button>
+                  <div className="flex gap-2">
+                    <button onClick={() => setCatFilters(new Set())}
+                      className={`flex-1 py-2 rounded-xl text-xs font-semibold border ${
+                        catFilters.size === 0 ? "bg-gray-700 text-white border-gray-700" : "bg-white text-gray-500 border-gray-200"
+                      }`}>
+                      すべて解除
+                    </button>
+                    {catFilters.size > 0 && (
+                      <button onClick={() => setShowCatPicker(false)}
+                        className="flex-1 py-2 rounded-xl text-xs font-semibold bg-emerald-500 text-white border-emerald-500 border">
+                        ✅ {catFilters.size}件で絞り込む
+                      </button>
+                    )}
+                  </div>
                   <div>
                     <p className="text-xs font-semibold text-rose-400 mb-2">💸 支出</p>
                     <div className="grid grid-cols-3 gap-2">
                       {categories.filter(c => c.type === "expense").map(cat => (
                         <button key={cat.id}
-                          onClick={() => { setCatFilter(cat.name); setShowCatPicker(false); }}
+                          onClick={() => setCatFilters(p => { const n = new Set(p); n.has(cat.name) ? n.delete(cat.name) : n.add(cat.name); return n; })}
                           className={`py-3 rounded-xl text-xs font-semibold border transition-all ${
-                            catFilter === cat.name ? "bg-emerald-500 text-white border-emerald-500" : "bg-white text-gray-600 border-gray-200"
+                            catFilters.has(cat.name) ? "bg-emerald-500 text-white border-emerald-500" : "bg-white text-gray-600 border-gray-200"
                           }`}>
                           {cat.emoji}<br/>{cat.name}
                         </button>
@@ -272,9 +286,9 @@ export function TransactionListPage({ transactions, categories, members, pointAc
                     <div className="grid grid-cols-3 gap-2">
                       {categories.filter(c => c.type === "income").map(cat => (
                         <button key={cat.id}
-                          onClick={() => { setCatFilter(cat.name); setShowCatPicker(false); }}
+                          onClick={() => setCatFilters(p => { const n = new Set(p); n.has(cat.name) ? n.delete(cat.name) : n.add(cat.name); return n; })}
                           className={`py-3 rounded-xl text-xs font-semibold border transition-all ${
-                            catFilter === cat.name ? "bg-emerald-500 text-white border-emerald-500" : "bg-white text-gray-600 border-gray-200"
+                            catFilters.has(cat.name) ? "bg-emerald-500 text-white border-emerald-500" : "bg-white text-gray-600 border-gray-200"
                           }`}>
                           {cat.emoji}<br/>{cat.name}
                         </button>
@@ -389,7 +403,8 @@ export function TransactionListPage({ transactions, categories, members, pointAc
               onDelete={selectMode ? undefined : onDelete}
               onUpdateSharing={handleUpdateSharing}
               onUpdateTransfer={handleUpdateTransfer}
-              onCatFilter={setCatFilter}
+              onCatFilter={(cat) => setCatFilters(p => { const n = new Set(p); n.has(cat) ? n.delete(cat) : n.add(cat); return n; })}
+              catFilters={catFilters}
               selectMode={selectMode}
               selected={selectedIds.has(t.id)}
               onSelect={selectMode ? toggleSelect : enterSelectMode}
