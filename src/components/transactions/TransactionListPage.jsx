@@ -40,9 +40,9 @@ export function TransactionListPage({ transactions, categories, members, pointAc
   const [srcFilter,     setSrcFilter]     = useState("all");
   const [shareFilter,   setShareFilter]   = useState("all");
   const [errFilter,     setErrFilter]     = useState(false);
-  const [catFilters,    setCatFilters]    = useState(new Set()); // 複数選択対応
+  const [catFilter,     setCatFilter]     = useState("");
   const [showCatPicker, setShowCatPicker] = useState(false);
-  const [sortBy,        setSortBy]        = useState("registered");
+  const [sortBy,        setSortBy]        = useState("registered"); // registered/date/label/amount
 
   // 選択モード
   const [selectMode,  setSelectMode]  = useState(false);
@@ -60,51 +60,72 @@ export function TransactionListPage({ transactions, categories, members, pointAc
       .filter(t => selMonth === "all" || toYM(t.date) === selMonth)
       .filter(t => srcFilter === "all" || t.source === srcFilter)
       .filter(t => !q || t.label.includes(q) || t.category.includes(q) || t.items?.some(i => i.name?.includes(q)))
-      // catFilters: 選択カテゴリーのどれかに一致
-      .filter(t => catFilters.size === 0 || catFilters.has(t.category) || t.items?.some(i => catFilters.has(i.category)))
+      // catFilter: 取引カテゴリー一致 または 品目カテゴリー一致
+      .filter(t => !catFilter || t.category === catFilter || t.items?.some(i => i.category === catFilter))
       .filter(t => !errFilter || (t.type === "expense" && !t.paidBy && t.shareType !== "personal" && t.shareType !== "partner")),
-    [transactions, selMonth, srcFilter, q, catFilters, errFilter]
+    [transactions, selMonth, srcFilter, q, catFilter, errFilter]
   );
 
-  // 分割表示行を生成してからshareFilter・ソートを適用
+  // catFiltersが設定されている場合、品目カテゴリーごとに取引を分割
+// 重複チェックは元のamountで行うため _catSplit フラグで区別
+const splitByCatFilter = (tx, catFilters) => {
+  if (!catFilters || catFilters.size === 0) return [tx];
+  const items = tx.items || [];
+  if (items.length === 0) {
+    // 品目なし：取引カテゴリーがフィルターに含まれればそのまま
+    return catFilters.has(tx.category) ? [tx] : [];
+  }
+
+  // 品目をカテゴリーごとにグループ化
+  const groups = {};
+  items.forEach(item => {
+    const cat = (item.category && item.category !== "その他") ? item.category : tx.category;
+    if (!catFilters.has(cat)) return; // フィルター外は除外
+    if (!groups[cat]) groups[cat] = [];
+    groups[cat].push(item);
+  });
+
+  // 取引カテゴリー自体がフィルターに含まれていて品目グループがない場合
+  if (Object.keys(groups).length === 0) return [];
+
+  // カテゴリーごとに分割行を生成
+  return Object.entries(groups).map(([cat, catItems]) => {
+    const amt = catItems.reduce((s, i) => s + Math.abs(i.amount), 0);
+    return {
+      ...tx,
+      _catSplit:    true,
+      _catSplitCat: cat,
+      _splitAmt:    amt,
+      items:        catItems,
+      // 表示ラベルにカテゴリーを付加
+      _catLabel:    cat,
+    };
+  });
+};
   const displayRows = useMemo(() => {
     const rows = filtered.flatMap(t => splitTransaction(t));
     const shared = shareFilter === "all" ? rows : rows.filter(r => {
       const effectiveType = r._splitType || r.shareType || "shared";
       return effectiveType === shareFilter;
     });
+    // catFiltersがある場合は品目カテゴリーごとに分割
+    const catSplit = catFilters.size > 0
+      ? shared.flatMap(t => splitByCatFilter(t, catFilters))
+      : shared;
     // ソート
-    return [...shared].sort((a, b) => {
-      if (sortBy === "date")       return b.date?.localeCompare(a.date ?? "") ?? 0;
-      if (sortBy === "label")      return (a.label ?? "").localeCompare(b.label ?? "");
-      if (sortBy === "amount")     return Math.abs(b._splitAmt ?? b.amount) - Math.abs(a._splitAmt ?? a.amount);
-      return 0; // registered: 元の順番（登録順）
+    return [...catSplit].sort((a, b) => {
+      if (sortBy === "date")   return b.date?.localeCompare(a.date ?? "") ?? 0;
+      if (sortBy === "label")  return (a.label ?? "").localeCompare(b.label ?? "");
+      if (sortBy === "amount") return Math.abs(b._splitAmt ?? b.amount) - Math.abs(a._splitAmt ?? a.amount);
+      return 0;
     });
-  }, [filtered, shareFilter, sortBy]);
+  }, [filtered, shareFilter, sortBy, catFilters]);
 
-  // 合計（catFiltersがある場合は品目カテゴリーフィルター後の金額）
-  const totals = useMemo(() => {
-    const calcAmt = (t) => {
-      if (catFilters.size === 0) return Math.abs(t._splitAmt ?? t.amount);
-      // catFiltersがある場合：品目カテゴリーが一致する品目のみ合算
-      const items = t.items || [];
-      if (items.length > 0) {
-        const filtered = items.filter(item => {
-          const cat = (item.category && item.category !== "その他") ? item.category : t.category;
-          return catFilters.has(cat);
-        });
-        // 取引カテゴリー自体がマッチする場合は品目なし分も含む
-        if (filtered.length > 0) return filtered.reduce((s, i) => s + Math.abs(i.amount), 0);
-        if (catFilters.has(t.category)) return Math.abs(t._splitAmt ?? t.amount);
-        return 0;
-      }
-      return catFilters.has(t.category) ? Math.abs(t._splitAmt ?? t.amount) : 0;
-    };
-    return {
-      income:  displayRows.filter(t => t.type === "income").reduce((s, t) => s + calcAmt(t), 0),
-      expense: displayRows.filter(t => t.type === "expense").reduce((s, t) => s + calcAmt(t), 0),
-    };
-  }, [displayRows, catFilters]);
+  // 合計（catFilter分割後の_splitAmtベース）
+  const totals = useMemo(() => ({
+    income:  displayRows.filter(t => t.type === "income").reduce((s, t) => s + Math.abs(t._splitAmt ?? t.amount), 0),
+    expense: displayRows.filter(t => t.type === "expense").reduce((s, t) => s + Math.abs(t._splitAmt ?? t.amount), 0),
+  }), [displayRows]);
 
   // 支払者未設定件数
   const unsetCount = useMemo(() =>
@@ -241,12 +262,14 @@ export function TransactionListPage({ transactions, categories, members, pointAc
               <button
                 onClick={() => setShowCatPicker(true)}
                 className={`flex-shrink-0 px-3 py-1 rounded-full text-xs font-semibold border transition-all ${
-                  catFilters.size > 0 ? "bg-emerald-500 text-white border-emerald-500" : "bg-white text-gray-500 border-gray-200"
+                  catFilter ? "bg-emerald-500 text-white border-emerald-500" : "bg-white text-gray-500 border-gray-200"
                 }`}>
-                🏷️ カテゴリー{catFilters.size > 0 ? `（${catFilters.size}件）` : ""}
+                {catFilter
+                  ? `${categories.find(c => c.name === catFilter)?.emoji || "🏷️"} ${catFilter} ×`
+                  : "🏷️ カテゴリー"}
               </button>
-              {catFilters.size > 0 && (
-                <button onClick={() => setCatFilters(new Set())}
+              {catFilter && (
+                <button onClick={() => setCatFilter("")}
                   className="text-xs text-gray-400 border border-gray-200 bg-white px-2.5 py-1 rounded-full">
                   解除
                 </button>
@@ -263,9 +286,9 @@ export function TransactionListPage({ transactions, categories, members, pointAc
                     <button onClick={() => setShowCatPicker(false)} className="text-gray-400 text-2xl leading-none">×</button>
                   </div>
                   <button
-                    onClick={() => setCatFilters(new Set())}
+                    onClick={() => { setCatFilter(""); setShowCatPicker(false); }}
                     className={`w-full py-2.5 rounded-xl text-sm font-semibold border ${
-                      catFilters.size === 0 ? "bg-gray-700 text-white border-gray-700" : "bg-white text-gray-500 border-gray-200"
+                      !catFilter ? "bg-gray-700 text-white border-gray-700" : "bg-white text-gray-500 border-gray-200"
                     }`}>
                     すべて（フィルター解除）
                   </button>
@@ -274,9 +297,9 @@ export function TransactionListPage({ transactions, categories, members, pointAc
                     <div className="grid grid-cols-3 gap-2">
                       {categories.filter(c => c.type === "expense").map(cat => (
                         <button key={cat.id}
-                          onClick={() => setCatFilters(p => { const n = new Set(p); n.has(cat.name) ? n.delete(cat.name) : n.add(cat.name); return n; })}
+                          onClick={() => { setCatFilter(cat.name); setShowCatPicker(false); }}
                           className={`py-3 rounded-xl text-xs font-semibold border transition-all ${
-                            catFilters.has(cat.name) ? "bg-emerald-500 text-white border-emerald-500" : "bg-white text-gray-600 border-gray-200"
+                            catFilter === cat.name ? "bg-emerald-500 text-white border-emerald-500" : "bg-white text-gray-600 border-gray-200"
                           }`}>
                           {cat.emoji}<br/>{cat.name}
                         </button>
@@ -288,9 +311,9 @@ export function TransactionListPage({ transactions, categories, members, pointAc
                     <div className="grid grid-cols-3 gap-2">
                       {categories.filter(c => c.type === "income").map(cat => (
                         <button key={cat.id}
-                          onClick={() => setCatFilters(p => { const n = new Set(p); n.has(cat.name) ? n.delete(cat.name) : n.add(cat.name); return n; })}
+                          onClick={() => { setCatFilter(cat.name); setShowCatPicker(false); }}
                           className={`py-3 rounded-xl text-xs font-semibold border transition-all ${
-                            catFilters.has(cat.name) ? "bg-emerald-500 text-white border-emerald-500" : "bg-white text-gray-600 border-gray-200"
+                            catFilter === cat.name ? "bg-emerald-500 text-white border-emerald-500" : "bg-white text-gray-600 border-gray-200"
                           }`}>
                           {cat.emoji}<br/>{cat.name}
                         </button>
@@ -331,10 +354,7 @@ export function TransactionListPage({ transactions, categories, members, pointAc
 
       {/* 件数・合計 */}
       <div className="px-4 py-2 bg-gray-50 border-b border-gray-100 flex justify-between text-xs text-gray-500">
-        <span>
-          {displayRows.length}件
-          {catFilters.size > 0 && <span className="text-emerald-600 ml-1">（{[...catFilters].join("・")}のみ）</span>}
-        </span>
+        <span>{displayRows.length}件</span>
         <span>
           <span className="text-emerald-500 font-semibold">+{fmtCurrency(totals.income)}</span>
           {" / "}
@@ -398,7 +418,7 @@ export function TransactionListPage({ transactions, categories, members, pointAc
         ) : (
           displayRows.map((t, idx) => (
             <TransactionItem
-              key={`${t.id}_${t._splitType || "all"}_${idx}`}
+              key={`${t.id}_${t._splitType || "all"}_${t._catSplitCat || ""}_${idx}`}
               transaction={t}
               categories={categories}
               members={members}
