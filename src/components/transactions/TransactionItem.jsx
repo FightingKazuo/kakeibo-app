@@ -112,6 +112,9 @@ export function TransactionItem({
           </div>
           {/* 1行目：カテゴリ・日付 */}
           <p className="text-xs text-gray-400 mt-0.5">{t.category} · {t.date}</p>
+          {t.memo && (
+            <p className="text-xs text-indigo-500 mt-0.5 truncate">📝 {t.memo}</p>
+          )}
           {/* 2行目：バッジ類 */}
           <div className="flex items-center gap-1.5 mt-1 flex-wrap">
             {!isSplit && (
