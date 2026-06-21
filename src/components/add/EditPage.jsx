@@ -32,6 +32,7 @@ export function EditPage({ transaction, categories, allRules, learnedRules, memb
   const [paidBy,    setPaidBy]    = useState(transaction.paidBy || "");
   const [payMethod, setPayMethod] = useState(transaction.paymentMethod || "cash");
   const [shareType, setShareType] = useState(transaction.shareType || "shared");
+  const [memo,      setMemo]      = useState(transaction.memo || "");
 
   const [items, setItems] = useState(
     Array.isArray(transaction.items) ? transaction.items.map(i => ({ ...i })) : []
@@ -61,6 +62,7 @@ export function EditPage({ transaction, categories, allRules, learnedRules, memb
       paymentMethod: payMethod,
       pointAccountId: payMethod !== "cash" ? payMethod : null,
       shareType,
+      memo:          memo || "",
       items:         savedItems,
       updatedAt:     new Date().toISOString(),
     });
@@ -371,8 +373,21 @@ export function EditPage({ transaction, categories, allRules, learnedRules, memb
           </div>
         )}
 
+        {/* 備考 */}
+        <div>
+          <label className="block text-xs font-semibold text-gray-500 mb-2">📝 備考（任意）</label>
+          <textarea
+            value={memo}
+            onChange={e => setMemo(e.target.value)}
+            placeholder="例: ガソリン代（車通勤用）、家族旅行のホテル代 など"
+            rows={2}
+            className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-300 resize-none"
+          />
+        </div>
+
         <PrimaryButton onClick={handleSave} variant="warning">✅ 更新して保存</PrimaryButton>
       </div>
     </div>
   );
 }
+
