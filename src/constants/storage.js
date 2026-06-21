@@ -11,4 +11,5 @@ export const STORAGE_KEYS = {
   OCR_CORRECTIONS: "kakeibo_ocr_corrections",
   MEMBERS:         "kakeibo_members",
   POINT_ACCOUNTS:  "kakeibo_point_accounts",
+  ACTIVE_CSV_SOURCES: "kakeibo_active_csv_sources",
 };
