@@ -352,60 +352,56 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
             }, 0);
 
             return (
-              <div className="fixed inset-0 bg-black/50 z-50 flex flex-col justify-end" onClick={() => setSelectedCat(null)}>
-                <div className="bg-white rounded-t-2xl w-full"
-                  style={{ maxHeight: "85vh", display: "flex", flexDirection: "column" }}
-                  onClick={e => e.stopPropagation()}>
-                  {/* ヘッダー固定 */}
-                  <div className="bg-white px-5 pt-5 pb-3 border-b border-gray-100" style={{ flexShrink: 0 }}>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="text-2xl">{cat?.emoji}</span>
-                        <div>
-                          <p className="text-sm font-bold text-gray-900">{selectedCat}</p>
-                          <p className="text-xs text-rose-500 font-semibold">{fmtCurrency(catTotal)}</p>
-                        </div>
-                      </div>
-                      <button onClick={() => setSelectedCat(null)} className="text-gray-400 text-2xl">×</button>
+              <div className="fixed inset-0 bg-white z-50 flex flex-col">
+                {/* ヘッダー */}
+                <div className="bg-white px-4 pt-12 pb-4 border-b border-gray-100 flex items-center gap-3 flex-shrink-0">
+                  <button onClick={() => setSelectedCat(null)}
+                    className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-gray-600 text-lg font-bold flex-shrink-0">
+                    ‹
+                  </button>
+                  <div className="flex items-center gap-2 flex-1 min-w-0">
+                    <span className="text-2xl">{cat?.emoji}</span>
+                    <div>
+                      <p className="text-base font-bold text-gray-900">{selectedCat}</p>
+                      <p className="text-xs text-rose-500 font-semibold">{fmtCurrency(catTotal)}</p>
                     </div>
                   </div>
-                  {/* スクロールエリア */}
-                  <div style={{ overflowY: "auto", flex: 1, WebkitOverflowScrolling: "touch" }}>
-                    <div className="divide-y divide-gray-50">
-                      {catTxs.map(t => {
-                        const matchedItems = (t.items || []).filter(i =>
-                          (i.category && i.category !== "その他") ? i.category === selectedCat : t.category === selectedCat
-                        );
-                        const dispAmt = matchedItems.length > 0
-                          ? matchedItems.reduce((s, i) => s + Math.abs(i.amount), 0)
-                          : Math.abs(t.amount);
-                        return (
-                          <div key={t.id} className="px-5 py-3">
-                            <div className="flex items-center justify-between">
-                              <div className="flex-1 min-w-0">
-                                <p className="text-sm font-medium text-gray-800 truncate">{t.label}</p>
-                                <p className="text-xs text-gray-400">{t.date} · {t.category !== selectedCat ? `（${t.category}内の${selectedCat}品目）` : ""}</p>
-                              </div>
-                              <p className="text-sm font-bold text-rose-500 ml-3">-{fmtCurrency(dispAmt)}</p>
+                </div>
+                {/* 明細リスト（フル高さでスクロール） */}
+                <div className="flex-1 overflow-y-auto pb-8">
+                  <div className="divide-y divide-gray-50">
+                    {catTxs.map(t => {
+                      const matchedItems = (t.items || []).filter(i =>
+                        (i.category && i.category !== "その他") ? i.category === selectedCat : t.category === selectedCat
+                      );
+                      const dispAmt = matchedItems.length > 0
+                        ? matchedItems.reduce((s, i) => s + Math.abs(i.amount), 0)
+                        : Math.abs(t.amount);
+                      return (
+                        <div key={t.id} className="px-5 py-3">
+                          <div className="flex items-center justify-between">
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-gray-800 truncate">{t.label}</p>
+                              <p className="text-xs text-gray-400">{t.date}{t.category !== selectedCat ? ` · ${t.category}内` : ""}</p>
                             </div>
-                            {matchedItems.length > 0 && matchedItems.length < (t.items?.length || 0) && (
-                              <div className="mt-1.5 space-y-0.5">
-                                {matchedItems.map((item, i) => (
-                                  <div key={i} className="flex justify-between pl-3 border-l-2 border-indigo-100">
-                                    <p className="text-xs text-gray-500 truncate">{item.name}</p>
-                                    <p className="text-xs text-gray-600 font-medium ml-2">¥{Math.abs(item.amount).toLocaleString()}</p>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
+                            <p className="text-sm font-bold text-rose-500 ml-3 flex-shrink-0">-{fmtCurrency(dispAmt)}</p>
                           </div>
-                        );
-                      })}
-                      {catTxs.length === 0 && (
-                        <div className="px-5 py-8 text-center text-sm text-gray-400">該当する取引がありません</div>
-                      )}
-                    </div>
-                    <div className="h-8" />
+                          {matchedItems.length > 0 && matchedItems.length < (t.items?.length || 0) && (
+                            <div className="mt-1.5 space-y-0.5">
+                              {matchedItems.map((item, i) => (
+                                <div key={i} className="flex justify-between pl-3 border-l-2 border-indigo-100">
+                                  <p className="text-xs text-gray-500 truncate">{item.name}</p>
+                                  <p className="text-xs text-gray-600 font-medium ml-2">¥{Math.abs(item.amount).toLocaleString()}</p>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                    {catTxs.length === 0 && (
+                      <div className="px-5 py-12 text-center text-sm text-gray-400">該当する取引がありません</div>
+                    )}
                   </div>
                 </div>
               </div>
