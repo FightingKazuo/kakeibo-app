@@ -426,29 +426,48 @@ export function CsvImportPage({ categories, existingTransactions, members, point
             </div>
 
             <div className="bg-white rounded-xl overflow-hidden border border-gray-100">
-              {/* ✅ インポート予定 */}
-              {csvRows.filter((r, i) => csvChecked[i] && !isOcrOnlyDup(r)).length > 0 && (
-                <div className="px-4 py-2 bg-emerald-50 border-b border-emerald-100">
-                  <p className="text-xs font-semibold text-emerald-600">✅ インポート予定（{csvRows.filter((r,i) => csvChecked[i] && !isOcrOnlyDup(r)).length}件）</p>
-                </div>
-              )}
-              {csvRows.map((r, i) => { if (!csvChecked[i] || isOcrOnlyDup(r)) return null; return renderCsvRow(r, i); })}
+              {/* shareTypeのソート順 */}
+              {(() => {
+                const shareOrder = { shared: 0, personal: 1, partner: 2 };
+                const sortByShareType = (entries) =>
+                  [...entries].sort((a, b) => {
+                    const stA = shareOrder[a[0].shareType || defaultShareType] ?? 0;
+                    const stB = shareOrder[b[0].shareType || defaultShareType] ?? 0;
+                    return stA - stB;
+                  });
 
-              {/* ⚠️ 要確認（チェックONでインポート可） */}
-              {csvRows.some(r => isOcrOnlyDup(r)) && (
-                <div className="px-4 py-2 bg-amber-50 border-t border-amber-100">
-                  <p className="text-xs font-semibold text-amber-600">⚠️ 要確認（チェックでインポート可）</p>
-                </div>
-              )}
-              {csvRows.map((r, i) => { if (!isOcrOnlyDup(r)) return null; return renderCsvRow(r, i); })}
+                const importRows  = csvRows.map((r, i) => [r, i]).filter(([r, i]) => csvChecked[i] && !isOcrOnlyDup(r));
+                const confirmRows = csvRows.map((r, i) => [r, i]).filter(([r])    => isOcrOnlyDup(r));
+                const skipRows    = csvRows.map((r, i) => [r, i]).filter(([r, i]) => !csvChecked[i] && !isOcrOnlyDup(r));
 
-              {/* ⬜ スキップ予定 */}
-              {csvRows.filter((r, i) => !csvChecked[i] && !isOcrOnlyDup(r)).length > 0 && (
-                <div className="px-4 py-2 bg-gray-100 border-t border-gray-200">
-                  <p className="text-xs font-semibold text-gray-400">⬜ スキップ予定（チェックで変更可）</p>
-                </div>
-              )}
-              {csvRows.map((r, i) => { if (csvChecked[i] || isOcrOnlyDup(r)) return null; return renderCsvRow(r, i); })}
+                return (
+                  <>
+                    {/* ✅ インポート予定 */}
+                    {importRows.length > 0 && (
+                      <div className="px-4 py-2 bg-emerald-50 border-b border-emerald-100">
+                        <p className="text-xs font-semibold text-emerald-600">✅ インポート予定（{importRows.length}件）</p>
+                      </div>
+                    )}
+                    {sortByShareType(importRows).map(([r, i]) => renderCsvRow(r, i))}
+
+                    {/* ⚠️ 要確認 */}
+                    {confirmRows.length > 0 && (
+                      <div className="px-4 py-2 bg-amber-50 border-t border-amber-100">
+                        <p className="text-xs font-semibold text-amber-600">⚠️ 要確認（チェックでインポート可）</p>
+                      </div>
+                    )}
+                    {sortByShareType(confirmRows).map(([r, i]) => renderCsvRow(r, i))}
+
+                    {/* ⬜ スキップ予定 */}
+                    {skipRows.length > 0 && (
+                      <div className="px-4 py-2 bg-gray-100 border-t border-gray-200">
+                        <p className="text-xs font-semibold text-gray-400">⬜ スキップ予定（チェックで変更可）</p>
+                      </div>
+                    )}
+                    {sortByShareType(skipRows).map(([r, i]) => renderCsvRow(r, i))}
+                  </>
+                );
+              })()}
             </div>
 
             <PrimaryButton onClick={execCSVImport}>✅ {csvRows.filter((r, i) => csvChecked[i]).length}件をインポート</PrimaryButton>
