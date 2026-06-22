@@ -39,10 +39,10 @@ export function CsvImportPage({ categories, existingTransactions, members, point
       <div key={i} className={`border-b border-gray-50 last:border-b-0 ${isHardDup ? "bg-gray-50 opacity-60" : isOcrDup ? "bg-yellow-50/60" : isCategorized ? "bg-emerald-50" : "bg-white"}`}>
         <div className="flex items-center gap-3 px-4 py-3">
           <input type="checkbox" checked={!!csvChecked[i]} onChange={() => setCsvChecked(p => ({ ...p, [i]: !p[i] }))} className="accent-indigo-500 flex-shrink-0" />
-          <div className="flex-1 min-w-0" onClick={() => !isDupRow(r) && setCsvEditIdx(csvEditIdx === i ? null : i)}>
+          <div className="flex-1 min-w-0" onClick={() => setCsvEditIdx(csvEditIdx === i ? null : i)}>
             <div className="flex items-center gap-1 flex-wrap">
-              <p className={`text-sm font-medium truncate ${isDupRow(r) ? "text-gray-400" : "text-gray-800"}`}>{r.label}</p>
-              {r.category && r.category !== "その他" && <span className={`text-xs px-1.5 py-0.5 rounded-full flex-shrink-0 ${isDupRow(r) ? "bg-gray-100 text-gray-500" : "bg-emerald-100 text-emerald-700"}`}>{categories.find(c => c.name === r.category)?.emoji} {r.category}</span>}
+              <p className={`text-sm font-medium truncate ${(r.isDuplicate || r.isTransfer) ? "text-gray-400" : "text-gray-800"}`}>{r.label}</p>
+              {r.category && r.category !== "その他" && <span className={`text-xs px-1.5 py-0.5 rounded-full flex-shrink-0 ${(r.isDuplicate||r.isTransfer) ? "bg-gray-100 text-gray-500" : "bg-emerald-100 text-emerald-700"}`}>{categories.find(c => c.name === r.category)?.emoji} {r.category}</span>}
               {r.isDuplicate      && <span className="text-xs bg-gray-200 text-gray-500 px-1.5 py-0.5 rounded-full flex-shrink-0">重複</span>}
               {r.isTransfer       && <span className="text-xs bg-gray-200 text-gray-500 px-1.5 py-0.5 rounded-full flex-shrink-0">🔄 振替</span>}
               {r.isCardWithdrawal && <span className="text-xs bg-gray-200 text-gray-500 px-1.5 py-0.5 rounded-full flex-shrink-0">💳 取込済みスキップ</span>}
@@ -53,13 +53,13 @@ export function CsvImportPage({ categories, existingTransactions, members, point
             <p className="text-xs text-gray-400">{r.date}</p>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
-            <p className={`text-sm font-bold ${isDupRow(r) ? "text-gray-400" : r.type === "income" ? "text-emerald-500" : "text-rose-500"}`}>
+            <p className={`text-sm font-bold ${(r.isDuplicate||r.isTransfer) ? "text-gray-400" : r.type === "income" ? "text-emerald-500" : "text-rose-500"}`}>
               {r.type === "income" ? "+" : "-"}{fmtCurrency(r.amount)}
             </p>
-            {!isDupRow(r) && <button onClick={() => setCsvEditIdx(csvEditIdx === i ? null : i)} className="text-gray-300 text-xs">✏️</button>}
+            <button onClick={() => setCsvEditIdx(csvEditIdx === i ? null : i)} className="text-gray-300 text-xs">✏️</button>
           </div>
         </div>
-        {csvEditIdx === i && !isDupRow(r) && (
+        {csvEditIdx === i && (
           <div className="px-4 pb-3 space-y-2 bg-gray-50 border-t border-gray-100">
             <div className="grid grid-cols-2 gap-2">
               <div><p className="text-xs text-gray-400 mb-1">店舗名</p><input type="text" value={r.label} onChange={e => updateCsvRow(i, "label", e.target.value)} className="w-full text-xs px-2 py-1.5 bg-white border border-gray-200 rounded-lg outline-none" /></div>
