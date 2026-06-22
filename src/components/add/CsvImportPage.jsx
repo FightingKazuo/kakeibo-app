@@ -410,6 +410,21 @@ export function CsvImportPage({ categories, existingTransactions, members, point
               <p className="text-xs text-indigo-400 mt-1.5">チェックした件を選択→カテゴリボタンで変更</p>
             </div>
 
+            {/* 種別一括変更パネル */}
+            <div className="bg-indigo-50 rounded-xl p-3 border border-indigo-100">
+              <p className="text-xs font-semibold text-indigo-600 mb-2">🔖 種別を選択して一括変更</p>
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {[["shared","🤝 共有","bg-indigo-500","border-indigo-500"],["personal","👤 個人","bg-rose-400","border-rose-400"],["partner","👥 相手","bg-purple-500","border-purple-500"]].map(([val, lb, bg, border]) => (
+                  <button key={val}
+                    onClick={() => setCsvRows(p => p.map((r, i) => csvChecked[i] && !isDupRow(r) && r.type === "expense" ? { ...r, shareType: val } : r))}
+                    className={`px-2.5 py-1 ${bg} text-white rounded-lg text-xs font-semibold border ${border} transition-all`}>
+                    {lb}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-indigo-400">チェックした支出行の種別を一括変更</p>
+            </div>
+
             <div className="bg-white rounded-xl overflow-hidden border border-gray-100">
               {/* ✅ インポート予定 */}
               {csvRows.filter((r, i) => csvChecked[i] && !isOcrOnlyDup(r)).length > 0 && (
