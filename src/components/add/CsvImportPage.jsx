@@ -50,7 +50,7 @@ export function CsvImportPage({ categories, existingTransactions, members, point
               {r.ocrDuplicate     && <span className="text-xs bg-amber-100 text-amber-600 px-1.5 py-0.5 rounded-full flex-shrink-0">📷 OCR重複?</span>}
             </div>
             {r.ocrDuplicate && <p className="text-xs text-gray-400 mt-0.5">OCR:「{r.ocrDuplicate.label}」と重複の可能性</p>}
-            <div className="flex items-center gap-1.5 mt-1">
+            <div className="flex items-center gap-1.5 mt-1 flex-wrap">
               <p className="text-xs text-gray-400">{r.date}</p>
               {/* カテゴリーバッジ：常に表示 */}
               {r.category && (
@@ -62,6 +62,17 @@ export function CsvImportPage({ categories, existingTransactions, members, point
                   {categories.find(c => c.name === r.category)?.emoji} {r.category}
                 </span>
               )}
+              {/* shareTypeバッジ：常に表示 */}
+              {(() => {
+                const st = r.shareType || defaultShareType;
+                const cfg = { shared: ["🤝", "共有", "bg-indigo-50 text-indigo-600 border-indigo-200"], personal: ["👤", "個人", "bg-rose-50 text-rose-500 border-rose-200"], partner: ["👥", "相手", "bg-purple-50 text-purple-600 border-purple-200"] }[st] || ["🤝","共有","bg-indigo-50 text-indigo-600 border-indigo-200"];
+                return <span className={`text-xs px-1.5 py-0.5 rounded-full flex-shrink-0 border font-medium ${cfg[2]}`}>{cfg[0]} {cfg[1]}</span>;
+              })()}
+              {/* paidByバッジ */}
+              {r.type === "expense" && (() => {
+                const payer = members?.find(m => m.id === (r.paidBy || defaultPaidBy || members?.[0]?.id));
+                return payer ? <span className="text-xs px-1.5 py-0.5 rounded-full flex-shrink-0 border bg-gray-50 text-gray-500 border-gray-200">{payer.name}</span> : null;
+              })()}
             </div>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
@@ -95,6 +106,34 @@ export function CsvImportPage({ categories, existingTransactions, members, point
                 ))}
               </div>
             </div>
+            {/* shareType変更 */}
+            {r.type === "expense" && (
+              <div>
+                <p className="text-xs text-gray-400 mb-1.5">種別</p>
+                <div className="flex gap-1.5 flex-wrap">
+                  {[["shared","🤝 共有","bg-indigo-500"],["personal","👤 個人","bg-rose-400"],["partner","👥 相手","bg-purple-500"]].map(([val,lb,color]) => (
+                    <button key={val} onClick={() => updateCsvRow(i, "shareType", val)}
+                      className={`px-2.5 py-1 rounded-full text-xs font-semibold border transition-all ${
+                        (r.shareType || defaultShareType) === val ? `${color} text-white border-transparent` : "bg-white text-gray-500 border-gray-200"
+                      }`}>{lb}</button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {/* paidBy変更 */}
+            {r.type === "expense" && members?.length > 0 && (
+              <div>
+                <p className="text-xs text-gray-400 mb-1.5">支払者</p>
+                <div className="flex gap-1.5 flex-wrap">
+                  {members.map(m => (
+                    <button key={m.id} onClick={() => updateCsvRow(i, "paidBy", m.id)}
+                      className={`px-2.5 py-1 rounded-full text-xs font-semibold border transition-all ${
+                        (r.paidBy || defaultPaidBy || members?.[0]?.id) === m.id ? "bg-indigo-500 text-white border-transparent" : "bg-white text-gray-500 border-gray-200"
+                      }`}>👤 {m.name}</button>
+                  ))}
+                </div>
+              </div>
+            )}
             <button onClick={() => setCsvEditIdx(null)} className="text-xs text-indigo-500 font-semibold">完了 ✓</button>
           </div>
         )}
