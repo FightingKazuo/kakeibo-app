@@ -148,8 +148,9 @@ export const detectCSVFormat = (text) => {
  * @param {string} text - CSVテキスト
  * @param {string} formatId - フォーマットID
  * @param {object} importHistory - 取り込み済みカード履歴 { "smbc_2026-06": true, ... }
+ * @param {Array}  activeCsvSources - 管理対象CSVソースID配列（OFFのものは振替扱いしない）
  */
-export const parseCSVText = (text, formatId, importHistory = {}) => {
+export const parseCSVText = (text, formatId, importHistory = {}, activeCsvSources = null) => {
   let processText = text;
 
   // ── リクルートカード専用前処理 ──────────────────────────
@@ -204,8 +205,15 @@ export const parseCSVText = (text, formatId, importHistory = {}) => {
 
         // ── 住信SBI銀行のカード引き落とし行にフラグ ──────
         if (formatId === "sbi" && amt < 0 && isCardWithdrawal(tx.label) && !tx.isTransfer) {
+          const cardFormatId    = getCardFormatId(tx.label);
           const alreadyImported = isCardAlreadyImported(tx.label, tx.date, importHistory);
-          if (alreadyImported) {
+          // activeCsvSourcesでOFFになっているカードは振替・警告なし（通常支出として取り込む）
+          const isInactive = activeCsvSources && cardFormatId && !activeCsvSources.includes(cardFormatId);
+          if (isInactive) {
+            // OFFのカード → 通常支出として処理（フラグなし）
+            tx.isCardWithdrawal = false;
+            tx.isCardWarning    = false;
+          } else if (alreadyImported) {
             tx.isCardWithdrawal = true;
             tx.cardImportStatus = "imported";
           } else {
@@ -213,7 +221,7 @@ export const parseCSVText = (text, formatId, importHistory = {}) => {
             tx.cardImportStatus = "unknown";
             tx.isCardWarning    = true;
           }
-          tx.cardFormatId = getCardFormatId(tx.label);
+          tx.cardFormatId = cardFormatId;
         }
 
         // ── 振替フラグ（SBI銀行の振替行を自動検出）──────
