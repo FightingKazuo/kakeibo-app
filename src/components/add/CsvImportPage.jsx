@@ -10,6 +10,8 @@ import { PrimaryButton } from "../ui/PrimaryButton";
 
 export function CsvImportPage({ categories, existingTransactions, members, pointAccounts, importHistory, onAdd, onDelete, onLearnRule, onImportHistoryChange, onBack }) {
   const [csvFormat,       setCsvFormat]       = useState("generic");
+  const [defaultPaidBy,   setDefaultPaidBy]   = useState(null);
+  const [defaultShareType,setDefaultShareType]= useState("shared");
   const [csvDetected,     setCsvDetected]     = useState(null);
   const [csvFormatIds,    setCsvFormatIds]    = useState([]);
   const [csvShowOverride, setCsvShowOverride] = useState(false);
@@ -24,9 +26,8 @@ export function CsvImportPage({ categories, existingTransactions, members, point
   const fileRef   = useRef(null);
 
   const isDupRow     = (r) => r.isDuplicate || r.isCardWithdrawal || !!r.ocrDuplicate || r.isCardWarning || r.isTransfer;
-  // 全行チェック可能 - ユーザーが自分で選ぶ
-  const isHardDupRow = (r) => false;
-  const isOcrOnlyDup = (r) => !r.isDuplicate && !r.isTransfer && (!!r.ocrDuplicate || r.isCardWarning);
+  const isHardDupRow = (r) => false; // 全行チェック可能
+  const isOcrOnlyDup = (r) => !!r.ocrDuplicate || r.isCardWarning || r.isDuplicate || r.isTransfer || r.isCardWithdrawal;
 
   const updateCsvRow = (i, key, val) => setCsvRows(p => p.map((r, j) => j === i ? { ...r, [key]: val } : r));
 
@@ -41,7 +42,7 @@ export function CsvImportPage({ categories, existingTransactions, members, point
           <div className="flex-1 min-w-0" onClick={() => !isDupRow(r) && setCsvEditIdx(csvEditIdx === i ? null : i)}>
             <div className="flex items-center gap-1 flex-wrap">
               <p className={`text-sm font-medium truncate ${isDupRow(r) ? "text-gray-400" : "text-gray-800"}`}>{r.label}</p>
-              {isCategorized && !isDupRow(r) && <span className="text-xs bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full flex-shrink-0">{categories.find(c => c.name === r.category)?.emoji} {r.category}</span>}
+              {r.category && r.category !== "その他" && <span className={`text-xs px-1.5 py-0.5 rounded-full flex-shrink-0 ${isDupRow(r) ? "bg-gray-100 text-gray-500" : "bg-emerald-100 text-emerald-700"}`}>{categories.find(c => c.name === r.category)?.emoji} {r.category}</span>}
               {r.isDuplicate      && <span className="text-xs bg-gray-200 text-gray-500 px-1.5 py-0.5 rounded-full flex-shrink-0">重複</span>}
               {r.isTransfer       && <span className="text-xs bg-gray-200 text-gray-500 px-1.5 py-0.5 rounded-full flex-shrink-0">🔄 振替</span>}
               {r.isCardWithdrawal && <span className="text-xs bg-gray-200 text-gray-500 px-1.5 py-0.5 rounded-full flex-shrink-0">💳 取込済みスキップ</span>}
@@ -137,11 +138,7 @@ export function CsvImportPage({ categories, existingTransactions, members, point
       const withDup = allRows.map(r => ({ ...r, isDuplicate: existKeys.has(DUPLICATE_KEY(r)), ocrDuplicate: !existKeys.has(DUPLICATE_KEY(r)) ? findOcrDup(r) : null }));
       const init = {};
       withDup.forEach((r, i) => {
-        // 完全重複のみデフォルトOFF、それ以外はユーザーが判断
-        // 振替・カード系はデフォルトOFF（チェックしてONにできる）
-        init[i] = !r.isDuplicate && !r.isTransfer && !r.isCardWithdrawal;
-        // isCardWarning（未取込?）はデフォルトOFF→ユーザーが確認してONに
-        if (r.isCardWarning) init[i] = false;
+        init[i] = !r.isDuplicate && !r.isTransfer && !r.isCardWithdrawal && !r.isCardWarning;
       });
       setCsvRows(withDup); setCsvChecked(init);
       setCsvStep(allRows.length === 0 ? "empty" : "preview");
@@ -157,22 +154,11 @@ export function CsvImportPage({ categories, existingTransactions, members, point
     const payPayAccount = (pointAccounts || []).find(a => a.name === "PayPay");
     const isPayPay = csvDetected?.includes("PayPay") || csvDetected?.includes("paypay");
 
+    const payerId = defaultPaidBy ?? selfId;
     toImport.forEach(r => {
-      const enriched  = isPayPay && payPayAccount ? { ...r, pointAccountId: payPayAccount.id, paymentMethod: payPayAccount.id } : r;
-
-      // isCardWarning行：ユーザーが明示的にチェックしてインポート → 振替フラグを外して通常支出に
-      const cleaned = r.isCardWarning ? {
-        ...enriched,
-        isTransfer:       false,
-        isCardWithdrawal: false,
-        isCardWarning:    false,
-      } : enriched;
-
-      const withPayer = cleaned.type === "expense" ? {
-        ...cleaned,
-        paidBy:    cleaned.paidBy    || selfId,
-        shareType: cleaned.shareType || defaultShareType,
-      } : cleaned;
+      const enriched = isPayPay && payPayAccount ? { ...r, pointAccountId: payPayAccount.id, paymentMethod: payPayAccount.id } : r;
+      const cleaned  = r.isCardWarning ? { ...enriched, isTransfer: false, isCardWithdrawal: false, isCardWarning: false } : enriched;
+      const withPayer = cleaned.type === "expense" ? { ...cleaned, paidBy: cleaned.paidBy || payerId, shareType: cleaned.shareType || defaultShareType } : cleaned;
 
       // PayPayチャージ（銀行CSV）→ 支出＋PayPay残高増加
       if (r.isPointCharge && payPayAccount) {
@@ -269,6 +255,39 @@ export function CsvImportPage({ categories, existingTransactions, members, point
               <p className="text-sm font-bold text-gray-700">{csvRows.length}件を読み込みました</p>
               <button onClick={() => { setCsvStep("upload"); setCsvDetected(null); }} className="text-xs text-gray-400 underline">← 戻る</button>
             </div>
+
+            {/* 支払者・種別デフォルト設定 */}
+            <div className="bg-indigo-50 rounded-xl p-3 border border-indigo-100 space-y-2">
+              <p className="text-xs font-semibold text-indigo-700">⚙️ デフォルト設定（個別変更も可）</p>
+              <div className="flex items-center gap-2">
+                <p className="text-xs text-gray-500 w-14 flex-shrink-0">支払者</p>
+                <div className="flex gap-1.5 flex-wrap">
+                  {(members || []).map(m => (
+                    <button key={m.id} onClick={() => setDefaultPaidBy(m.id)}
+                      className={`px-2.5 py-1 rounded-full text-xs font-semibold border transition-all ${
+                        (defaultPaidBy ?? members?.[0]?.id) === m.id
+                          ? "bg-indigo-500 text-white border-indigo-500"
+                          : "bg-white text-gray-500 border-gray-200"
+                      }`}>
+                      👤 {m.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <p className="text-xs text-gray-500 w-14 flex-shrink-0">種別</p>
+                <div className="flex gap-1.5 flex-wrap">
+                  {[["shared","🤝 共有","bg-indigo-500"],["personal","👤 個人","bg-rose-400"],["partner","👥 相手","bg-purple-400"]].map(([val,lb,color]) => (
+                    <button key={val} onClick={() => setDefaultShareType(val)}
+                      className={`px-2.5 py-1 rounded-full text-xs font-semibold border transition-all ${
+                        defaultShareType === val ? `${color} text-white border-transparent` : "bg-white text-gray-500 border-gray-200"
+                      }`}>
+                      {lb}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
             {csvDetected && (
               <div className={`rounded-xl px-3 py-2 border flex items-center gap-2 ${csvDetected !== "generic" ? "bg-emerald-50 border-emerald-200" : "bg-amber-50 border-amber-200"}`}>
                 <span className="text-sm">{csvDetected !== "generic" ? "✅" : "⚠️"}</span>
@@ -313,23 +332,29 @@ export function CsvImportPage({ categories, existingTransactions, members, point
             </div>
 
             <div className="bg-white rounded-xl overflow-hidden border border-gray-100">
-              {/* ✅ チェック済み・適用済み */}
-              {csvRows.filter((r, i) => csvChecked[i] && r.category !== "その他").length > 0 && (
-                <div className="px-4 py-2 bg-emerald-50 border-b border-emerald-100"><p className="text-xs font-semibold text-emerald-600">✅ インポート予定（カテゴリ設定済み）</p></div>
+              {/* ✅ インポート予定 */}
+              {csvRows.filter((r, i) => csvChecked[i] && !isOcrOnlyDup(r)).length > 0 && (
+                <div className="px-4 py-2 bg-emerald-50 border-b border-emerald-100">
+                  <p className="text-xs font-semibold text-emerald-600">✅ インポート予定（{csvRows.filter((r,i) => csvChecked[i] && !isOcrOnlyDup(r)).length}件）</p>
+                </div>
               )}
-              {csvRows.map((r, i) => { if (!csvChecked[i] || r.category === "その他") return null; return renderCsvRow(r, i); })}
+              {csvRows.map((r, i) => { if (!csvChecked[i] || isOcrOnlyDup(r)) return null; return renderCsvRow(r, i); })}
 
-              {/* 📋 チェック済み・未分類 */}
-              {csvRows.filter((r, i) => csvChecked[i] && r.category === "その他").length > 0 && (
-                <div className="px-4 py-2 bg-gray-50 border-b border-gray-100"><p className="text-xs font-semibold text-gray-500">📋 インポート予定（カテゴリ未設定）</p></div>
+              {/* ⚠️ 要確認（チェックONでインポート可） */}
+              {csvRows.some(r => isOcrOnlyDup(r)) && (
+                <div className="px-4 py-2 bg-amber-50 border-t border-amber-100">
+                  <p className="text-xs font-semibold text-amber-600">⚠️ 要確認（チェックでインポート可）</p>
+                </div>
               )}
-              {csvRows.map((r, i) => { if (!csvChecked[i] || r.category !== "その他") return null; return renderCsvRow(r, i); })}
+              {csvRows.map((r, i) => { if (!isOcrOnlyDup(r)) return null; return renderCsvRow(r, i); })}
 
-              {/* ⬜ チェックなし（スキップ予定） */}
-              {csvRows.filter((r, i) => !csvChecked[i]).length > 0 && (
-                <div className="px-4 py-2 bg-gray-100 border-t border-gray-200"><p className="text-xs font-semibold text-gray-400">⬜ スキップ予定（チェックで変更可）</p></div>
+              {/* ⬜ スキップ予定 */}
+              {csvRows.filter((r, i) => !csvChecked[i] && !isOcrOnlyDup(r)).length > 0 && (
+                <div className="px-4 py-2 bg-gray-100 border-t border-gray-200">
+                  <p className="text-xs font-semibold text-gray-400">⬜ スキップ予定（チェックで変更可）</p>
+                </div>
               )}
-              {csvRows.map((r, i) => { if (csvChecked[i]) return null; return renderCsvRow(r, i); })}
+              {csvRows.map((r, i) => { if (csvChecked[i] || isOcrOnlyDup(r)) return null; return renderCsvRow(r, i); })}
             </div>
 
             <PrimaryButton onClick={execCSVImport}>✅ {csvRows.filter((r, i) => csvChecked[i]).length}件をインポート</PrimaryButton>
