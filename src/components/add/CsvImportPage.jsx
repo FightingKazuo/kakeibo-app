@@ -1,6 +1,7 @@
 import { useState, useRef } from "react";
 import { createTransaction, DUPLICATE_KEY } from "../../services/transaction";
 import { parseCSVText, readCSVFile, detectCSVFormat } from "../../services/csvParser";
+import { STORAGE_KEYS } from "../../constants/storage";
 import { parsePDF, PDF_FORMAT_LABELS } from "../../services/pdfParser";
 import { analyzePDFWithGemini } from "../../services/geminiOcr";
 import { CSV_FORMATS, DEFAULT_CATEGORY_RULES } from "../../constants";
@@ -42,15 +43,26 @@ export function CsvImportPage({ categories, existingTransactions, members, point
           <div className="flex-1 min-w-0" onClick={() => setCsvEditIdx(csvEditIdx === i ? null : i)}>
             <div className="flex items-center gap-1 flex-wrap">
               <p className={`text-sm font-medium truncate ${(r.isDuplicate || r.isTransfer) ? "text-gray-400" : "text-gray-800"}`}>{r.label}</p>
-              {r.category && r.category !== "その他" && <span className={`text-xs px-1.5 py-0.5 rounded-full flex-shrink-0 ${(r.isDuplicate||r.isTransfer) ? "bg-gray-100 text-gray-500" : "bg-emerald-100 text-emerald-700"}`}>{categories.find(c => c.name === r.category)?.emoji} {r.category}</span>}
               {r.isDuplicate      && <span className="text-xs bg-gray-200 text-gray-500 px-1.5 py-0.5 rounded-full flex-shrink-0">重複</span>}
               {r.isTransfer       && <span className="text-xs bg-gray-200 text-gray-500 px-1.5 py-0.5 rounded-full flex-shrink-0">🔄 振替</span>}
-              {r.isCardWithdrawal && <span className="text-xs bg-gray-200 text-gray-500 px-1.5 py-0.5 rounded-full flex-shrink-0">💳 取込済みスキップ</span>}
+              {r.isCardWithdrawal && <span className="text-xs bg-gray-200 text-gray-500 px-1.5 py-0.5 rounded-full flex-shrink-0">💳 取込済み</span>}
               {r.isCardWarning    && <span className="text-xs bg-amber-100 text-amber-600 px-1.5 py-0.5 rounded-full flex-shrink-0">💳 カード未取込?</span>}
               {r.ocrDuplicate     && <span className="text-xs bg-amber-100 text-amber-600 px-1.5 py-0.5 rounded-full flex-shrink-0">📷 OCR重複?</span>}
             </div>
             {r.ocrDuplicate && <p className="text-xs text-gray-400 mt-0.5">OCR:「{r.ocrDuplicate.label}」と重複の可能性</p>}
-            <p className="text-xs text-gray-400">{r.date}</p>
+            <div className="flex items-center gap-1.5 mt-1">
+              <p className="text-xs text-gray-400">{r.date}</p>
+              {/* カテゴリーバッジ：常に表示 */}
+              {r.category && (
+                <span className={`text-xs px-1.5 py-0.5 rounded-full flex-shrink-0 border ${
+                  r.category === "その他"
+                    ? "bg-gray-100 text-gray-400 border-gray-200"
+                    : "bg-emerald-50 text-emerald-700 border-emerald-200 font-medium"
+                }`}>
+                  {categories.find(c => c.name === r.category)?.emoji} {r.category}
+                </span>
+              )}
+            </div>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
             <p className={`text-sm font-bold ${(r.isDuplicate||r.isTransfer) ? "text-gray-400" : r.type === "income" ? "text-emerald-500" : "text-rose-500"}`}>
@@ -60,15 +72,27 @@ export function CsvImportPage({ categories, existingTransactions, members, point
           </div>
         </div>
         {csvEditIdx === i && (
-          <div className="px-4 pb-3 space-y-2 bg-gray-50 border-t border-gray-100">
+          <div className="px-4 pb-4 space-y-3 bg-gray-50 border-t border-gray-100">
             <div className="grid grid-cols-2 gap-2">
               <div><p className="text-xs text-gray-400 mb-1">店舗名</p><input type="text" value={r.label} onChange={e => updateCsvRow(i, "label", e.target.value)} className="w-full text-xs px-2 py-1.5 bg-white border border-gray-200 rounded-lg outline-none" /></div>
               <div><p className="text-xs text-gray-400 mb-1">金額</p><input type="number" value={Math.abs(r.amount)} onChange={e => updateCsvRow(i, "amount", r.type === "expense" ? -Number(e.target.value) : Number(e.target.value))} className="w-full text-xs px-2 py-1.5 bg-white border border-gray-200 rounded-lg outline-none" /></div>
-              <div><p className="text-xs text-gray-400 mb-1">日付</p><input type="date" value={r.date} onChange={e => updateCsvRow(i, "date", e.target.value)} className="w-full text-xs px-2 py-1.5 bg-white border border-gray-200 rounded-lg outline-none" /></div>
-              <div><p className="text-xs text-gray-400 mb-1">カテゴリ</p>
-                <select value={r.category} onChange={e => updateCsvRow(i, "category", e.target.value)} className="w-full text-xs px-2 py-1.5 bg-white border border-gray-200 rounded-lg outline-none">
-                  {categories.map(c => <option key={c.id} value={c.name}>{c.emoji}{c.name}</option>)}
-                </select>
+              <div className="col-span-2"><p className="text-xs text-gray-400 mb-1">日付</p><input type="date" value={r.date} onChange={e => updateCsvRow(i, "date", e.target.value)} className="w-full text-xs px-2 py-1.5 bg-white border border-gray-200 rounded-lg outline-none" /></div>
+            </div>
+            {/* カテゴリーボタン選択 */}
+            <div>
+              <p className="text-xs text-gray-400 mb-2">カテゴリー（タップで変更）</p>
+              <div className="flex flex-wrap gap-1.5">
+                {categories.filter(c => c.type === (r.type || "expense")).map(c => (
+                  <button key={c.id}
+                    onClick={() => updateCsvRow(i, "category", c.name)}
+                    className={`px-2 py-1 rounded-full text-xs font-semibold border transition-all ${
+                      r.category === c.name
+                        ? "bg-indigo-500 text-white border-indigo-500"
+                        : "bg-white text-gray-600 border-gray-200"
+                    }`}>
+                    {c.emoji} {c.name}
+                  </button>
+                ))}
               </div>
             </div>
             <button onClick={() => setCsvEditIdx(null)} className="text-xs text-indigo-500 font-semibold">完了 ✓</button>
@@ -110,7 +134,14 @@ export function CsvImportPage({ categories, existingTransactions, members, point
           const detected = detectCSVFormat(text);
           const formatToUse = detected !== "generic" ? detected : csvFormat;
           if (detected !== "generic") { detectedLabels.add(CSV_FORMATS[detected]?.label || detected); detectedFormatIds.add(detected); }
-          allRows = [...allRows, ...parseCSVText(text, formatToUse, importHistory || {})];
+          // activeCsvSourcesをlocalStorageから取得
+          const activeCsvSources = (() => {
+            try {
+              const saved = localStorage.getItem(STORAGE_KEYS.ACTIVE_CSV_SOURCES);
+              return saved ? JSON.parse(saved) : null;
+            } catch { return null; }
+          })();
+          allRows = [...allRows, ...parseCSVText(text, formatToUse, importHistory || {}, activeCsvSources)];
         }
       }
 
@@ -182,6 +213,15 @@ export function CsvImportPage({ categories, existingTransactions, members, point
       const newHist = { ...(importHistory || {}) };
       csvFormatIds.forEach(fmtId => months.forEach(ym => { newHist[`${fmtId}_${ym}`] = true; }));
       onImportHistoryChange?.(newHist);
+
+      // ① インポートしたフォーマットをCSV管理リストに自動追加
+      try {
+        const saved    = localStorage.getItem(STORAGE_KEYS.ACTIVE_CSV_SOURCES);
+        const current  = saved ? new Set(JSON.parse(saved)) : new Set(["sbi","epos","smbc","paypay","recruit","mufg"]);
+        let updated    = false;
+        csvFormatIds.forEach(fmtId => { if (!current.has(fmtId)) { current.add(fmtId); updated = true; } });
+        if (updated) localStorage.setItem(STORAGE_KEYS.ACTIVE_CSV_SOURCES, JSON.stringify([...current]));
+      } catch {}
     }
   };
 
