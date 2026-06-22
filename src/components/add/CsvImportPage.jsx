@@ -36,11 +36,11 @@ export function CsvImportPage({ categories, existingTransactions, members, point
   const BigCheckbox = ({ checked, onChange }) => (
     <div
       onClick={e => { e.stopPropagation(); onChange(); }}
-      className={`w-9 h-9 rounded-xl border-2 flex items-center justify-center flex-shrink-0 cursor-pointer transition-all ${
+      className={`w-6 h-6 rounded-md border-2 flex items-center justify-center flex-shrink-0 cursor-pointer transition-all ${
         checked ? "bg-indigo-500 border-indigo-500" : "bg-white border-gray-300"
       }`}
     >
-      {checked && <span className="text-white text-base font-bold">✓</span>}
+      {checked && <span className="text-white text-xs font-bold">✓</span>}
     </div>
   );
 
