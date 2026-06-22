@@ -24,6 +24,11 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
   const [selectedUnset,  setSelectedUnset]  = useState(new Set());
   const [showUnsetPanel, setShowUnsetPanel] = useState(false);
 
+  // ── 精算対象取引の並び替え・選択 ──
+  const [settleSortAsc, setSettleSortAsc] = useState(true); // true=昇順(古い順)
+  const [selectedSettle, setSelectedSettle] = useState(new Set());
+  const [showSettleEditPanel, setShowSettleEditPanel] = useState(false);
+
   const months = useMemo(
     () => [...new Set(transactions.map(t => toYM(t.date)))].sort().reverse(),
     [transactions]
@@ -79,7 +84,6 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
   const settlementData = useMemo(() => {
     if (!members || members.length < 2) return null;
 
-    // 期間内の共有支出（支払者未設定も含む）
     const target = transactions.filter(t =>
       t.type === "expense" &&
       t.shareType !== "personal" &&
@@ -90,14 +94,12 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
 
     if (target.length === 0) return { balances: members.map(m => ({ ...m, paid: 0, balance: 0 })), totalShared: 0, perPerson: 0, settlements: [], txCount: 0 };
 
-    // メンバーごとの支払合計（支払者未設定は「自分」として集計）
     const defaultPayer = members[0]?.id;
     const paidMap = {};
     members.forEach(m => { paidMap[m.id] = 0; });
 
     target.forEach(t => {
       const payerId = t.paidBy || defaultPayer;
-      // shareAmountがあれば精算はその金額を使う（ウエルシア20日等）
       const settleAmt = t.shareAmount != null ? Math.abs(t.shareAmount) : Math.abs(t.amount);
       if (paidMap[payerId] !== undefined) {
         paidMap[payerId] += settleAmt;
@@ -115,7 +117,6 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
       balance: (paidMap[m.id] || 0) - perPerson,
     }));
 
-    // 精算メッセージ生成
     const payers         = balances.filter(b => b.balance < -1).sort((a, b) => a.balance - b.balance);
     const receivers      = balances.filter(b => b.balance >  1).sort((a, b) => b.balance - a.balance);
     const settlements    = [];
@@ -141,6 +142,15 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
     return { balances, totalShared, perPerson, settlements, txCount: target.length, target };
   }, [transactions, members, settleDateFrom, settleDateTo]);
 
+  // ── 精算対象取引（ソート済み）──
+  const sortedSettleTarget = useMemo(() => {
+    if (!settlementData?.target) return [];
+    return [...settlementData.target].sort((a, b) => {
+      const cmp = a.date.localeCompare(b.date);
+      return settleSortAsc ? cmp : -cmp;
+    });
+  }, [settlementData, settleSortAsc]);
+
   // ── 支払者未設定の取引 ──────────────────────────────────────
   const unsetPayerTxs = useMemo(() =>
     transactions.filter(t =>
@@ -153,6 +163,29 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
     ),
     [transactions, settleDateFrom, settleDateTo]
   );
+
+  // ── 精算取引リストの選択操作 ──
+  const toggleSettleSelect = (id) => {
+    setSelectedSettle(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const selectAllSettle = () => setSelectedSettle(new Set(sortedSettleTarget.map(t => t.id)));
+  const clearSettleSelect = () => setSelectedSettle(new Set());
+
+  const applySettleChange = async (changes) => {
+    if (!window.confirm(`選択中の${selectedSettle.size}件を変更しますか？`)) return;
+    const snap = [...transactions];
+    for (const id of [...selectedSettle]) {
+      const tx = snap.find(t => t.id === id);
+      if (tx) await onUpdate?.({ ...tx, ...changes, updatedAt: new Date().toISOString() });
+    }
+    setSelectedSettle(new Set());
+    setShowSettleEditPanel(false);
+  };
 
   if (transactions.length === 0) return (
     <div className="pb-20">
@@ -178,7 +211,6 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
     });
   }, [transactions]);
 
-  // カテゴリ別月次推移（上位5カテゴリ）
   const catTrendData = useMemo(() => {
     const months = [...new Set(transactions.map(t => toYM(t.date)))].sort().slice(-6);
     const topCats = Object.entries(
@@ -204,7 +236,6 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
     <div className="pb-20">
       <div className="bg-white px-4 pt-12 pb-3 border-b border-gray-100">
         <h1 className="text-xl font-bold text-gray-900 mb-3">分析</h1>
-        {/* タブ */}
         <div className="flex gap-2 mb-3">
           {[
             { id: "analysis",   label: "📊 分析"   },
@@ -329,7 +360,6 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
       {/* ── 月次レポートタブ ── */}
       {tab === "report" && (
         <div className="px-4 py-5 space-y-5">
-          {/* 直近6ヶ月サマリー表 */}
           <div className="bg-white rounded-2xl p-4 border border-gray-100">
             <p className="text-xs font-semibold text-gray-500 mb-3 uppercase tracking-wide">直近6ヶ月</p>
             <div className="space-y-3">
@@ -372,7 +402,6 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
             </div>
           </div>
 
-          {/* カテゴリ別推移グラフ */}
           {catTrendData.length > 0 && catTrendCats.length > 0 && (
             <div className="bg-white rounded-2xl p-4 border border-gray-100">
               <p className="text-xs font-semibold text-gray-500 mb-3 uppercase tracking-wide">カテゴリ別支出推移</p>
@@ -419,7 +448,6 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
                   className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-300" />
               </div>
             </div>
-            {/* クイック選択 */}
             <div className="flex gap-2 flex-wrap">
               {[
                 { label: "今月", from: today.slice(0, 7) + "-01", to: today },
@@ -543,6 +571,7 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
                   )}
                 </div>
               )}
+
               {/* 合計サマリー */}
               <div className="bg-white rounded-2xl p-4 border border-gray-100">
                 <p className="text-xs font-semibold text-gray-500 mb-3 uppercase tracking-wide">共有支出合計</p>
@@ -598,43 +627,118 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
                 </div>
               )}
 
-              {/* 精算対象取引一覧 */}
-              {settlementData.target && settlementData.target.length > 0 && (
+              {/* 精算対象取引一覧（選択・並び替え対応） */}
+              {sortedSettleTarget.length > 0 && (
                 <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+                  {/* ヘッダー */}
                   <button
                     onClick={() => setShowSettleTxs(p => !p)}
                     className="w-full flex items-center justify-between px-4 py-3 text-left">
                     <div>
-                      <p className="text-xs font-bold text-gray-700">📋 精算対象の取引（{settlementData.target.length}件）</p>
+                      <p className="text-xs font-bold text-gray-700">📋 精算対象の取引（{sortedSettleTarget.length}件）</p>
                       <p className="text-xs text-gray-400 mt-0.5">タップで一覧を表示</p>
                     </div>
                     <span className="text-gray-400">{showSettleTxs ? "▲" : "▼"}</span>
                   </button>
+
                   {showSettleTxs && (
-                    <div className="divide-y divide-gray-50 border-t border-gray-100">
-                      {settlementData.target.map(t => {
-                        const settleAmt = t.shareAmount != null ? Math.abs(t.shareAmount) : Math.abs(t.amount);
-                        const payer = members.find(m => m.id === t.paidBy);
-                        return (
-                          <div key={t.id} className="px-4 py-3">
-                            <div className="flex items-start justify-between gap-3">
+                    <div className="border-t border-gray-100">
+                      {/* ツールバー：並び替え・選択操作 */}
+                      <div className="px-4 py-2 bg-gray-50 border-b border-gray-100 flex items-center justify-between gap-2">
+                        {/* 並び替えボタン */}
+                        <button
+                          onClick={() => setSettleSortAsc(p => !p)}
+                          className="flex items-center gap-1 px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-xs font-semibold text-gray-600">
+                          <span>⇅</span>
+                          <span>{settleSortAsc ? "古い順" : "新しい順"}</span>
+                        </button>
+
+                        {/* 選択操作 */}
+                        <div className="flex items-center gap-2">
+                          {selectedSettle.size > 0 ? (
+                            <>
+                              <span className="text-xs text-indigo-600 font-semibold">{selectedSettle.size}件選択</span>
+                              <button onClick={clearSettleSelect}
+                                className="text-xs text-gray-500 bg-white px-2 py-1 rounded-lg border border-gray-200 font-semibold">解除</button>
+                              <button onClick={() => setShowSettleEditPanel(p => !p)}
+                                className="text-xs text-white bg-indigo-500 px-2 py-1 rounded-lg font-semibold">変更</button>
+                            </>
+                          ) : (
+                            <button onClick={selectAllSettle}
+                              className="text-xs text-indigo-500 bg-white px-2 py-1 rounded-lg border border-indigo-200 font-semibold">全選択</button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* 一括変更パネル */}
+                      {showSettleEditPanel && selectedSettle.size > 0 && (
+                        <div className="px-4 py-3 bg-indigo-50 border-b border-indigo-100 space-y-2">
+                          <p className="text-xs font-semibold text-indigo-700">{selectedSettle.size}件に適用：</p>
+                          <div className="flex flex-wrap gap-2">
+                            {/* 支払者変更 */}
+                            {members.map(m => (
+                              <button key={m.id}
+                                onClick={() => applySettleChange({ paidBy: m.id, shareType: "shared" })}
+                                className="px-3 py-1.5 bg-indigo-500 text-white rounded-xl text-xs font-semibold">
+                                👤 {m.name}が払った
+                              </button>
+                            ))}
+                            {/* shareType変更 */}
+                            <button
+                              onClick={() => applySettleChange({ shareType: "shared" })}
+                              className="px-3 py-1.5 bg-emerald-500 text-white rounded-xl text-xs font-semibold">
+                              🤝 共有
+                            </button>
+                            <button
+                              onClick={() => applySettleChange({ shareType: "personal" })}
+                              className="px-3 py-1.5 bg-rose-400 text-white rounded-xl text-xs font-semibold">
+                              👤 個人
+                            </button>
+                            <button
+                              onClick={() => applySettleChange({ shareType: "partner" })}
+                              className="px-3 py-1.5 bg-orange-400 text-white rounded-xl text-xs font-semibold">
+                              👥 パートナー
+                            </button>
+                          </div>
+                          <button onClick={() => setShowSettleEditPanel(false)}
+                            className="text-xs text-gray-400 underline">キャンセル</button>
+                        </div>
+                      )}
+
+                      {/* 取引リスト */}
+                      <div className="divide-y divide-gray-50">
+                        {sortedSettleTarget.map(t => {
+                          const settleAmt = t.shareAmount != null ? Math.abs(t.shareAmount) : Math.abs(t.amount);
+                          const payer = members.find(m => m.id === t.paidBy);
+                          const isSelected = selectedSettle.has(t.id);
+                          return (
+                            <div
+                              key={t.id}
+                              onClick={() => toggleSettleSelect(t.id)}
+                              className={"flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors " + (isSelected ? "bg-indigo-50" : "bg-white")}>
+                              {/* チェックボックス */}
+                              <div className={"w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 " + (isSelected ? "bg-indigo-500 border-indigo-500" : "border-gray-300")}>
+                                {isSelected && <span className="text-white text-xs">✓</span>}
+                              </div>
+                              {/* 内容 */}
                               <div className="flex-1 min-w-0">
                                 <p className="text-xs font-medium text-gray-800 truncate">{t.label}</p>
                                 <p className="text-xs text-gray-400">{t.date} · {payer?.name || "支払者不明"}</p>
                                 {t.memo && <p className="text-xs text-indigo-500 mt-0.5">📝 {t.memo}</p>}
                               </div>
-                              <p className="text-xs font-bold text-rose-500 flex-shrink-0">
+                              {/* 金額 */}
+                              <p className="text-xs font-bold text-rose-500 flex-shrink-0 text-right">
                                 -{fmtCurrency(settleAmt)}
                                 {t.shareAmount != null && t.shareAmount !== Math.abs(t.amount) && (
-                                  <span className="text-gray-400 font-normal line-through ml-1 text-xs">
+                                  <span className="block text-gray-400 font-normal line-through text-xs">
                                     {fmtCurrency(Math.abs(t.amount))}
                                   </span>
                                 )}
                               </p>
                             </div>
-                          </div>
-                        );
-                      })}
+                          );
+                        })}
+                      </div>
                     </div>
                   )}
                 </div>
