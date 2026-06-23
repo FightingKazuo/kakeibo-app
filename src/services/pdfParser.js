@@ -6,33 +6,40 @@
 // → Vite のバンドル問題を完全回避
 // ============================================================
 
-const PDF_JS_URL    = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
-const PDF_WORKER_URL = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+const PDF_JS_URL    = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.min.mjs";
+const PDF_WORKER_URL = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.worker.min.mjs";
 
 // CDN からの PDF.js をキャッシュ
 let pdfjsPromise = null;
 
 const loadPdfjs = () => {
   if (pdfjsPromise) return pdfjsPromise;
-  pdfjsPromise = new Promise((resolve, reject) => {
+  pdfjsPromise = (async () => {
     // すでに読み込み済みなら即返す
     if (window.pdfjsLib) {
       window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDF_WORKER_URL;
-      resolve(window.pdfjsLib);
-      return;
+      return window.pdfjsLib;
     }
-    const script = document.createElement("script");
-    script.src = PDF_JS_URL;
-    script.onload = () => {
+    // ESM dynamic import で読み込み
+    try {
+      const pdfjs = await import(/* @vite-ignore */ PDF_JS_URL);
+      const lib = pdfjs.default || pdfjs;
+      lib.GlobalWorkerOptions.workerSrc = PDF_WORKER_URL;
+      window.pdfjsLib = lib;
+      return lib;
+    } catch {
+      // fallback: script タグ
+      await new Promise((resolve, reject) => {
+        const script = document.createElement("script");
+        script.src = PDF_JS_URL.replace(".mjs", ".js");
+        script.onload = resolve;
+        script.onerror = () => reject(new Error("PDF.js の読み込みに失敗しました。"));
+        document.head.appendChild(script);
+      });
       window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDF_WORKER_URL;
-      resolve(window.pdfjsLib);
-    };
-    script.onerror = () => {
-      pdfjsPromise = null; // 失敗時はリセットして再試行可能に
-      reject(new Error("PDF.js の読み込みに失敗しました。ネット接続を確認してください。"));
-    };
-    document.head.appendChild(script);
-  });
+      return window.pdfjsLib;
+    }
+  })();
   return pdfjsPromise;
 };
 
@@ -226,21 +233,33 @@ export const parsePDF = async (file) => {
   const pdfjsLib = await loadPdfjs();
   const buf      = await file.arrayBuffer();
 
-  // pdf.jsが失敗した場合のフォールバック: ArrayBufferをUTF-8テキストとして解読試行
-  let lines;
-  try {
-    lines = await getAllLines(pdfjsLib, buf);
-  } catch (e) {
-    // "no pages"エラーなど → テキストデコードで再試行
+  // TextDecoderフォールバック共通関数
+  const tryTextDecode = (buf) => {
     const decoder = new TextDecoder("utf-8", { fatal: false });
     const rawText = decoder.decode(buf);
     const textLines = rawText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-    // SMBCパターンが含まれていればそのままパース
     const smbc = parseSMBCLines(textLines);
     if (smbc.length > 0) return { transactions: smbc, format: "smbc_pdf", lineCount: textLines.length };
     const epos = parseEposLines(textLines);
     if (epos.length > 0) return { transactions: epos, format: "epos_pdf", lineCount: textLines.length };
-    throw e; // それでも失敗なら元のエラーを投げる
+    return null;
+  };
+
+  let lines;
+  try {
+    lines = await getAllLines(pdfjsLib, buf);
+  } catch (e) {
+    // pdf.js例外 → TextDecoderで再試行
+    const decoded = tryTextDecode(buf);
+    if (decoded) return decoded;
+    throw e;
+  }
+
+  // pdf.jsは成功したが0行 → TextDecoderで再試行
+  if (!lines || lines.length === 0) {
+    const decoded = tryTextDecode(buf);
+    if (decoded) return decoded;
+    throw new Error("PDFからテキストを抽出できませんでした。");
   }
 
   const format   = detectPDFFormat(lines);
