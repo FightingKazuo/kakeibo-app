@@ -140,6 +140,9 @@ export const detectCSVFormat = (text) => {
   // ヘッダーなしで日付始まりのデータ行
   if (/^\d{4}\/\d{2}\/\d{2}[,，]/.test(first)) return 'smbc';
 
+  // Amazon注文履歴: ASINとOrder Dateヘッダーが特徴
+  if (header.includes('ASIN') && header.includes('Order Date') && header.includes('Product Name')) return 'amazon';
+
   return 'generic';
 };
 
@@ -229,10 +232,21 @@ export const parseCSVText = (text, formatId, importHistory = {}, activeCsvSource
           tx.isTransfer = true;
         }
 
+        // ── Amazon注文履歴：同一Order IDの重複行を1件にまとめる ──
+        if (formatId === "amazon" && r["Order ID"]) {
+          tx._orderId = r["Order ID"].trim();
+        }
+
         return tx;
       } catch { return null; }
     })
-    .filter(Boolean);
+    .filter(Boolean)
+    .filter((tx, idx, arr) => {
+      // Amazon: 同一Order IDは最初の1件のみ（同一注文の複数商品は別々に取り込む）
+      // ※ Order IDが同じでも商品名が違う場合は別行として扱う
+      if (!tx._orderId) return true;
+      return arr.findIndex(t => t._orderId === tx._orderId && t.label === tx.label) === idx;
+    });
 };
 
 export { default as Papa } from "papaparse";
