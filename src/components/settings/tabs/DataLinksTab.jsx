@@ -61,17 +61,18 @@ const DATA_LINKS = [
 const openInBrowser = (browser, url) => {
   const encoded = encodeURIComponent(url);
   const schemes = {
-    chrome: `googlechrome://navigate?url=${encoded}`,
-    brave:  `brave://open-url?url=${encoded}`,
+    chrome: `googlechromes://${url.replace(/^https?:\/\//, "")}`,
+    brave:  `brave://${url.replace(/^https?:\/\//, "")}`,
     safari: url,
   };
   const scheme = schemes[browser];
-  // ディープリンク試行 → 失敗したらSafariにフォールバック
   const a = document.createElement("a");
   a.href = scheme;
   a.target = "_blank";
   a.rel = "noopener noreferrer";
+  document.body.appendChild(a);
   a.click();
+  document.body.removeChild(a);
 };
 
 export function DataLinksTab() {
