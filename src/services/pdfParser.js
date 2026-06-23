@@ -248,4 +248,3 @@ export const parsePDFText = (text) => {
 
   return null;
 };
-
