@@ -8,6 +8,7 @@
 
 const PDF_JS_URL    = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.min.mjs";
 const PDF_WORKER_URL = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.worker.min.mjs";
+const PDF_CMAP_URL   = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/cmaps/";
 
 // CDN からの PDF.js をキャッシュ
 let pdfjsPromise = null;
@@ -78,6 +79,8 @@ const getAllLines = async (pdfjsLib, arrayBuffer) => {
     useSystemFonts: true,
     disableFontFace: false,
     verbosity: 0,
+    cMapUrl: PDF_CMAP_URL,
+    cMapPacked: true,
   });
   const pdf = await loadingTask.promise;
   const all = [];
