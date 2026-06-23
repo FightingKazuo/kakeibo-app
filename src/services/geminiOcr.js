@@ -430,6 +430,7 @@ export const analyzePDFWithGemini = async (file, apiKey, onProgress) => {
   try {
     const { parsePDF } = await import("./pdfParser.js");
     const result = await parsePDF(file);
+    console.log("[PDF] pdf.js結果:", result.format, "件数:", result.transactions?.length, "行数:", result.lineCount);
     if (result.transactions && result.transactions.length > 0) {
       onProgress?.(100);
       return {
@@ -439,8 +440,10 @@ export const analyzePDFWithGemini = async (file, apiKey, onProgress) => {
         transactions: result.transactions,
       };
     }
+    // pdf.jsは成功したが0件 → フォーマット不明か行抽出失敗
+    console.log("[PDF] 0件のため Gemini へ。抽出行サンプル:", result.lineCount);
   } catch (e) {
-    console.log("pdf.js parse failed, falling back to Gemini:", e.message);
+    console.log("[PDF] pdf.js例外:", e.message);
   }
 
   // ② Geminiフォールバック
