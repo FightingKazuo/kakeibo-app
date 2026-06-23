@@ -146,4 +146,36 @@ export const CSV_FORMATS = {
       return { date, label, category: "その他", amount: -Math.abs(amount), type: "expense" };
     },
   },
+
+  amazon: {
+    label: "Amazon注文履歴",
+    sampleColumns: ["Order Date", "Product Name", "Total Amount"],
+    normalize: (r) => {
+      // Cancelledは除外
+      const status = (r["Order Status"] || "").trim();
+      if (status === "Cancelled") return null;
+
+      const rawDate = (r["Order Date"] || "").trim();
+      // 2021-03-27T01:05:57Z → 2021-03-27
+      const date = rawDate.slice(0, 10);
+      if (!date.match(/^\d{4}-\d{2}-\d{2}$/)) return null;
+
+      // 商品名を短縮（最初の全角スペース or 半角スペース20文字まで）
+      const fullName = (r["Product Name"] || "不明").trim();
+      const label = "Amazon - " + (fullName.length > 40 ? fullName.slice(0, 40) + "..." : fullName);
+
+      // Total Amount（税込合計）
+      const amtStr = String(r["Total Amount"] || "0").replace(/[,，\s]/g, "");
+      const amt = parseFloat(amtStr) || 0;
+      if (amt <= 0) return null;
+
+      return {
+        date,
+        label,
+        category: "その他",
+        amount:   -amt,
+        type:     "expense",
+      };
+    },
+  },
 };
