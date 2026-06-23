@@ -236,6 +236,62 @@ const callGemini = async (apiKey, parts, maxTokens = 8192) => {
 };
 
 // ─── APIキー診断 ──────────────────────────────────────────────
+// PDF専用Gemini呼び出し（responseMimeTypeを除外）
+const callGeminiPDF = async (apiKey, parts, maxTokens = 8192) => {
+  const errors = [];
+  const body   = JSON.stringify({
+    contents: [{ parts }],
+    generationConfig: { temperature: 0.1, maxOutputTokens: maxTokens },
+  });
+
+  for (const { base, model } of ENDPOINTS) {
+    const urlParam  = `${base}/${model}:generateContent?key=${apiKey}`;
+    const urlBearer = `${base}/${model}:generateContent`;
+    const attempts  = [
+      { url: urlParam,  headers: { "Content-Type": "application/json" } },
+      { url: urlBearer, headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` } },
+    ];
+
+    let res = null;
+    for (const attempt of attempts) {
+      try {
+        const r = await fetchWithTimeout(attempt.url, { method: "POST", headers: attempt.headers, body });
+        if (r.status === 401) continue;
+        res = r;
+        break;
+      } catch (e) {
+        if (e.message === "TIMEOUT") throw new Error("⏱ タイムアウト（40秒）");
+        throw new Error(`ネットワークエラー: ${e.message}`);
+      }
+    }
+
+    if (!res) { errors.push(`${model}: 認証失敗(401)`); continue; }
+
+    if (res.status === 400) {
+      let msg = "";
+      try { msg = (await res.json())?.error?.message || ""; } catch {}
+      errors.push(`${model}(400): ${msg.slice(0, 80)}`);
+      continue;
+    }
+    if (!res.ok) {
+      errors.push(`${model}(${res.status}): エラー`);
+      continue;
+    }
+
+    const data = await res.json();
+    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+    const clean = text.replace(/```json|```/g, "").trim();
+    try {
+      return JSON.parse(clean);
+    } catch {
+      // JSON解析失敗でも次モデルへ
+      errors.push(`${model}: JSON解析失敗`);
+      continue;
+    }
+  }
+  throw new Error(`すべてのモデルで失敗\n\n` + errors.map(e => `・${e}`).join("\n"));
+};
+
 export const testGeminiKey = async (apiKey) => {
   // callGeminiはJSONを期待するため、直接fetchでテストする
   const isOAuth = isOAuthLike(apiKey);
@@ -391,7 +447,7 @@ export const analyzePDFWithGemini = async (file, apiKey, onProgress) => {
   onProgress?.(30);
   const { base64 } = await fileToBase64(file);
   onProgress?.(50);
-  const parsed = await callGemini(
+  const parsed = await callGeminiPDF(
     apiKey,
     [
       { text: `このクレジットカード・銀行明細PDFから全取引を抽出してください。JSONのみ出力（コードブロック不要）：
