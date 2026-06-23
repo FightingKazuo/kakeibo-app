@@ -64,8 +64,16 @@ const getPageLines = async (pdfjsLib, page) => {
 
 // ─── 全ページのテキスト行を取得 ──────────────────────────────
 const getAllLines = async (pdfjsLib, arrayBuffer) => {
-  const pdf  = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-  const all  = [];
+  // iOSのSafari「PDFを作成」で生成したPDFに対応するオプション
+  const loadingTask = pdfjsLib.getDocument({
+    data: arrayBuffer,
+    isEvalSupported: false,
+    useSystemFonts: true,
+    disableFontFace: false,
+    verbosity: 0,
+  });
+  const pdf = await loadingTask.promise;
+  const all = [];
   for (let i = 1; i <= pdf.numPages; i++) {
     const page  = await pdf.getPage(i);
     const lines = await getPageLines(pdfjsLib, page);
@@ -168,7 +176,24 @@ export const PDF_FORMAT_LABELS = {
 export const parsePDF = async (file) => {
   const pdfjsLib = await loadPdfjs();
   const buf      = await file.arrayBuffer();
-  const lines    = await getAllLines(pdfjsLib, buf);
+
+  // pdf.jsが失敗した場合のフォールバック: ArrayBufferをUTF-8テキストとして解読試行
+  let lines;
+  try {
+    lines = await getAllLines(pdfjsLib, buf);
+  } catch (e) {
+    // "no pages"エラーなど → テキストデコードで再試行
+    const decoder = new TextDecoder("utf-8", { fatal: false });
+    const rawText = decoder.decode(buf);
+    const textLines = rawText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    // SMBCパターンが含まれていればそのままパース
+    const smbc = parseSMBCLines(textLines);
+    if (smbc.length > 0) return { transactions: smbc, format: "smbc_pdf", lineCount: textLines.length };
+    const epos = parseEposLines(textLines);
+    if (epos.length > 0) return { transactions: epos, format: "epos_pdf", lineCount: textLines.length };
+    throw e; // それでも失敗なら元のエラーを投げる
+  }
+
   const format   = detectPDFFormat(lines);
 
   let transactions;
