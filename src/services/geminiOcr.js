@@ -366,10 +366,31 @@ OCRテキスト:\n${ocrText}`,
 };
 
 // ─── PDF明細解析 ─────────────────────────────────────────────
+// まずpdf.jsでテキスト抽出を試みる → 失敗/0件ならGeminiにフォールバック
 export const analyzePDFWithGemini = async (file, apiKey, onProgress) => {
   onProgress?.(10);
+
+  // ① pdf.jsで直接パース試行（SafariのPDFでも動く）
+  try {
+    const { parsePDF } = await import("./pdfParser.js");
+    const result = await parsePDF(file);
+    if (result.transactions && result.transactions.length > 0) {
+      onProgress?.(100);
+      return {
+        cardName: result.format === "smbc_pdf" ? "三井住友カード（PDF）"
+                : result.format === "epos_pdf" ? "エポスカード（PDF）"
+                : "PDF明細",
+        transactions: result.transactions,
+      };
+    }
+  } catch (e) {
+    console.log("pdf.js parse failed, falling back to Gemini:", e.message);
+  }
+
+  // ② Geminiフォールバック
+  onProgress?.(30);
   const { base64 } = await fileToBase64(file);
-  onProgress?.(40);
+  onProgress?.(50);
   const parsed = await callGemini(
     apiKey,
     [
