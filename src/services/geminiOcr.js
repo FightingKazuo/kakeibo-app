@@ -422,16 +422,14 @@ OCRテキスト:\n${ocrText}`,
 };
 
 // ─── PDF明細解析 ─────────────────────────────────────────────
-// 処理順: ①テキスト直接読み込み → ②pdf.js → ③Gemini
 export const analyzePDFWithGemini = async (file, apiKey, onProgress) => {
   onProgress?.(10);
 
-  // ① pdf.js（iOS Safari対応強化版）でパース試行
+  // ① pdf.jsでパース試行
   try {
     const { parsePDF } = await import("./pdfParser.js");
     const result = await parsePDF(file);
-    console.log("[PDF] pdf.js結果:", result.format, "件数:", result.transactions?.length, "行数:", result.lineCount);
-    if (result.transactions && result.transactions.length > 0) {
+    if (result?.transactions?.length > 0) {
       onProgress?.(100);
       return {
         cardName: result.format === "smbc_pdf" ? "三井住友カード（PDF）"
@@ -440,47 +438,58 @@ export const analyzePDFWithGemini = async (file, apiKey, onProgress) => {
         transactions: result.transactions,
       };
     }
-    // pdf.jsは成功したが0件 → フォーマット不明か行抽出失敗
-    console.log("[PDF] 0件のため Gemini へ。抽出行サンプル:", result.lineCount);
-  } catch (e) {
-    console.log("[PDF] pdf.js例外:", e.message);
-  }
+  } catch (e) { /* Geminiへ続行 */ }
 
-  // ② Geminiフォールバック
-  onProgress?.(30);
+  // ② GeminiにPDFを直接渡す（responseMimeTypeなし）
+  onProgress?.(40);
   const { base64 } = await fileToBase64(file);
-  onProgress?.(50);
-  const parsed = await callGeminiPDF(
-    apiKey,
-    [
-      { text: `このクレジットカード・銀行明細PDFから全取引を抽出してください。JSONのみ出力（コードブロック不要）：
-{"cardName":"カード名","transactions":[{"date":"YYYY-MM-DD","label":"取引先名","amount":金額整数}]}
+  onProgress?.(60);
 
-抽出ルール：
-・dateはYYYY-MM-DD形式（例: 26年04月26日 → 2026-04-26）
-・amountは正の整数（支払金額・今回お支払金額の列を使う）
-・合計行・小計行・ポイント行・手数料内訳行は除外
-・エポスカードの場合：「ＡＰ／」「ＱＰ／」などのプレフィックスをlabelから除去
-・店舗名は日本語に変換（全角→半角）して簡潔に
-・同じ日付・同じ店舗・同じ金額の重複行は1件のみ
-・分割払いの場合は今回のお支払金額のみ抽出` },
-      { inline_data: { mime_type: "application/pdf", data: base64 } },
-    ],
-    8192
-  );
-  onProgress?.(90);
-  const transactions = (parsed.transactions || [])
-    .map(t => ({
-      date:  String(t.date || "").replace(/\//g, "-").trim(),
-      label: String(t.label || "不明")
-        .replace(/^(AP|QP|ＡＰ|ＱＰ)[\/／]/, "")  // プレフィックス除去
-        .trim(),
-      amount:   -Math.abs(Number(t.amount) || 0),
-      type:     "expense",
-      category: "その他",
-      source:   "csv",
-    }))
-    .filter(t => t.date && t.amount < 0);
-  onProgress?.(100);
-  return { cardName: String(parsed.cardName || "PDF明細"), transactions };
+  const errors = [];
+  for (const { base, model } of ENDPOINTS) {
+    const body = JSON.stringify({
+      contents: [{ parts: [
+        { text: `このクレジットカード・銀行明細PDFから全取引を抽出。JSONのみ出力（コードブロック不要）:
+{"cardName":"カード名","transactions":[{"date":"YYYY-MM-DD","label":"店舗名","amount":-1234,"type":"expense","category":"その他"}]}
+日付はYYYY-MM-DD。金額は支出を負の整数。` },
+        { inline_data: { mime_type: "application/pdf", data: base64 } },
+      ]}],
+      generationConfig: { temperature: 0.1, maxOutputTokens: 8192 },
+    });
+
+    const attempts = [
+      { url: `${base}/${model}:generateContent?key=${apiKey}`, headers: { "Content-Type": "application/json" } },
+      { url: `${base}/${model}:generateContent`, headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` } },
+    ];
+
+    for (const attempt of attempts) {
+      try {
+        const res = await fetchWithTimeout(attempt.url, { method: "POST", headers: attempt.headers, body });
+        if (res.status === 401) continue;
+        if (!res.ok) {
+          let msg = "";
+          try { msg = (await res.json())?.error?.message || ""; } catch {}
+          errors.push(`${model}(${res.status}): ${msg.slice(0,80)}`);
+          break;
+        }
+        const data = await res.json();
+        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+        const clean = text.replace(/```json|```/g, "").trim();
+        const parsed = JSON.parse(clean);
+        const transactions = (parsed?.transactions || []).map(t => ({
+          ...t,
+          amount: typeof t.amount === "number" ? t.amount : -Math.abs(parseFloat(String(t.amount).replace(/[^0-9.]/g,""))||0),
+          type: t.type || "expense",
+          category: t.category || "その他",
+          source: "csv",
+        })).filter(t => t.date && t.label && t.amount !== 0);
+        onProgress?.(100);
+        return { cardName: String(parsed?.cardName || "PDF明細"), transactions };
+      } catch (e) {
+        if (e.message === "TIMEOUT") throw new Error("⏱ タイムアウト（40秒）");
+        continue;
+      }
+    }
+  }
+  throw new Error(`すべてのモデルで失敗\n\n` + errors.map(e => `・${e}`).join("\n"));
 };
