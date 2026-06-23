@@ -189,3 +189,37 @@ export const parsePDF = async (file) => {
 
   return { transactions, format, lineCount: lines.length };
 };
+
+// ─── テキスト直接パース（SafariのPDF生成対応）────────────────
+// FileReaderでテキストとして読み込んだ内容をパースする
+export const parsePDFText = (text) => {
+  if (!text || typeof text !== "string") return null;
+
+  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+
+  // 三井住友カード判定
+  const isSMBC = lines.some(l =>
+    l.includes("三井住友") || l.includes("SMBC") || l.includes("smbc-card")
+  );
+
+  // エポスカード判定
+  const isEpos = lines.some(l =>
+    l.includes("エポスカード") || l.includes("eposcard")
+  );
+
+  if (isSMBC) {
+    const transactions = parseSMBCLines(lines);
+    if (transactions.length > 0) return { format: "smbc_pdf", transactions };
+  }
+
+  if (isEpos) {
+    const transactions = parseEposLines(lines);
+    if (transactions.length > 0) return { format: "epos_pdf", transactions };
+  }
+
+  // どちらでもない場合は全行でSMBC形式を試す
+  const fallback = parseSMBCLines(lines);
+  if (fallback.length > 0) return { format: "smbc_pdf", transactions: fallback };
+
+  return null;
+};
