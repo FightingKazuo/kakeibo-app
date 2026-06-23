@@ -128,41 +128,90 @@ const parseEposLines = (lines) => {
 };
 
 // ─── 三井住友カード PDF パーサー ─────────────────────────────
-// 行形式: B# 26/04/01 店舗名 10,000 １ １ 10,000 ◎
-//         #  26/05/01 藍屋   4,803  １ １  4,803 ◎
+// pdf.jsの抽出では行が分割されるため以下の2パターンに対応:
+//
+// パターンA（分割形式）:
+//   行i:   "#" または "B#"
+//   行i+1: "26/05/01 藍屋"
+//   行i+2: "4,803 １ １"
+//   行i+3: "4,803"         ← 支払金額
+//
+// パターンB（1行形式）:
+//   "B# 26/04/01 店舗名 10,000 １ １ 10,000"
 const parseSMBCLines = (lines) => {
   const results = [];
-  for (let i = 0; i < lines.length; i++) {
+  let i = 0;
+  while (i < lines.length) {
     const line = lines[i];
-    // B#・#・B・なし いずれも対応、支払区分は全角１・半角1・一 を許容
-    const m = line.match(
-      /^(?:B#|#|B)?\s*(\d{2})\/(\d{2})\/(\d{2})\s+(.+?)\s+([\d,]+)\s+[１1一]\s+\d+\s+([\d,]+)/
-    );
-    if (!m) continue;
-    let [, yy, mm, dd, rawStore, , payAmount] = m;
 
-    // 長い店舗名が次行に続く場合の結合（末尾がＣ・ラ・／・NF等）
-    const nextLine = (lines[i + 1] || "").trim();
-    if (nextLine
-        && !/^(?:B#|#|B)?\s*\d{2}\/\d{2}\/\d{2}/.test(nextLine)
-        && !/^(?:小林|＜|合計|1\/|2\/|3\/)/.test(nextLine)
-        && nextLine.length < 25
-        && !/^\d{1,3}(,\d{3})*$/.test(nextLine)) {
-      rawStore += nextLine;
-      i++;
+    // パターンA: "#" または "B#" のみの行
+    if (/^(?:B#|#)$/.test(line.trim())) {
+      const dateLine = (lines[i + 1] || "").trim();
+      const mDate = dateLine.match(/^(\d{2})\/(\d{2})\/(\d{2})\s+(.+)$/);
+      if (mDate) {
+        const [, yy, mm, dd, rawStore] = mDate;
+        // 金額行: "4,803 １ １" or "4,803 1 1"
+        const amtLine = (lines[i + 2] || "").trim();
+        if (/^[\d,]+\s+[１1一]/.test(amtLine)) {
+          // 支払金額行（次行）
+          const payLine = (lines[i + 3] || "").trim();
+          const payM = payLine.match(/^([\d,]+)/);
+          if (payM) {
+            const amount = parseInt(payM[1].replace(/,/g, ""));
+            if (amount > 0) {
+              results.push({
+                date:     `20${yy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`,
+                label:    zen2han(rawStore.replace(/\u3000/g, " ").replace(/\s+/g, " ").trim()),
+                amount:   -amount,
+                type:     "expense",
+                category: "その他",
+                source:   "csv",
+              });
+              i += 4;
+              continue;
+            }
+          }
+          // 支払金額行がなければ金額行の最初の数字を使う
+          const amtM = amtLine.match(/^([\d,]+)/);
+          if (amtM) {
+            const amount = parseInt(amtM[1].replace(/,/g, ""));
+            if (amount > 0) {
+              results.push({
+                date:     `20${yy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`,
+                label:    zen2han(rawStore.replace(/\u3000/g, " ").replace(/\s+/g, " ").trim()),
+                amount:   -amount,
+                type:     "expense",
+                category: "その他",
+                source:   "csv",
+              });
+              i += 3;
+              continue;
+            }
+          }
+        }
+      }
     }
 
-    const amount = parseInt(payAmount.replace(/,/g, ""));
-    if (!amount || amount <= 0) continue;
+    // パターンB: 1行に全情報
+    const mOne = line.match(
+      /^(?:B#|#|B)?\s*(\d{2})\/(\d{2})\/(\d{2})\s+(.+?)\s+([\d,]+)\s+[１1一]\s+\d+\s+([\d,]+)/
+    );
+    if (mOne) {
+      const [, yy, mm, dd, rawStore, , payAmount] = mOne;
+      const amount = parseInt(payAmount.replace(/,/g, ""));
+      if (amount > 0) {
+        results.push({
+          date:     `20${yy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`,
+          label:    zen2han(rawStore.replace(/\u3000/g, " ").replace(/\s+/g, " ").trim()),
+          amount:   -amount,
+          type:     "expense",
+          category: "その他",
+          source:   "csv",
+        });
+      }
+    }
 
-    results.push({
-      date:     `20${yy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`,
-      label:    zen2han(rawStore.replace(/\s+/g, " ").trim()) || rawStore.trim(),
-      amount:   -amount,
-      type:     "expense",
-      category: "その他",
-      source:   "csv",
-    });
+    i++;
   }
   return results;
 };
