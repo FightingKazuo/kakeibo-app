@@ -120,25 +120,28 @@ const parseEposLines = (lines) => {
 };
 
 // ─── 三井住友カード PDF パーサー ─────────────────────────────
-// 行形式: B# 26/04/01 店舗名 10,000 1 1 10,000 ◎
-//         #  26/04/11 店舗名   880   1 1   880 ◎
+// 行形式: B# 26/04/01 店舗名 10,000 １ １ 10,000 ◎
+//         #  26/05/01 藍屋   4,803  １ １  4,803 ◎
 const parseSMBCLines = (lines) => {
   const results = [];
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
+    // B#・#・B・なし いずれも対応、支払区分は全角１・半角1・一 を許容
     const m = line.match(
-      /^[B#]?\s*(\d{2})\/(\d{2})\/(\d{2})\s+(.+?)\s+([\d,]+)\s+[１一]\s+\d+\s+([\d,]+)/
+      /^(?:B#|#|B)?\s*(\d{2})\/(\d{2})\/(\d{2})\s+(.+?)\s+([\d,]+)\s+[１1一]\s+\d+\s+([\d,]+)/
     );
     if (!m) continue;
     let [, yy, mm, dd, rawStore, , payAmount] = m;
 
-    // 長い店舗名が次行に続く場合の結合（ラ で終わる等）
-    if (/[（(ラ]$/.test(rawStore.trim())) {
-      const next = (lines[i + 1] || "").trim();
-      if (next && !/^\d{2}[/\s]/.test(next) && next.length < 20) {
-        rawStore += next;
-        i++;
-      }
+    // 長い店舗名が次行に続く場合の結合（末尾がＣ・ラ・／・NF等）
+    const nextLine = (lines[i + 1] || "").trim();
+    if (nextLine
+        && !/^(?:B#|#|B)?\s*\d{2}\/\d{2}\/\d{2}/.test(nextLine)
+        && !/^(?:小林|＜|合計|1\/|2\/|3\/)/.test(nextLine)
+        && nextLine.length < 25
+        && !/^\d{1,3}(,\d{3})*$/.test(nextLine)) {
+      rawStore += nextLine;
+      i++;
     }
 
     const amount = parseInt(payAmount.replace(/,/g, ""));
@@ -146,7 +149,7 @@ const parseSMBCLines = (lines) => {
 
     results.push({
       date:     `20${yy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`,
-      label:    zen2han(rawStore.replace(/\s+/g, " ")) || rawStore.trim(),
+      label:    zen2han(rawStore.replace(/\s+/g, " ").trim()) || rawStore.trim(),
       amount:   -amount,
       type:     "expense",
       category: "その他",
