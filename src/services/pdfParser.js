@@ -139,14 +139,11 @@ const parseEposLines = (lines) => {
 };
 
 // ─── 三井住友カード PDF パーサー ─────────────────────────────
-// pdf.jsの行構造は不規則なため、日付行ベースの解析に統一：
-// 1. B#/#行はスキップ
-// 2. 日付行（YY/MM/DD）を検出して店舗名を収集
-// 3. 金額行（数字 １ １）が来たら取得完了
-// 4. 支払金額は金額行直後の純粋な数字行があればそれを使用
+// pdf.jsはB#と日付+店舗名+金額を同じY座標でjoin(" ")するため
+// "B# 26/04/01 店舗名 10,000 １ １" のような1行になることが多い
+// また支払金額は直後の行か、複数行後にまとめて来る場合がある
 const parseSMBCLines = (lines) => {
   const results = [];
-
   const isAmountLine = (s) => /^[\d,]+\s*[１1一]/.test(s);
   const isPureNumber = (s) => /^[\d,]+$/.test(s);
 
@@ -154,70 +151,69 @@ const parseSMBCLines = (lines) => {
   while (i < lines.length) {
     const line = lines[i].trim();
 
-    // B#/#行はスキップ
-    if (/^(?:B#|#)+$/.test(line)) { i++; continue; }
-
     // 区切り行はスキップ
-    if (line.startsWith("＜") || line.startsWith("※") || line.startsWith("登録")) { i++; continue; }
+    if (!line || line.startsWith("＜") || line.startsWith("※") || line.startsWith("登録")) { i++; continue; }
 
-    // 日付行を検出
-    const mDate = line.match(/^(\d{2})\/(\d{2})\/(\d{2})\s*(.*)$/);
-    if (mDate) {
-      const [, yy, mm, dd, rest] = mDate;
-      const storeParts = rest.trim() ? [rest.trim()] : [];
+    // 日付行を検出（B#/#プレフィックス付きも対応）
+    const mDate = line.match(/^(?:B#|#|\s)*?(\d{2})\/(\d{2})\/(\d{2})\s*(.*)/);
+    if (!mDate) { i++; continue; }
 
-      let j = i + 1;
-      let found = false;
+    const [, yy, mm, dd, rest] = mDate;
 
-      while (j < lines.length) {
-        const nxt = lines[j].trim();
-
-        // 次の取引の始まり → 金額なしでスキップ
-        if (/^(\d{2})\/(\d{2})\/(\d{2})/.test(nxt) || /^(?:B#|#)+$/.test(nxt) || nxt.startsWith("＜")) {
-          i = j;
-          found = true;
-          break;
+    // restから店舗名と金額を分離（金額が同行にある場合）
+    // パターン: "店舗名 10,000 １ １ [10,000]"
+    const mRestWithAmt = rest.match(/^(.+?)\s+([\d,]+)\s+[１1一](?:\s+[１0-9０-９]+)?\s*([\d,]+)?\s*$/);
+    if (mRestWithAmt) {
+      const [, rawStore, useAmt, payInline] = mRestWithAmt;
+      let amount = payInline ? parseInt(payInline.replace(/,/g, "")) : 0;
+      if (amount <= 0) {
+        // 次行が純粋な数字なら支払金額
+        const nextLine = (lines[i + 1] || "").trim();
+        if (isPureNumber(nextLine)) {
+          amount = parseInt(nextLine.replace(/,/g, ""));
+          if (amount > 0) i++;
         }
-
-        // 金額行
-        if (isAmountLine(nxt)) {
-          const useAmt = parseInt(nxt.match(/^([\d,]+)/)[1].replace(/,/g, ""));
-          let payAmt = useAmt;
-
-          // 次行が純粋な数字なら支払金額として使用
-          if (j + 1 < lines.length && isPureNumber(lines[j + 1].trim())) {
-            const candidate = parseInt(lines[j + 1].trim().replace(/,/g, ""));
-            if (candidate > 0) { payAmt = candidate; j++; }
-          }
-
-          const label = zen2han(storeParts.join(" ").replace(/\u3000/g, " ").replace(/\s+/g, " ").trim());
-          if (payAmt > 0 && label) {
-            results.push({
-              date:     `20${yy}-${mm.padStart(2,"0")}-${dd.padStart(2,"0")}`,
-              label,
-              amount:   -payAmt,
-              type:     "expense",
-              category: "その他",
-              source:   "csv",
-            });
-          }
-          i = j + 1;
-          found = true;
-          break;
-        }
-
-        // 店舗名の続き（数字のみ行や◎は除外）
-        if (nxt && !/^[◎○●]$/.test(nxt) && !/^[\d,]+$/.test(nxt)) {
-          storeParts.push(nxt);
-        }
-        j++;
       }
-
-      if (!found) i = j;
-      continue;
+      if (amount <= 0) amount = parseInt(useAmt.replace(/,/g, ""));
+      const label = zen2han(rawStore.replace(/\u3000/g, " ").replace(/\s+/g, " ").trim());
+      if (amount > 0 && label) {
+        results.push({ date: `20${yy}-${mm.padStart(2,"0")}-${dd.padStart(2,"0")}`, label, amount: -amount, type: "expense", category: "その他", source: "csv" });
+      }
+      i++; continue;
     }
 
-    i++;
+    // restが店舗名のみ（金額が次行）
+    const storeParts = rest.trim() ? [rest.trim()] : [];
+    let j = i + 1;
+    let found = false;
+
+    while (j < lines.length) {
+      const nxt = lines[j].trim();
+
+      // 次の取引 or 区切り
+      if (/^(?:B#|#|\s)*?\d{2}\/\d{2}\/\d{2}/.test(nxt) || nxt.startsWith("＜")) {
+        i = j; found = true; break;
+      }
+
+      if (isAmountLine(nxt)) {
+        const useAmt = parseInt(nxt.match(/^([\d,]+)/)[1].replace(/,/g, ""));
+        let payAmt = useAmt;
+        if (j + 1 < lines.length && isPureNumber(lines[j + 1].trim())) {
+          const c = parseInt(lines[j + 1].trim().replace(/,/g, ""));
+          if (c > 0) { payAmt = c; j++; }
+        }
+        const label = zen2han(storeParts.join(" ").replace(/\u3000/g, " ").replace(/\s+/g, " ").trim());
+        if (payAmt > 0 && label) {
+          results.push({ date: `20${yy}-${mm.padStart(2,"0")}-${dd.padStart(2,"0")}`, label, amount: -payAmt, type: "expense", category: "その他", source: "csv" });
+        }
+        i = j + 1; found = true; break;
+      }
+
+      if (nxt && !/^[◎○●]$/.test(nxt) && !isPureNumber(nxt)) storeParts.push(nxt);
+      j++;
+    }
+
+    if (!found) i = j;
   }
   return results;
 };
