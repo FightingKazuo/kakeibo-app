@@ -3,14 +3,14 @@ const NAV_ITEMS = [
   { id:"list",     icon:"📋", label:"一覧"     },
   { id:"add",      icon:"➕", label:"追加"     },
   { id:"analysis", icon:"📊", label:"分析"     },
+  { id:"assets",   icon:"💰", label:"資産"     },
   { id:"settings", icon:"⚙️", label:"設定"     },
 ];
 
 export function BottomNav({ currentPage, onNavigate }) {
   return (
-    /* md: 以上（PC）では非表示 */
     <nav className="md:hidden nav-safe fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-50">
-<div className="flex justify-around items-center h-16 max-w-md mx-auto">
+      <div className="flex justify-around items-center h-16 max-w-md mx-auto">
         {NAV_ITEMS.map(item => (
           <button key={item.id} onClick={() => onNavigate(item.id)}
             className={`flex flex-col items-center gap-1 flex-1 py-2 transition-all duration-200
