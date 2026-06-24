@@ -1,6 +1,8 @@
 // ============================================================
 // geminiOcr.js  (v8 — maxTokens増加・バージョン管理追加)
 //
+import { parsePDF } from "./pdfParser.js";
+//
 // 変更点:
 //   v8: analyzeWithGemini を4096、analyzePDFWithGemini を8192に増加
 //       GEMINI_OCR_VERSION をエクスポート（設定画面での確認用）
@@ -289,7 +291,17 @@ const callGeminiPDF = async (apiKey, parts, maxTokens = 8192) => {
       continue;
     }
   }
-  throw new Error(`すべてのモデルで失敗\n\n` + errors.map(e => `・${e}`).join("\n"));
+  // エラー内容をわかりやすく日本語で説明
+  const errSummary = errors.map(e => {
+    if (e.includes("429") || e.includes("quota")) return `・レート制限（しばらく待ってから再試行）`;
+    if (e.includes("400") && e.includes("no pages")) return `・PDFが読み込めませんでした（SafariのPDFは非対応の場合あり）`;
+    if (e.includes("400")) return `・APIリクエストエラー（${e.split(":").slice(-1)[0].trim().slice(0,40)}）`;
+    if (e.includes("401") || e.includes("403")) return `・APIキーエラー（キーを確認してください）`;
+    if (e.includes("404")) return `・モデルが見つかりません`;
+    if (e.includes("TIMEOUT")) return `・タイムアウト（接続を確認してください）`;
+    return `・${e.slice(0,60)}`;
+  });
+  throw new Error(`読み込みに失敗しました\n\n${errSummary.join("\n")}`);
 };
 
 export const testGeminiKey = async (apiKey) => {
@@ -425,9 +437,8 @@ OCRテキスト:\n${ocrText}`,
 export const analyzePDFWithGemini = async (file, apiKey, onProgress) => {
   onProgress?.(10);
 
-  // ① pdf.jsでパース試行
+  // ① pdf.jsでパース試行（静的import版）
   try {
-    const { parsePDF } = await import("./pdfParser.js");
     const result = await parsePDF(file);
     if (result?.transactions?.length > 0) {
       onProgress?.(100);
@@ -438,7 +449,12 @@ export const analyzePDFWithGemini = async (file, apiKey, onProgress) => {
         transactions: result.transactions,
       };
     }
-  } catch (e) { /* Geminiへ続行 */ }
+    // pdf.js成功だが0件 → Geminiへ
+    console.warn("[PDF] pdf.js成功だが0件 format:", result?.format, "lines:", result?.lineCount);
+  } catch (e) {
+    // pdf.js失敗 → Geminiへ
+    console.warn("[PDF] pdf.js失敗:", e.message);
+  }
 
   // ② GeminiにPDFを直接渡す（responseMimeTypeなし）
   onProgress?.(40);
@@ -491,5 +507,15 @@ export const analyzePDFWithGemini = async (file, apiKey, onProgress) => {
       }
     }
   }
-  throw new Error(`すべてのモデルで失敗\n\n` + errors.map(e => `・${e}`).join("\n"));
+  // エラー内容をわかりやすく日本語で説明
+  const errSummary = errors.map(e => {
+    if (e.includes("429") || e.includes("quota")) return `・レート制限（しばらく待ってから再試行）`;
+    if (e.includes("400") && e.includes("no pages")) return `・PDFが読み込めませんでした（SafariのPDFは非対応の場合あり）`;
+    if (e.includes("400")) return `・APIリクエストエラー（${e.split(":").slice(-1)[0].trim().slice(0,40)}）`;
+    if (e.includes("401") || e.includes("403")) return `・APIキーエラー（キーを確認してください）`;
+    if (e.includes("404")) return `・モデルが見つかりません`;
+    if (e.includes("TIMEOUT")) return `・タイムアウト（接続を確認してください）`;
+    return `・${e.slice(0,60)}`;
+  });
+  throw new Error(`読み込みに失敗しました\n\n${errSummary.join("\n")}`);
 };
