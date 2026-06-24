@@ -156,15 +156,56 @@ const parseSMBCLines = (lines) => {
     const line = lines[i];
 
     // パターンA: "#" または "B#" のみの行
+    // 次行は "26/04/01 店舗名 10,000 １ １" または "26/04/01 店舗名" のどちらかの形式
     if (/^(?:B#|#)$/.test(line.trim())) {
       const dateLine = (lines[i + 1] || "").trim();
       const mDate = dateLine.match(/^(\d{2})\/(\d{2})\/(\d{2})\s+(.+)$/);
       if (mDate) {
-        const [, yy, mm, dd, rawStore] = mDate;
-        // 金額行: "4,803 １ １" or "4,803 1 1"
+        const [, yy, mm, dd, rest] = mDate;
+
+        // rest が "店舗名 金額 １ １ [支払金額]" の形式（pdf.jsの結合行）
+        const mRestFull = rest.match(/^(.+?)\s+([\d,]+)\s+[１1一](?:\s+[１0-9０-９]+)?\s*([\d,]+)?\s*$/);
+        if (mRestFull) {
+          const [, rawStore, useAmt, payInline] = mRestFull;
+          let amount = payInline ? parseInt(payInline.replace(/,/g, "")) : 0;
+          if (amount <= 0) {
+            // 次行が純粋な数字なら支払金額
+            const payLine = (lines[i + 2] || "").trim();
+            const payM = payLine.match(/^([\d,]+)$/);
+            if (payM) {
+              amount = parseInt(payM[1].replace(/,/g, ""));
+              if (amount > 0) {
+                results.push({
+                  date:     `20${yy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`,
+                  label:    zen2han(rawStore.replace(/\u3000/g, " ").replace(/\s+/g, " ").trim()),
+                  amount:   -amount,
+                  type:     "expense",
+                  category: "その他",
+                  source:   "csv",
+                });
+                i += 3;
+                continue;
+              }
+            }
+            amount = parseInt(useAmt.replace(/,/g, ""));
+          }
+          if (amount > 0) {
+            results.push({
+              date:     `20${yy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`,
+              label:    zen2han(rawStore.replace(/\u3000/g, " ").replace(/\s+/g, " ").trim()),
+              amount:   -amount,
+              type:     "expense",
+              category: "その他",
+              source:   "csv",
+            });
+            i += 2;
+            continue;
+          }
+        }
+
+        // rest が "店舗名のみ" の形式（金額は別行）
         const amtLine = (lines[i + 2] || "").trim();
         if (/^[\d,]+\s*[１1一]/.test(amtLine)) {
-          // 支払金額行（次行）
           const payLine = (lines[i + 3] || "").trim();
           const payM = payLine.match(/^([\d,]+)/);
           if (payM) {
@@ -172,7 +213,7 @@ const parseSMBCLines = (lines) => {
             if (amount > 0) {
               results.push({
                 date:     `20${yy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`,
-                label:    zen2han(rawStore.replace(/\u3000/g, " ").replace(/\s+/g, " ").trim()),
+                label:    zen2han(rest.replace(/\u3000/g, " ").replace(/\s+/g, " ").trim()),
                 amount:   -amount,
                 type:     "expense",
                 category: "その他",
@@ -182,14 +223,13 @@ const parseSMBCLines = (lines) => {
               continue;
             }
           }
-          // 支払金額行がなければ金額行の最初の数字を使う
           const amtM = amtLine.match(/^([\d,]+)/);
           if (amtM) {
             const amount = parseInt(amtM[1].replace(/,/g, ""));
             if (amount > 0) {
               results.push({
                 date:     `20${yy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`,
-                label:    zen2han(rawStore.replace(/\u3000/g, " ").replace(/\s+/g, " ").trim()),
+                label:    zen2han(rest.replace(/\u3000/g, " ").replace(/\s+/g, " ").trim()),
                 amount:   -amount,
                 type:     "expense",
                 category: "その他",
