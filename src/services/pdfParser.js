@@ -65,7 +65,7 @@ const getPageLines = async (pdfjsLib, page) => {
       lineMap[y]
         .sort((a, b) => a.x - b.x)
         .map(i => i.str)
-        .join("")
+        .join(" ")
         .trim()
     )
     .filter(Boolean);
@@ -163,7 +163,7 @@ const parseSMBCLines = (lines) => {
         const [, yy, mm, dd, rawStore] = mDate;
         // 金額行: "4,803 １ １" or "4,803 1 1"
         const amtLine = (lines[i + 2] || "").trim();
-        if (/^[\d,]+\s+[１1一]/.test(amtLine)) {
+        if (/^[\d,]+\s*[１1一]/.test(amtLine)) {
           // 支払金額行（次行）
           const payLine = (lines[i + 3] || "").trim();
           const payM = payLine.match(/^([\d,]+)/);
@@ -231,9 +231,10 @@ const parseSMBCLines = (lines) => {
     if (mDate) {
       const [, yy, mm, dd, rawStore] = mDate;
       const nextLine = (lines[i + 1] || "").trim();
-      // 次行が "金額 １ １ 金額" または "金額 １ １" の形式
-      const mAmt = nextLine.match(/^([\d,]+)\s+[１1一]\s+\d+\s+([\d,]+)/) ||
-                   nextLine.match(/^([\d,]+)\s+[１1一]/);
+      // 次行が "金額 １ １ 金額" または "金額 １ １" または "金額１１金額" の形式
+      const mAmt = nextLine.match(/^([\d,]+)\s+[１1一]\s+[\d０-９]+\s+([\d,]+)/) ||
+                   nextLine.match(/^([\d,]+)\s*[１1一]\s*[\d０-９]+\s*([\d,]+)/) ||
+                   nextLine.match(/^([\d,]+)\s*[１1一]/);
       if (mAmt) {
         const payStr = mAmt[2] || mAmt[1];
         const amount = parseInt(payStr.replace(/,/g, ""));
