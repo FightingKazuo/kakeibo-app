@@ -193,7 +193,7 @@ const parseSMBCLines = (lines) => {
           const label = zen2han(storeParts.join(" ").replace(/\u3000/g, " ").replace(/\s+/g, " ").trim());
           if (payAmt > 0 && label) {
             results.push({
-              date:     \`20\${yy}-\${mm.padStart(2,"0")}-\${dd.padStart(2,"0")}\`,
+              date:     `20${yy}-${mm.padStart(2,"0")}-${dd.padStart(2,"0")}`,
               label,
               amount:   -payAmt,
               type:     "expense",
