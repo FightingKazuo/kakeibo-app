@@ -89,9 +89,9 @@ const getAllLines = async (pdfjsLib, arrayBuffer) => {
     const lines = await getPageLines(pdfjsLib, page);
     all.push(...lines);
   }
-  // デバッグ: 取得行数とサンプルをアラート表示
-  const sample = all.slice(0, 10).join(" | ");
-  alert(`[PDF debug] ${pdf.numPages}ページ / ${all.length}行\nサンプル: ${sample}`);
+  // デバッグ: 全行をアラート表示
+  const allSample = all.slice(0, 60).join("\n");
+  alert(`[PDF debug] ${pdf.numPages}ページ / ${all.length}行\n---\n${allSample}`);
   return all;
 };
 
