@@ -449,11 +449,11 @@ export const analyzePDFWithGemini = async (file, apiKey, onProgress) => {
         transactions: result.transactions,
       };
     }
-    // pdf.js成功だが0件 → Geminiへ
-    console.warn("[PDF] pdf.js成功だが0件 format:", result?.format, "lines:", result?.lineCount);
+    // pdf.js成功だが0件 → エラーとして返す（Geminiに落とさない）
+    throw new Error(`PDFの読み込みに失敗しました\n形式: ${result?.format || "不明"} / 行数: ${result?.lineCount || 0}\n\n三井住友カードのPDFは「データ取得 → Chromeで開く」からPDFを作成してください。`);
   } catch (e) {
-    // pdf.js失敗 → Geminiへ
-    console.warn("[PDF] pdf.js失敗:", e.message);
+    // Geminiには落とさずエラーをそのまま投げる
+    throw e;
   }
 
   // ② GeminiにPDFを直接渡す（responseMimeTypeなし）
