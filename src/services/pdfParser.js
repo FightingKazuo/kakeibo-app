@@ -363,8 +363,10 @@ export const parsePDF = async (file) => {
   }
 
   if (transactions.length === 0) {
+    // デバッグ：全行を表示してパターンがマッチしない理由を確認
+    const debugLines = lines.slice(0, 60).join("\n");
     throw new Error(
-      "取引データを抽出できませんでした。\nPDFのフォーマットが想定と異なる可能性があります。"
+      `取引データを抽出できませんでした。\n形式: ${format}\n行数: ${lines.length}\n\n先頭行:\n${debugLines}`
     );
   }
 
