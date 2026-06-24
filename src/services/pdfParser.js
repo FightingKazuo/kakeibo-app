@@ -92,8 +92,6 @@ const getAllLines = async (pdfjsLib, arrayBuffer) => {
     pageInfo.push(`p${i}:${lines.length}行`);
     all.push(...lines);
   }
-  // デバッグ: ページごとの行数を表示
-  alert(`[PDF] ${pdf.numPages}ページ合計${all.length}行\n${pageInfo.join(", ")}\n\n取引行サンプル:\n${all.filter(l => /^[B#]$|^\d{2}\//.test(l)).slice(0,5).join("\n")}`);
   return all;
 };
 
@@ -207,7 +205,8 @@ const parseSMBCLines = (lines) => {
       }
     }
 
-    // パターンB: 1行に全情報
+    // パターンB: 1行に全情報（#なし）
+    // "26/05/01 藍屋 4,803 １ １ 4,803" のような形式
     const mOne = line.match(
       /^(?:B#|#|B)?\s*(\d{2})\/(\d{2})\/(\d{2})\s+(.+?)\s+([\d,]+)\s+[１1一]\s+\d+\s+([\d,]+)/
     );
@@ -223,6 +222,35 @@ const parseSMBCLines = (lines) => {
           category: "その他",
           source:   "csv",
         });
+        i++;
+        continue;
+      }
+    }
+
+    // パターンC: 日付+店舗名が1行、次行が金額
+    // "26/04/13 ＳＢＩ証券投信積立サービス" → "20,000 １ １ 20,000"
+    const mDate = line.match(/^(?:B#|#|B)?\s*(\d{2})\/(\d{2})\/(\d{2})\s+(.+)$/);
+    if (mDate) {
+      const [, yy, mm, dd, rawStore] = mDate;
+      const nextLine = (lines[i + 1] || "").trim();
+      // 次行が "金額 １ １ 金額" または "金額 １ １" の形式
+      const mAmt = nextLine.match(/^([\d,]+)\s+[１1一]\s+\d+\s+([\d,]+)/) ||
+                   nextLine.match(/^([\d,]+)\s+[１1一]/);
+      if (mAmt) {
+        const payStr = mAmt[2] || mAmt[1];
+        const amount = parseInt(payStr.replace(/,/g, ""));
+        if (amount > 0) {
+          results.push({
+            date:     `20${yy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`,
+            label:    zen2han(rawStore.replace(/\u3000/g, " ").replace(/\s+/g, " ").trim()),
+            amount:   -amount,
+            type:     "expense",
+            category: "その他",
+            source:   "csv",
+          });
+          i += 2;
+          continue;
+        }
       }
     }
 
