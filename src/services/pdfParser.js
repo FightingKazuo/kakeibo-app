@@ -85,11 +85,15 @@ const getAllLines = async (pdfjsLib, arrayBuffer) => {
   });
   const pdf = await loadingTask.promise;
   const all = [];
+  const pageInfo = [];
   for (let i = 1; i <= pdf.numPages; i++) {
     const page  = await pdf.getPage(i);
     const lines = await getPageLines(pdfjsLib, page);
+    pageInfo.push(`p${i}:${lines.length}行`);
     all.push(...lines);
   }
+  // デバッグ: ページごとの行数を表示
+  alert(`[PDF] ${pdf.numPages}ページ合計${all.length}行\n${pageInfo.join(", ")}\n\n取引行サンプル:\n${all.filter(l => /^[B#]$|^\d{2}\//.test(l)).slice(0,5).join("\n")}`);
   return all;
 };
 
