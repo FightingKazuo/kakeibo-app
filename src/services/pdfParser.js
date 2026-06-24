@@ -47,24 +47,25 @@ const loadPdfjs = () => {
 // ─── ページからテキスト行を復元 ──────────────────────────────
 // PDF は文字がバラバラなので Y 座標でグループ化して行に再構成する
 const getPageLines = async (pdfjsLib, page) => {
-  const content = await page.getTextContent();
+  const content = await page.getTextContent({ includeMarkedContent: false });
   const lineMap = {};
 
   for (const item of content.items) {
-    if (!item.str?.trim()) continue;
-    const y = Math.round(item.transform[5] / 4) * 4;
+    const str = item.str ?? "";
+    // 空白のみの行でも座標情報として使う
+    const y = Math.round(item.transform[5] / 2) * 2; // 精度を2pxに向上
     if (!lineMap[y]) lineMap[y] = [];
-    lineMap[y].push({ str: item.str, x: item.transform[4] });
+    lineMap[y].push({ str, x: item.transform[4] });
   }
 
   return Object.keys(lineMap)
     .map(Number)
-    .sort((a, b) => b - a)          // Y 降順（上から下）
+    .sort((a, b) => b - a)
     .map(y =>
       lineMap[y]
-        .sort((a, b) => a.x - b.x) // X 昇順（左から右）
+        .sort((a, b) => a.x - b.x)
         .map(i => i.str)
-        .join(" ")
+        .join("")
         .trim()
     )
     .filter(Boolean);
@@ -89,9 +90,6 @@ const getAllLines = async (pdfjsLib, arrayBuffer) => {
     const lines = await getPageLines(pdfjsLib, page);
     all.push(...lines);
   }
-  // デバッグ: 全行をアラート表示
-  const allSample = all.slice(0, 60).join("\n");
-  alert(`[PDF debug] ${pdf.numPages}ページ / ${all.length}行\n---\n${allSample}`);
   return all;
 };
 
@@ -99,7 +97,7 @@ const getAllLines = async (pdfjsLib, arrayBuffer) => {
 const detectPDFFormat = (lines) => {
   const head = lines.slice(0, 40).join("\n");
   if (/エポスカード|ＥＰＯＳ|マルイ/.test(head))           return "epos_pdf";
-  if (/三井住友|SMBC|ゴールドVISA|ゴールドＶＩＳＡ/.test(head)) return "smbc_pdf";
+  if (/三井住友|SMBC|smbc-card|ゴールドVISA|ゴールドＶＩＳＡ|ｺﾞｰﾙﾄﾞ|Vpass|vpass/.test(head)) return "smbc_pdf";
   return "unknown_pdf";
 };
 
