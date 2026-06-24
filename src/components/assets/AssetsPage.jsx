@@ -11,31 +11,49 @@ const parseSBISecuritiesCSV = (text) => {
   const funds = [];
   let totalEval = 0;
   let totalGain = 0;
+  let inSummary  = false; // 合計行の次行を読む状態
 
   for (const line of lines) {
     const cols = line.split(",").map(c => c.replace(/^"|"$/g, "").trim());
-    // ファンド名,保有口数,...,取得金額,評価額,評価損益,...
-    if (cols.length >= 8 && cols[0].includes("ＳＬｉｍ") || cols[0].includes("eMAXIS") || cols[0].includes("Ｓｌｉｍ")) {
-      const name    = cols[0].replace(/[Ａ-Ｚａ-ｚ０-９（）　]/g, c =>
-        c.charCodeAt(0) > 0xFF00
+
+    // 「評価額合計,評価損益合計」ヘッダー行の次行が口座別合計値
+    if (cols[0] === "評価額合計" && cols[1] === "評価損益合計") {
+      inSummary = true;
+      continue;
+    }
+    if (inSummary && cols.length >= 2) {
+      const v = parseInt(cols[0].replace(/[^0-9]/g, "")) || 0;
+      const g = parseInt(cols[1].replace(/[^0-9]/g, "").replace("+", "")) || 0;
+      const gSign = cols[1].startsWith("-") ? -1 : 1;
+      if (v > 0) {
+        totalEval += v;
+        totalGain += g * gSign;
+      }
+      inSummary = false;
+      continue;
+    }
+
+    // ファンド行（ファンド名を含む行）
+    if (cols.length >= 8 && (
+      cols[0].includes("Ｓｌｉｍ") || cols[0].includes("eMAXIS") ||
+      cols[0].includes("ｅＭＡＸＩＳ") || cols[0].includes("ＳＬＩＭ")
+    )) {
+      // 全角→半角変換
+      const name = cols[0].replace(/[Ａ-Ｚａ-ｚ０-９（）　ー]/g, c =>
+        c.charCodeAt(0) >= 0xFF01 && c.charCodeAt(0) <= 0xFF5E
           ? String.fromCharCode(c.charCodeAt(0) - 0xFEE0)
-          : c
-      ).trim();
-      const evalAmt = parseInt(String(cols[6] || "0").replace(/[^0-9\-]/g, "")) || 0;
-      const gainAmt = parseInt(String(cols[7] || "0").replace(/[^0-9\-\+]/g, "").replace("+","")) || 0;
+          : c === "　" ? " " : c
+      ).replace(/\s+/g, " ").trim();
+      const evalAmt = parseInt(String(cols[6] || "0").replace(/[^0-9]/g, "")) || 0;
+      const gainStr = String(cols[7] || "0");
+      const gainSign = gainStr.startsWith("-") ? -1 : 1;
+      const gainAmt = (parseInt(gainStr.replace(/[^0-9]/g, "")) || 0) * gainSign;
       if (evalAmt > 0) {
         funds.push({ name, evalAmt, gainAmt });
-        totalEval += evalAmt;
-        totalGain += gainAmt;
       }
     }
-    // 合計行
-    if (cols[0] === "評価額合計" || (cols.length === 2 && !isNaN(parseInt(cols[0].replace(/,/g,""))))) {
-      const v = parseInt(cols[0].replace(/[^0-9]/g,"")) || 0;
-      const g = parseInt((cols[1]||"0").replace(/[^0-9\-\+]/g,"").replace("+","")) || 0;
-      if (v > 1000000) { totalEval = v; totalGain = g; }
-    }
   }
+
   return { funds, totalEval, totalGain };
 };
 
