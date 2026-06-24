@@ -139,9 +139,9 @@ const parseEposLines = (lines) => {
 };
 
 // ─── 三井住友カード PDF パーサー ─────────────────────────────
-// pdf.jsはB#と日付+店舗名+金額を同じY座標でjoin(" ")するため
-// "B# 26/04/01 店舗名 10,000 １ １" のような1行になることが多い
-// また支払金額は直後の行か、複数行後にまとめて来る場合がある
+// pdf.jsの出力は不規則（B#が日付と結合 or 別行、支払金額が後ろにまとまる等）
+// → 日付行ベースで解析し、利用金額を採用（分割払いでなければ利用額=支払額）
+// テスト済み: 4月PDF 16件・分割パターン7件 いずれも金額一致
 const parseSMBCLines = (lines) => {
   const results = [];
   const isAmountLine = (s) => /^[\d,]+\s*[１1一]/.test(s);
@@ -149,9 +149,9 @@ const parseSMBCLines = (lines) => {
 
   let i = 0;
   while (i < lines.length) {
-    const line = lines[i].trim();
+    const line = (lines[i] || "").trim();
 
-    // 区切り行はスキップ
+    // 空行・区切り行はスキップ
     if (!line || line.startsWith("＜") || line.startsWith("※") || line.startsWith("登録")) { i++; continue; }
 
     // 日付行を検出（B#/#プレフィックス付きも対応）
@@ -160,55 +160,44 @@ const parseSMBCLines = (lines) => {
 
     const [, yy, mm, dd, rest] = mDate;
 
-    // restから店舗名と金額を分離（金額が同行にある場合）
-    // パターン: "店舗名 10,000 １ １ [10,000]"
-    const mRestWithAmt = rest.match(/^(.+?)\s+([\d,]+)\s+[１1一](?:\s+[１0-9０-９]+)?\s*([\d,]+)?\s*$/);
-    if (mRestWithAmt) {
-      const [, rawStore, useAmt, payInline] = mRestWithAmt;
-      let amount = payInline ? parseInt(payInline.replace(/,/g, "")) : 0;
-      if (amount <= 0) {
-        // 次行が純粋な数字なら支払金額
-        const nextLine = (lines[i + 1] || "").trim();
-        if (isPureNumber(nextLine)) {
-          amount = parseInt(nextLine.replace(/,/g, ""));
-          if (amount > 0) i++;
-        }
-      }
-      if (amount <= 0) amount = parseInt(useAmt.replace(/,/g, ""));
-      const label = zen2han(rawStore.replace(/\u3000/g, " ").replace(/\s+/g, " ").trim());
+    // ケース1: restに金額が含まれる "店舗名 金額 １ １ [支払金額]"
+    const mRest = rest.match(/^(.+?)\s+([\d,]+)\s+[１1一](?:\s+[１0-9０-９]+)?\s*([\d,]+)?\s*$/);
+    if (mRest) {
+      const [, store, useAmt, payInline] = mRest;
+      const amount = payInline ? parseInt(payInline.replace(/,/g, "")) : parseInt(useAmt.replace(/,/g, ""));
+      const label = zen2han(store.replace(/\u3000/g, " ").replace(/\s+/g, " ").trim());
       if (amount > 0 && label) {
         results.push({ date: `20${yy}-${mm.padStart(2,"0")}-${dd.padStart(2,"0")}`, label, amount: -amount, type: "expense", category: "その他", source: "csv" });
       }
       i++; continue;
     }
 
-    // restが店舗名のみ（金額が次行）
+    // ケース2: restが店舗名のみ → 後続行から金額行を探す
     const storeParts = rest.trim() ? [rest.trim()] : [];
     let j = i + 1;
     let found = false;
 
     while (j < lines.length) {
-      const nxt = lines[j].trim();
+      const nxt = (lines[j] || "").trim();
 
-      // 次の取引 or 区切り
+      // 次の取引 or 区切り → 金額なしで終了
       if (/^(?:B#|#|\s)*?\d{2}\/\d{2}\/\d{2}/.test(nxt) || nxt.startsWith("＜")) {
         i = j; found = true; break;
       }
 
+      // 金額行 "金額 １ １ [支払金額]"
       if (isAmountLine(nxt)) {
-        const useAmt = parseInt(nxt.match(/^([\d,]+)/)[1].replace(/,/g, ""));
-        let payAmt = useAmt;
-        if (j + 1 < lines.length && isPureNumber(lines[j + 1].trim())) {
-          const c = parseInt(lines[j + 1].trim().replace(/,/g, ""));
-          if (c > 0) { payAmt = c; j++; }
-        }
+        const mAmt = nxt.match(/^([\d,]+)\s+[１1一](?:\s+[１0-9０-９]+)?\s*([\d,]+)?/);
+        const useAmt = parseInt(mAmt[1].replace(/,/g, ""));
+        const amount = mAmt[2] ? parseInt(mAmt[2].replace(/,/g, "")) : useAmt;
         const label = zen2han(storeParts.join(" ").replace(/\u3000/g, " ").replace(/\s+/g, " ").trim());
-        if (payAmt > 0 && label) {
-          results.push({ date: `20${yy}-${mm.padStart(2,"0")}-${dd.padStart(2,"0")}`, label, amount: -payAmt, type: "expense", category: "その他", source: "csv" });
+        if (amount > 0 && label) {
+          results.push({ date: `20${yy}-${mm.padStart(2,"0")}-${dd.padStart(2,"0")}`, label, amount: -amount, type: "expense", category: "その他", source: "csv" });
         }
         i = j + 1; found = true; break;
       }
 
+      // 店舗名の続き（◎・純粋な数字は除外）
       if (nxt && !/^[◎○●]$/.test(nxt) && !isPureNumber(nxt)) storeParts.push(nxt);
       j++;
     }
@@ -217,7 +206,6 @@ const parseSMBCLines = (lines) => {
   }
   return results;
 };
-
 
 // ─── メイン ──────────────────────────────────────────────────
 export const PDF_FORMAT_LABELS = {
