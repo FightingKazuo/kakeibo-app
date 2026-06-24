@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { CategoryTab }  from "./tabs/CategoryTab";
 import { MemberTab }    from "./tabs/MemberTab";
 import { PointTab }     from "./tabs/PointTab";
@@ -36,6 +36,20 @@ export function SettingsPage({
 }) {
   const [tab, setTab] = useState(null);
 
+  // iOSスワイプバック・ブラウザバックで setTab(null) を呼ぶ
+  useEffect(() => {
+    const handlePop = (e) => {
+      // stateにtabがなければ一覧に戻る
+      if (!e.state?.tab) {
+        setTab(null);
+      } else {
+        setTab(e.state.tab);
+      }
+    };
+    window.addEventListener("popstate", handlePop);
+    return () => window.removeEventListener("popstate", handlePop);
+  }, []);
+
   const currentTab = TABS.find(t => t.id === tab);
 
   // タブ未選択時はメニュー一覧
@@ -66,7 +80,7 @@ export function SettingsPage({
     <div className="pb-24">
       <div className="bg-white px-4 pt-12 pb-4 border-b border-gray-100 flex items-center gap-3">
         <button
-          onClick={() => { history.back(); setTab(null); }}
+          onClick={() => { history.back(); }}
           className="flex items-center justify-center w-10 h-10 rounded-full bg-gray-100 hover:bg-gray-200 active:bg-gray-300 transition-colors text-gray-600 text-lg font-bold">
           ‹
         </button>
