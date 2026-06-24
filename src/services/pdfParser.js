@@ -203,14 +203,27 @@ const parseSMBCLines = (lines) => {
       }
     }
 
-    // パターンB: 1行に全情報（#なし）
-    // "26/05/01 藍屋 4,803 １ １ 4,803" のような形式
+    // パターンB: "26/04/01 店舗名 10,000 １ １ [10,000]" 形式
+    // 支払金額が同行にある場合とない場合の両方に対応
     const mOne = line.match(
-      /^(?:B#|#|B)?\s*(\d{2})\/(\d{2})\/(\d{2})\s+(.+?)\s+([\d,]+)\s+[１1一]\s+\d+\s+([\d,]+)/
+      /^(?:B#|#|B)?\s*(\d{2})\/(\d{2})\/(\d{2})\s+(.+?)\s+([\d,]+)\s+[１1一](?:\s+[\d０-９]+)?\s*([\d,]+)?\s*$/
     );
     if (mOne) {
-      const [, yy, mm, dd, rawStore, , payAmount] = mOne;
-      const amount = parseInt(payAmount.replace(/,/g, ""));
+      const [, yy, mm, dd, rawStore, useAmount, payAmountInline] = mOne;
+      // 支払金額が同行にあればそれを使い、なければ次行の純粋な数字を確認
+      let amount = 0;
+      if (payAmountInline) {
+        amount = parseInt(payAmountInline.replace(/,/g, ""));
+      }
+      if (amount <= 0) {
+        const nextLine = (lines[i + 1] || "").trim();
+        const payM = nextLine.match(/^([\d,]+)$/);
+        if (payM) {
+          amount = parseInt(payM[1].replace(/,/g, ""));
+          if (amount > 0) { i++; } // 支払金額行を消費
+        }
+      }
+      if (amount <= 0) amount = parseInt((useAmount || "0").replace(/,/g, ""));
       if (amount > 0) {
         results.push({
           date:     `20${yy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`,
