@@ -85,11 +85,9 @@ const getAllLines = async (pdfjsLib, arrayBuffer) => {
   });
   const pdf = await loadingTask.promise;
   const all = [];
-  const pageInfo = [];
   for (let i = 1; i <= pdf.numPages; i++) {
     const page  = await pdf.getPage(i);
     const lines = await getPageLines(pdfjsLib, page);
-    pageInfo.push(`p${i}:${lines.length}行`);
     all.push(...lines);
   }
   return all;
