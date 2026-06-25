@@ -78,6 +78,16 @@ export const DEFAULT_CATEGORY_RULES = [
   { id: "r120", keywords: ["家具", "家電", "引越し", "リフォーム", "ヤマダ", "ケーズデンキ", "ヨドバシ", "ビックカメラ"], category: "特別な支出", type: "expense", priority: 85 },
   // 投資
   { id: "r109", keywords: ["sbi証券", "sbi", "投信積立"],                                     category: "投資",       type: "expense", priority: 95 },
+  // ETC・高速道路
+  { id: "r121", keywords: ["etc", "ＥＴＣ", "高速道路", "首都高", "阪神高速", "名古屋高速", "中日本高速", "東日本高速", "西日本高速"], category: "交通費", type: "expense", priority: 93 },
+  // ホームセンター・雑貨
+  { id: "r122", keywords: ["ダイソー", "セリア", "キャンドゥ", "百均", "100均", "リヨウヒンシヨツプ", "雑貨"], category: "日用品", type: "expense", priority: 88 },
+  // 飲食店
+  { id: "r123", keywords: ["藍屋", "キクドコロ", "卓", "Cafe", "cafe", "カフェ", "居酒屋", "酒場", "食堂", "レストラン"], category: "外食", type: "expense", priority: 85 },
+  // ドラッグストア
+  { id: "r124", keywords: ["ウエルシア", "マツキヨ", "ツルハ", "クスリ", "薬", "ドラッグ"], category: "健康・医療", type: "expense", priority: 90 },
+  // 税金・公共料金
+  { id: "r125", keywords: ["eLTAX", "ｅＬＴＡＸ", "地方税", "国民健康保険", "市民税", "固定資産税"], category: "税・社会保障", type: "expense", priority: 95 },
   // その他
   { id: "r113", keywords: ["プレミアム商品券", "商品券"],                                     category: "その他",     type: "expense", priority: 70 },
 ];
