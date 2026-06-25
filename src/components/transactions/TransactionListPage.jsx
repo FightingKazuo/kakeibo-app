@@ -64,7 +64,8 @@ export function TransactionListPage({ transactions, categories, members, pointAc
   const [errFilter,     setErrFilter]     = useState(false);
   const [catFilters,    setCatFilters]    = useState(new Set());
   const [showCatPicker, setShowCatPicker] = useState(false);
-  const [sortBy,        setSortBy]        = useState("registered");
+  const [sortBy,        setSortBy]        = useState("date");
+  const [sortAsc,       setSortAsc]       = useState(true); // true=古い順
 
   // 選択モード
   const [selectMode,  setSelectMode]  = useState(false);
@@ -99,12 +100,15 @@ export function TransactionListPage({ transactions, categories, members, pointAc
       ? shared.flatMap(t => splitByCatFilter(t, catFilters))
       : shared;
     return [...catSplit].sort((a, b) => {
-      if (sortBy === "date")   return b.date?.localeCompare(a.date ?? "") ?? 0;
+      if (sortBy === "date") {
+        const cmp = a.date?.localeCompare(b.date ?? "") ?? 0;
+        return sortAsc ? cmp : -cmp;
+      }
       if (sortBy === "label")  return (a.label ?? "").localeCompare(b.label ?? "");
       if (sortBy === "amount") return Math.abs(b._splitAmt ?? b.amount) - Math.abs(a._splitAmt ?? a.amount);
       return 0;
     });
-  }, [filtered, shareFilter, sortBy, catFilters]);
+  }, [filtered, shareFilter, sortBy, sortAsc, catFilters]);
 
   // 合計（分割行の場合は_splitAmtを使用）
   const totals = useMemo(() => ({
@@ -334,13 +338,20 @@ export function TransactionListPage({ transactions, categories, members, pointAc
                 ["label",      "項目順"],
                 ["amount",     "金額順"],
               ].map(([id, lb]) => (
-                <button key={id} onClick={() => setSortBy(id)}
+                <button key={id}
+                  onClick={() => {
+                    if (id === "date" && sortBy === "date") {
+                      setSortAsc(v => !v);
+                    } else {
+                      setSortBy(id);
+                    }
+                  }}
                   className={`flex-shrink-0 px-3 py-1 rounded-full text-xs font-semibold border transition-all ${
                     sortBy === id
                       ? "bg-gray-700 text-white border-gray-700"
                       : "bg-white text-gray-500 border-gray-200"
                   }`}>
-                  {lb}
+                  {lb}{id === "date" && sortBy === "date" ? (sortAsc ? " ↑" : " ↓") : ""}
                 </button>
               ))}
             </div>
