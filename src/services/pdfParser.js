@@ -248,6 +248,9 @@ export const parsePDF = async (file) => {
 
   const format   = detectPDFFormat(lines);
 
+  // デバッグ: 実際のpdf.js出力の全行を表示
+  alert("【pdf.js実際の出力 " + lines.length + "行】\n\n" + lines.map((l, idx) => idx + ":" + l).join("\n"));
+
   let transactions;
   switch (format) {
     case "epos_pdf": transactions = parseEposLines(lines); break;
