@@ -726,6 +726,25 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
                                 <p className="text-xs text-gray-400">{t.date} · {payer?.name || "支払者不明"}</p>
                                 {t.memo && <p className="text-xs text-indigo-500 mt-0.5">📝 {t.memo}</p>}
                               </div>
+                              {/* 個別shareType変更ボタン */}
+                              <div className="flex gap-1 flex-shrink-0" onClick={e => e.stopPropagation()}>
+                                {[
+                                  { type: "shared",  label: "🤝" },
+                                  { type: "personal", label: "👤" },
+                                  { type: "partner",  label: "👥" },
+                                ].map(({ type, label }) => (
+                                  <button
+                                    key={type}
+                                    onClick={() => onUpdate?.({ ...t, shareType: type, updatedAt: new Date().toISOString() })}
+                                    className={"w-7 h-7 rounded-full text-sm flex items-center justify-center transition-all " + (
+                                      t.shareType === type
+                                        ? "bg-indigo-100 ring-2 ring-indigo-400"
+                                        : "bg-gray-100 opacity-50"
+                                    )}>
+                                    {label}
+                                  </button>
+                                ))}
+                              </div>
                               {/* 金額 */}
                               <p className="text-xs font-bold text-rose-500 flex-shrink-0 text-right">
                                 -{fmtCurrency(settleAmt)}
