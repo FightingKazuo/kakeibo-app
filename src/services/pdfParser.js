@@ -107,6 +107,16 @@ const zen2han = (str) =>
     .replace(/[Ａ-Ｚａ-ｚ０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
     .trim();
 
+// ─── 店舗名クリーニング ───────────────────────────────────────
+// pdf.jsの行分割で末尾に中途半端な括弧・カタカナが残る場合に除去
+const cleanLabel = (str) =>
+  str
+    .replace(/\s*[（(][ァ-ンｦ-ﾝ]*\s*$/, "")  // 末尾の未閉じ括弧+カタカナ
+    .replace(/\s*[（(]\s*$/, "")               // 末尾の括弧のみ
+    .replace(/　/g, " ")                   // 全角スペース→半角
+    .replace(/\s+/g, " ")
+    .trim();
+
 // ─── エポスカード PDF パーサー ───────────────────────────────
 // 行形式: 26 04 26 ＡＰ／シヤトレ－ゼ 302 １回 1 302
 const parseEposLines = (lines) => {
@@ -161,7 +171,7 @@ const parseSMBCLines = (lines) => {
     const mFull = rest.match(/^(.+?)\s+([\d,]+)\s+[１1一]\s+[１0-9０-９]+\s+([\d,]+)(?:\s+.*)?$/);
     if (mFull) {
       const amount = parseInt(mFull[3].replace(/,/g, ""));
-      const label = zen2han(mFull[1].replace(/\u3000/g, " ").replace(/\s+/g, " ").trim());
+      const label = cleanLabel(zen2han(mFull[1]));
       if (amount > 0 && label) {
         results.push({ date: `20${yy}-${mm.padStart(2,"0")}-${dd.padStart(2,"0")}`, label, amount: -amount, type: "expense", category: "その他", source: "csv" });
       }
@@ -175,7 +185,7 @@ const parseSMBCLines = (lines) => {
       const prevLine = (lines[i - 1] || "").trim();
       let label = "";
       if (prevLine && !/^\d/.test(prevLine) && !/^(?:B#|#)/.test(prevLine)) {
-        label = zen2han(prevLine.replace(/\u3000/g, " ").replace(/[（(]$/, "").replace(/\s+/g, " ").trim());
+        label = cleanLabel(zen2han(prevLine));
       }
       if (amount > 0) {
         results.push({ date: `20${yy}-${mm.padStart(2,"0")}-${dd.padStart(2,"0")}`, label: label || "（店舗名不明）", amount: -amount, type: "expense", category: "その他", source: "csv" });
@@ -193,7 +203,7 @@ const parseSMBCLines = (lines) => {
       if (isAmountLine(nxt)) {
         const mAmt = nxt.match(/^([\d,]+)\s+[１1一]\s+[１0-9０-９]+\s+([\d,]+)/) || nxt.match(/^([\d,]+)/);
         const amount = parseInt((mAmt[2] || mAmt[1]).replace(/,/g, ""));
-        const label = zen2han(storeParts.join(" ").replace(/\u3000/g, " ").replace(/\s+/g, " ").trim());
+        const label = cleanLabel(zen2han(storeParts.join(" ")));
         if (amount > 0 && label) {
           results.push({ date: `20${yy}-${mm.padStart(2,"0")}-${dd.padStart(2,"0")}`, label, amount: -amount, type: "expense", category: "その他", source: "csv" });
         }
