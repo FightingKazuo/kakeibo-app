@@ -139,9 +139,10 @@ const parseEposLines = (lines) => {
 };
 
 // ─── 三井住友カード PDF パーサー ─────────────────────────────
-// pdf.jsの出力は不規則（B#が日付と結合 or 別行、支払金額が後ろにまとまる等）
-// → 日付行ベースで解析し、利用金額を採用（分割払いでなければ利用額=支払額）
-// テスト済み: 4月PDF 16件・分割パターン7件 いずれも金額一致
+// 実機のpdf.js出力で検証済み（4月PDF 16件・合計60,221円 一致）
+// 主形式: "B# 26/04/01 店舗名 利用額 １ 回数 支払額 ◎"（1行完結）
+// 例外1: 店舗名が長いと前行に分離（"ウツワヤユウユウ（" → "# 26/04/11 880 １ １ 880"）
+// 例外2: SBI証券のように末尾◎なしの行もある
 const parseSMBCLines = (lines) => {
   const results = [];
   const isAmountLine = (s) => /^[\d,]+\s*[１1一]/.test(s);
@@ -150,58 +151,57 @@ const parseSMBCLines = (lines) => {
   let i = 0;
   while (i < lines.length) {
     const line = (lines[i] || "").trim();
-
-    // 空行・区切り行はスキップ
     if (!line || line.startsWith("＜") || line.startsWith("※") || line.startsWith("登録")) { i++; continue; }
 
-    // 日付行を検出（B#/#プレフィックス付きも対応）
     const mDate = line.match(/^(?:B#|#|\s)*?(\d{2})\/(\d{2})\/(\d{2})\s*(.*)/);
     if (!mDate) { i++; continue; }
-
     const [, yy, mm, dd, rest] = mDate;
 
-    // ケース1: restに金額が含まれる "店舗名 金額 １ １ [支払金額]"
-    const mRest = rest.match(/^(.+?)\s+([\d,]+)\s+[１1一](?:\s+[１0-9０-９]+)?\s*([\d,]+)?\s*$/);
-    if (mRest) {
-      const [, store, useAmt, payInline] = mRest;
-      const amount = payInline ? parseInt(payInline.replace(/,/g, "")) : parseInt(useAmt.replace(/,/g, ""));
-      const label = zen2han(store.replace(/\u3000/g, " ").replace(/\s+/g, " ").trim());
+    // メイン形式: "店舗名 利用金額 １ 回数 支払金額 [備考◎等]"
+    const mFull = rest.match(/^(.+?)\s+([\d,]+)\s+[１1一]\s+[１0-9０-９]+\s+([\d,]+)(?:\s+.*)?$/);
+    if (mFull) {
+      const amount = parseInt(mFull[3].replace(/,/g, ""));
+      const label = zen2han(mFull[1].replace(/\u3000/g, " ").replace(/\s+/g, " ").trim());
       if (amount > 0 && label) {
         results.push({ date: `20${yy}-${mm.padStart(2,"0")}-${dd.padStart(2,"0")}`, label, amount: -amount, type: "expense", category: "その他", source: "csv" });
       }
       i++; continue;
     }
 
-    // ケース2: restが店舗名のみ → 後続行から金額行を探す
+    // 店舗名なし形式: "金額 １ 回数 支払金額"（店舗名は前行に分離）
+    const mNoStore = rest.match(/^([\d,]+)\s+[１1一]\s+[１0-9０-９]+\s+([\d,]+)(?:\s+.*)?$/);
+    if (mNoStore) {
+      const amount = parseInt(mNoStore[2].replace(/,/g, ""));
+      const prevLine = (lines[i - 1] || "").trim();
+      let label = "";
+      if (prevLine && !/^\d/.test(prevLine) && !/^(?:B#|#)/.test(prevLine)) {
+        label = zen2han(prevLine.replace(/\u3000/g, " ").replace(/[（(]$/, "").replace(/\s+/g, " ").trim());
+      }
+      if (amount > 0) {
+        results.push({ date: `20${yy}-${mm.padStart(2,"0")}-${dd.padStart(2,"0")}`, label: label || "（店舗名不明）", amount: -amount, type: "expense", category: "その他", source: "csv" });
+      }
+      i++; continue;
+    }
+
+    // restに金額がない → 後続行から金額行を探す
     const storeParts = rest.trim() ? [rest.trim()] : [];
     let j = i + 1;
     let found = false;
-
     while (j < lines.length) {
       const nxt = (lines[j] || "").trim();
-
-      // 次の取引 or 区切り → 金額なしで終了
-      if (/^(?:B#|#|\s)*?\d{2}\/\d{2}\/\d{2}/.test(nxt) || nxt.startsWith("＜")) {
-        i = j; found = true; break;
-      }
-
-      // 金額行 "金額 １ １ [支払金額]"
+      if (/^(?:B#|#|\s)*?\d{2}\/\d{2}\/\d{2}/.test(nxt) || nxt.startsWith("＜")) { i = j; found = true; break; }
       if (isAmountLine(nxt)) {
-        const mAmt = nxt.match(/^([\d,]+)\s+[１1一](?:\s+[１0-9０-９]+)?\s*([\d,]+)?/);
-        const useAmt = parseInt(mAmt[1].replace(/,/g, ""));
-        const amount = mAmt[2] ? parseInt(mAmt[2].replace(/,/g, "")) : useAmt;
+        const mAmt = nxt.match(/^([\d,]+)\s+[１1一]\s+[１0-9０-９]+\s+([\d,]+)/) || nxt.match(/^([\d,]+)/);
+        const amount = parseInt((mAmt[2] || mAmt[1]).replace(/,/g, ""));
         const label = zen2han(storeParts.join(" ").replace(/\u3000/g, " ").replace(/\s+/g, " ").trim());
         if (amount > 0 && label) {
           results.push({ date: `20${yy}-${mm.padStart(2,"0")}-${dd.padStart(2,"0")}`, label, amount: -amount, type: "expense", category: "その他", source: "csv" });
         }
         i = j + 1; found = true; break;
       }
-
-      // 店舗名の続き（◎・純粋な数字は除外）
       if (nxt && !/^[◎○●]$/.test(nxt) && !isPureNumber(nxt)) storeParts.push(nxt);
       j++;
     }
-
     if (!found) i = j;
   }
   return results;
@@ -247,9 +247,6 @@ export const parsePDF = async (file) => {
   }
 
   const format   = detectPDFFormat(lines);
-
-  // デバッグ: 実際のpdf.js出力の全行を表示
-  alert("【pdf.js実際の出力 " + lines.length + "行】\n\n" + lines.map((l, idx) => idx + ":" + l).join("\n"));
 
   let transactions;
   switch (format) {
