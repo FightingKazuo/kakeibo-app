@@ -8,7 +8,7 @@ export function TransactionItem({
   learnedRules, onCatFilter, catFilters,
   // 選択モード用
   selectMode, selected, onSelect,
-, csvSourceLabels}) {
+  csvSourceLabels}) {
   const [expanded,    setExpanded]    = useState(false);
   const [showActions, setShowActions] = useState(false);
   const isIncome  = t.type === "income";
