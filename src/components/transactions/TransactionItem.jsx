@@ -8,7 +8,7 @@ export function TransactionItem({
   learnedRules, onCatFilter, catFilters,
   // 選択モード用
   selectMode, selected, onSelect,
-}) {
+, csvSourceLabels}) {
   const [expanded,    setExpanded]    = useState(false);
   const [showActions, setShowActions] = useState(false);
   const isIncome  = t.type === "income";
@@ -90,7 +90,7 @@ export function TransactionItem({
         <div className="flex-1 min-w-0 overflow-hidden" onClick={handleMainClick}>
           <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
             <p className="text-sm font-medium text-gray-800 truncate">{t.label}</p>
-            {!isSplit && t.source && t.source !== "manual" && <SourceBadge source={t.source} />}
+            {!isSplit && t.source && t.source !== "manual" && <SourceBadge source={t.source} csvFormatId={t.csvFormatId} csvSourceLabels={csvSourceLabels} />}
             {isLearned && (
               <span className="text-xs bg-violet-100 text-violet-500 px-1.5 py-0.5 rounded-full">🧠学習済み</span>
             )}
