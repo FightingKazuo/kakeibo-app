@@ -10,6 +10,7 @@ import {
   fetchCategories, fetchLearnedRules, fetchMembers, fetchPointAccounts,
   saveCategories, saveLearnedRules, saveMembers, savePointAccounts,
   fetchImportHistory, saveImportHistory,
+  fetchActiveCsvSources, saveActiveCsvSources,
   testConnection,
 } from "./utils/supabase";
 import { learnTransferKeyword } from "./services/csvParser";
@@ -78,7 +79,8 @@ export default function App() {
   const [members,       setMembers]       = useState(DEFAULT_MEMBERS);
   const [pointAccounts, setPointAccounts] = useState(DEFAULT_POINT_ACCOUNTS);
   const [editingTx,     setEditingTx]     = useState(null);
-  const [importHistory, setImportHistory] = useState({});
+  const [importHistory,    setImportHistory]    = useState({});
+  const [activeCsvSources, setActiveCsvSources] = useState(["sbi","epos","smbc","paypay"]);
 
   // ── 初回ロード：Supabaseからデータ取得 ──────────────────
   useEffect(() => {
@@ -93,9 +95,19 @@ export default function App() {
           fetchPointAccounts(shareId),
         ]);
 
-        // import_historyテーブルは任意（未作成でも動作する）
+        // import_history / active_csv_sourcesはオプション
         let importHist = {};
         try { importHist = await fetchImportHistory(shareId) || {}; } catch {}
+        let activeSources = null;
+        try { activeSources = await fetchActiveCsvSources(shareId); } catch {}
+        if (activeSources) setActiveCsvSources(activeSources);
+        else {
+          // localStorageからマイグレーション
+          try {
+            const saved = localStorage.getItem("kakeibo_active_csv_sources");
+            if (saved) { const parsed = JSON.parse(saved); setActiveCsvSources(parsed); await saveActiveCsvSources(shareId, parsed); }
+          } catch {}
+        }
 
         if (txs && txs.length > 0) {
           setTransactions(txs.map(normalizeTransaction).filter(Boolean));
@@ -224,6 +236,13 @@ export default function App() {
     try { await savePointAccounts(shareId, newAccounts); } catch {}
   };
 
+  const handleActiveCsvSourcesChange = async (newSources) => {
+    setActiveCsvSources(newSources);
+    try { await saveActiveCsvSources(shareId, newSources); } catch {}
+    // localStorageにも書く（後方互換）
+    try { localStorage.setItem("kakeibo_active_csv_sources", JSON.stringify(newSources)); } catch {}
+  };
+
   const handleImportHistoryChange = async (newHistory) => {
     setImportHistory(newHistory);
     try { await saveImportHistory(shareId, newHistory); } catch {}
@@ -320,7 +339,7 @@ export default function App() {
   const renderPage = () => {
     switch (currentPage) {
       case "home":
-        return <HomePage transactions={transactions} categories={categories} pointAccounts={pointAccountsWithBalance} learnedRules={learnedRules} importHistory={importHistory} onNavigate={navigate} />;
+        return <HomePage transactions={transactions} categories={categories} pointAccounts={pointAccountsWithBalance} learnedRules={learnedRules} importHistory={importHistory} activeCsvSources={activeCsvSources} onNavigate={navigate} />;
       case "list":
         return <TransactionListPage
           transactions={transactions}
@@ -346,6 +365,8 @@ export default function App() {
           onDelete={handleDelete}
           onLearnRule={handleLearn}
           onImportHistoryChange={handleImportHistoryChange}
+          activeCsvSources={activeCsvSources}
+          onActiveCsvSourcesChange={handleActiveCsvSourcesChange}
         />;
       case "analysis":
         return <AnalysisPage transactions={transactions} categories={categories} members={members} pointAccounts={pointAccountsWithBalance} onUpdate={handleUpdate} />;
@@ -372,6 +393,9 @@ export default function App() {
           onAddPointAccount={(a)    => handlePointAccountsChange([...pointAccounts, a])}
           onUpdatePointAccount={(a) => handlePointAccountsChange(pointAccounts.map(x => x.id === a.id ? { ...x, name: a.name, icon: a.icon, unit: a.unit } : x))}
           onDeletePointAccount={(id)=> handlePointAccountsChange(pointAccounts.filter(x => x.id !== id))}
+          // CSV管理
+          activeCsvSources={activeCsvSources}
+          onActiveCsvSourcesChange={handleActiveCsvSourcesChange}
           // 共有設定
           shareId={shareId}
           inviteUrl={inviteUrl}
@@ -379,7 +403,7 @@ export default function App() {
           syncStatus={syncStatus}
         />;
       default:
-        return <HomePage transactions={transactions} categories={categories} pointAccounts={pointAccountsWithBalance} learnedRules={learnedRules} importHistory={importHistory} onNavigate={navigate} />;
+        return <HomePage transactions={transactions} categories={categories} pointAccounts={pointAccountsWithBalance} learnedRules={learnedRules} importHistory={importHistory} activeCsvSources={activeCsvSources} onNavigate={navigate} />;
     }
   };
 
