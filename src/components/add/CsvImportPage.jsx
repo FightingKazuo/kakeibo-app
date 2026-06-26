@@ -9,7 +9,7 @@ import { loadStorage } from "../../utils/storage";
 import { fmtCurrency } from "../../utils/format";
 import { PrimaryButton } from "../ui/PrimaryButton";
 
-export function CsvImportPage({ categories, existingTransactions, members, pointAccounts, importHistory, onAdd, onDelete, onLearnRule, onImportHistoryChange, onBack }) {
+export function CsvImportPage({ categories, existingTransactions, members, pointAccounts, importHistory, activeCsvSources: props_activeCsvSources, onActiveCsvSourcesChange, onAdd, onDelete, onLearnRule, onImportHistoryChange, onBack }) {
   const [csvFormat,       setCsvFormat]       = useState("generic");
   const [defaultShareType,setDefaultShareType]= useState("shared");
   const [csvDetected,     setCsvDetected]     = useState(null);
@@ -166,9 +166,7 @@ export function CsvImportPage({ categories, existingTransactions, members, point
           const detected = detectCSVFormat(text);
           const formatToUse = detected !== "generic" ? detected : csvFormat;
           if (detected !== "generic") { detectedLabels.add(CSV_FORMATS[detected]?.label || detected); detectedFormatIds.add(detected); }
-          const activeCsvSources = (() => {
-            try { const saved = localStorage.getItem(STORAGE_KEYS.ACTIVE_CSV_SOURCES); return saved ? JSON.parse(saved) : null; } catch { return null; }
-          })();
+          const activeCsvSources = props_activeCsvSources || (() => { try { const s = localStorage.getItem(STORAGE_KEYS.ACTIVE_CSV_SOURCES); return s ? JSON.parse(s) : null; } catch { return null; } })();
           allRows = [...allRows, ...parseCSVText(text, formatToUse, importHistory || {}, activeCsvSources)];
         }
       }
@@ -222,9 +220,9 @@ export function CsvImportPage({ categories, existingTransactions, members, point
       } else if (r.ocrDuplicate) {
         const ocrTx = r.ocrDuplicate;
         onDelete?.(ocrTx.id);
-        onAdd(createTransaction({ ...withPayer, items: ocrTx.items || [], category: ocrTx.category || withPayer.category, shareType: withPayer.shareType, paidBy: selfId, source: "csv" }));
+        onAdd(createTransaction({ ...withPayer, items: ocrTx.items || [], category: ocrTx.category || withPayer.category, shareType: withPayer.shareType, paidBy: selfId, source: "csv", csvFormatId: csvFormatIds[0] || csvFormat || null }));
       } else {
-        onAdd(createTransaction({ ...withPayer, source: "csv" }));
+        onAdd(createTransaction({ ...withPayer, source: "csv", csvFormatId: csvFormatIds[0] || csvFormat || null }));
       }
       if (r.label && r.category) onLearnRule?.(r.label, r.category, r.type || "expense");
     });
@@ -235,14 +233,16 @@ export function CsvImportPage({ categories, existingTransactions, members, point
     if (csvFormatIds.length > 0 && toImport.length > 0) {
       const months  = [...new Set(toImport.map(r => r.date).filter(Boolean).sort().map(d => d.slice(0, 7)))];
       const newHist = { ...(importHistory || {}) };
-      csvFormatIds.forEach(fmtId => months.forEach(ym => { newHist[`${fmtId}_${ym}`] = true; }));
+      const importedAt = new Date().toISOString();
+      csvFormatIds.forEach(fmtId => months.forEach(ym => { newHist[`${fmtId}_${ym}`] = importedAt; }));
       onImportHistoryChange?.(newHist);
       try {
-        const saved   = localStorage.getItem(STORAGE_KEYS.ACTIVE_CSV_SOURCES);
-        const current = saved ? new Set(JSON.parse(saved)) : new Set(["sbi","epos","smbc","paypay","recruit","mufg"]);
-        let updated   = false;
+        const current = new Set(props_activeCsvSources || ["sbi","epos","smbc","paypay"]);
+        let updated = false;
         csvFormatIds.forEach(fmtId => { if (!current.has(fmtId)) { current.add(fmtId); updated = true; } });
-        if (updated) localStorage.setItem(STORAGE_KEYS.ACTIVE_CSV_SOURCES, JSON.stringify([...current]));
+        if (updated) onActiveCsvSourcesChange?.([...current]);
+        // localStorageにも後方互換で書く
+        localStorage.setItem(STORAGE_KEYS.ACTIVE_CSV_SOURCES, JSON.stringify([...current]));
       } catch {}
     }
   };
