@@ -11,6 +11,7 @@ import { BackupTab }    from "./tabs/BackupTab";
 import { DataTab }      from "./tabs/DataTab";
 
 import { CsvSourcesTab } from "./tabs/CsvSourcesTab";
+import { BudgetTab }     from "./tabs/BudgetTab";
 
 const TABS = [
   { id: "categories", label: "カテゴリ",        icon: "🏷️" },
@@ -26,7 +27,7 @@ const TABS = [
   { id: "data",       label: "データ管理",       icon: "⚙️" },
 ];
 
-export function SettingsPage({
+export function SettingsPage({ transactions, categories,
   categories, onAddCat, onUpdateCat, onDeleteCat, onReorderCat, onResetCategories,
   learnedRules, onDeleteRule,
   transactions, onAdd, onReset,
@@ -99,6 +100,7 @@ export function SettingsPage({
         <PointTab pointAccounts={pointAccounts} onAddPointAccount={onAddPointAccount} onUpdatePointAccount={onUpdatePointAccount} onDeletePointAccount={onDeletePointAccount} onAdd={onAdd} />
       )}
       {tab === "csvsources" && <CsvSourcesTab activeCsvSources={activeCsvSources} onActiveCsvSourcesChange={onActiveCsvSourcesChange} />}
+      {tab === "budget"     && <BudgetTab transactions={transactions} categories={categories} />}
       {tab === "share" && (
         <ShareTab shareId={shareId} inviteUrl={inviteUrl} onJoinShare={onJoinShare} syncStatus={syncStatus} />
       )}
