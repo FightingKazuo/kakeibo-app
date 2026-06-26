@@ -56,7 +56,7 @@ const splitByCatFilter = (tx, catFilters) => {
   }));
 };
 
-export function TransactionListPage({ transactions, categories, members, pointAccounts, learnedRules, onEdit, onDelete, onUpdate, onNavigate }) {
+export function TransactionListPage({ transactions, categories, members, pointAccounts, learnedRules, onEdit, onDelete, onUpdate, onNavigate, csvSourceLabels }) {
   const [q,             setQ]             = useState("");
   const [selMonth,      setSelMonth]      = useState("all");
   const [srcFilter,     setSrcFilter]     = useState("all");
@@ -446,6 +446,7 @@ export function TransactionListPage({ transactions, categories, members, pointAc
               selectMode={selectMode}
               selected={selectedIds.has(t.id)}
               onSelect={selectMode ? toggleSelect : enterSelectMode}
+              csvSourceLabels={csvSourceLabels}
             />
           ))
         )}
