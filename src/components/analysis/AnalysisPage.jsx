@@ -5,7 +5,7 @@ import { PIE_COLORS } from "../../constants";
 import { MonthSelector } from "../common/MonthSelector";
 import { EmptyState } from "../ui/EmptyState";
 
-export function AnalysisPage({ transactions, categories, members, pointAccounts, onUpdate }) {
+export function AnalysisPage({ transactions, categories, members, pointAccounts, onUpdate , csvSourceLabels}) {
   const [tab,          setTab]          = useState("analysis");
   const [showSettleTxs, setShowSettleTxs] = useState(false);
   const [selMonth, setSelMonth] = useState("all");
@@ -360,6 +360,27 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
       {/* ── 月次レポートタブ ── */}
       {tab === "report" && (
         <div className="px-4 py-5 space-y-5">
+          {/* テキスト出力ボタン */}
+          {monthlyReport.length > 0 && (() => {
+            const r = monthlyReport[0];
+            const text = [
+              `📊 ${r.label} 家計レポート`,
+              `━━━━━━━━━━━━`,
+              `収入：${fmtCurrency(r.inc)}`,
+              `支出：${fmtCurrency(r.exp)}`,
+              `収支：${r.bal >= 0 ? "+" : ""}${fmtCurrency(r.bal)}`,
+              `1日平均：${fmtCurrency(r.dailyAvg)}`,
+              r.topCat ? `最多支出：${r.topCat[0]} ${fmtCurrency(r.topCat[1])}` : "",
+            ].filter(Boolean).join("\n");
+            return (
+              <button
+                onClick={() => navigator.clipboard?.writeText(text).then(() => alert("コピーしました！"))}
+                className="w-full py-2.5 rounded-xl text-xs font-semibold bg-indigo-50 text-indigo-600 border border-indigo-100">
+                📋 今月のレポートをコピー
+              </button>
+            );
+          })()}
+
           <div className="bg-white rounded-2xl p-4 border border-gray-100">
             <p className="text-xs font-semibold text-gray-500 mb-3 uppercase tracking-wide">直近6ヶ月</p>
             <div className="space-y-3">
