@@ -80,7 +80,10 @@ export default function App() {
   const [pointAccounts, setPointAccounts] = useState(DEFAULT_POINT_ACCOUNTS);
   const [editingTx,     setEditingTx]     = useState(null);
   const [importHistory,    setImportHistory]    = useState({});
-  const [activeCsvSources, setActiveCsvSources] = useState(["sbi","epos","smbc","paypay"]);
+  const [activeCsvSources,  setActiveCsvSources]  = useState(["sbi","epos","smbc","paypay"]);
+  const [csvSourceLabels,   setCsvSourceLabels]   = useState(() => {
+    try { const s = localStorage.getItem("kakeibo_csv_source_labels"); return s ? JSON.parse(s) : {}; } catch { return {}; }
+  });
 
   // ── 初回ロード：Supabaseからデータ取得 ──────────────────
   useEffect(() => {
@@ -350,6 +353,7 @@ export default function App() {
           onDelete={handleDelete}
           onUpdate={handleUpdate}
           onNavigate={navigate}
+          csvSourceLabels={csvSourceLabels}
         />;
       case "add":
       case "add-csv":
