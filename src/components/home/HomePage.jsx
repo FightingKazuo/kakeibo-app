@@ -9,7 +9,7 @@ import { BalanceCard } from "./BalanceCard";
 import { RecentExpenseCard } from "./RecentExpenseCard";
 import { TransactionItem } from "../transactions/TransactionItem";
 
-const APP_VERSION = "v3.3.0";
+const APP_VERSION = "v3.4.0";
 const BAR_COLORS = ["#6366f1","#f43f5e","#10b981","#f59e0b","#3b82f6","#8b5cf6","#ec4899","#14b8a6"];
 
 // ── 今月サマリーカード ────────────────────────────────────────
@@ -143,6 +143,62 @@ function CategoryBar({ catExpenses, categories }) {
         </Bar>
       </BarChart>
     </ResponsiveContainer>
+  );
+}
+
+
+// ─── 予算アラート ─────────────────────────────────────────────
+function BudgetAlert({ transactions }) {
+  const now = new Date();
+  const ym  = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+
+  const budgets = (() => {
+    try { const s = localStorage.getItem("kakeibo_budgets"); return s ? JSON.parse(s) : {}; } catch { return {}; }
+  })();
+
+  const monthExpenses = {};
+  transactions
+    .filter(t => t.type === "expense" && t.date?.startsWith(ym))
+    .forEach(t => {
+      const cat = t.category || "その他";
+      monthExpenses[cat] = (monthExpenses[cat] || 0) + Math.abs(t.amount);
+    });
+
+  const alerts = Object.entries(budgets)
+    .map(([cat, budget]) => {
+      const spent = monthExpenses[cat] || 0;
+      const pct   = spent / budget * 100;
+      return { cat, budget, spent, pct };
+    })
+    .filter(a => a.pct >= 80)
+    .sort((a, b) => b.pct - a.pct);
+
+  if (alerts.length === 0) return null;
+
+  return (
+    <div className="mx-4 md:mx-0 mt-4">
+      <div className="bg-amber-50 rounded-2xl border border-amber-200 px-4 py-3 space-y-2">
+        <p className="text-xs font-bold text-amber-700">🎯 予算アラート</p>
+        {alerts.map(({ cat, budget, spent, pct }) => (
+          <div key={cat} className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className={`text-xs font-bold ${pct >= 100 ? "text-rose-500" : "text-amber-500"}`}>
+                {pct >= 100 ? "⚠️" : "🔶"}
+              </span>
+              <span className="text-xs text-gray-700">{cat}</span>
+            </div>
+            <div className="text-right">
+              <span className={`text-xs font-bold ${pct >= 100 ? "text-rose-500" : "text-amber-600"}`}>
+                {pct.toFixed(0)}%
+              </span>
+              <span className="text-xs text-gray-400 ml-1">
+                ({fmtCurrency(spent)}/{fmtCurrency(budget)})
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -399,7 +455,8 @@ export function HomePage({ transactions, categories, pointAccounts, learnedRules
           <BudgetProgress categories={categories} currentMonthTxs={currentMonthTxs} />
 
           {/* CSV取り込み状況 */}
-          <CsvImportStatusImpl importHistory={importHistory} activeCsvSources={activeCsvSources} onNavigate={onNavigate} />
+          <BudgetAlert transactions={transactions} />
+      <CsvImportStatusImpl importHistory={importHistory} activeCsvSources={activeCsvSources} onNavigate={onNavigate} />
 
           {/* 最近7日 */}
           <RecentExpenseCard amount={last7DaysExpense} />
