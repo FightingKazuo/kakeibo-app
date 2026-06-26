@@ -33,7 +33,7 @@ export function SettingsPage({
   members, onUpdateMember, onAddMember, onDeleteMember,
   pointAccounts, onAddPointAccount, onUpdatePointAccount, onDeletePointAccount,
   shareId, inviteUrl, onJoinShare, syncStatus,
-}) {
+, activeCsvSources, onActiveCsvSourcesChange}) {
   const [tab, setTab] = useState(null);
 
   // iOSスワイプバック・ブラウザバックで setTab(null) を呼ぶ
@@ -98,7 +98,7 @@ export function SettingsPage({
       {tab === "points" && (
         <PointTab pointAccounts={pointAccounts} onAddPointAccount={onAddPointAccount} onUpdatePointAccount={onUpdatePointAccount} onDeletePointAccount={onDeletePointAccount} onAdd={onAdd} />
       )}
-      {tab === "csvsources" && <CsvSourcesTab />}
+      {tab === "csvsources" && <CsvSourcesTab activeCsvSources={activeCsvSources} onActiveCsvSourcesChange={onActiveCsvSourcesChange} />}
       {tab === "share" && (
         <ShareTab shareId={shareId} inviteUrl={inviteUrl} onJoinShare={onJoinShare} syncStatus={syncStatus} />
       )}
