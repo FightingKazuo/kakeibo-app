@@ -33,7 +33,7 @@ export function SettingsPage({
   members, onUpdateMember, onAddMember, onDeleteMember,
   pointAccounts, onAddPointAccount, onUpdatePointAccount, onDeletePointAccount,
   shareId, inviteUrl, onJoinShare, syncStatus,
-, activeCsvSources, onActiveCsvSourcesChange}) {
+  activeCsvSources, onActiveCsvSourcesChange}) {
   const [tab, setTab] = useState(null);
 
   // iOSスワイプバック・ブラウザバックで setTab(null) を呼ぶ
