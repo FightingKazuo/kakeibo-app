@@ -157,36 +157,41 @@ export const CSV_SOURCES_ALL = [
   { id: "amazon",  label: "Amazon",          short: "AMZ",  icon: "📦" },
 ];
 
-function CsvImportStatus({ importHistory, activeCsvSources, onNavigate }) {
+function CsvImportStatusImpl({ importHistory, activeCsvSources, onNavigate }) {
+  const [openMonths, setOpenMonths] = useState(new Set(["current"]));
+
   const now    = new Date();
   const hist   = importHistory || {};
-  // ONのソースのみ対象
   const active = new Set(activeCsvSources || ["sbi","epos","smbc","paypay"]);
   const sources = CSV_SOURCES_ALL.filter(s => active.has(s.id));
 
-  // 26年4月〜今月の月リストを生成
+  // 26年4月〜今月
   const months = [];
-  const start  = new Date(2026, 3, 1); // 2026-04
+  const start  = new Date(2026, 3, 1);
   for (let d = new Date(start); d <= now; d.setMonth(d.getMonth() + 1)) {
     months.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
   }
-  months.reverse(); // 新しい月から
-
+  months.reverse();
   const currentYM = months[0];
+
   const todoCount = sources.filter(s => !hist[`${s.id}_${currentYM}`]).length;
 
   const fmtYM = (ym) => {
     const [y, m] = ym.split("-");
-    const isNow   = ym === currentYM;
-    const isPrev  = ym === months[1];
-    return `${y.slice(2)}年${parseInt(m)}月${isNow ? "（今月）" : isPrev ? "（先月）" : ""}`;
+    return `${y.slice(2)}年${parseInt(m)}月`;
   };
-
   const fmtDate = (isoStr) => {
     if (!isoStr || isoStr === true) return null;
     const d = new Date(isoStr);
-    if (isNaN(d)) return null;
-    return `${d.getMonth() + 1}/${d.getDate()}`;
+    return isNaN(d) ? null : `${d.getMonth() + 1}/${d.getDate()}`;
+  };
+
+  const toggleMonth = (ym) => {
+    setOpenMonths(prev => {
+      const next = new Set(prev);
+      next.has(ym) ? next.delete(ym) : next.add(ym);
+      return next;
+    });
   };
 
   return (
@@ -208,38 +213,102 @@ function CsvImportStatus({ importHistory, activeCsvSources, onNavigate }) {
           </button>
         </div>
 
-        {/* 月別一覧 */}
-        {months.map((ym, idx) => {
+        {/* 今月のみ詳細表示 */}
+        {(() => {
+          const ym = currentYM;
           const todo = sources.filter(s => !hist[`${s.id}_${ym}`]);
-          const done = sources.filter(s =>  hist[`${s.id}_${ym}`]);
-          // 全部完了で今月・先月以外はスキップ
-          if (todo.length === 0 && idx >= 2) return null;
+          const allDone = todo.length === 0;
+          const isOpen = openMonths.has(ym);
           return (
-            <div key={ym} className={`px-4 py-3 border-b border-gray-50 ${idx >= 2 && todo.length > 0 ? "bg-amber-50" : ""}`}>
-              <p className={`text-xs font-semibold mb-2 ${idx >= 2 && todo.length > 0 ? "text-amber-600" : "text-gray-500"}`}>
-                {idx >= 2 && todo.length > 0 ? "⚠️ " : ""}{fmtYM(ym)}
-              </p>
-              <div className="space-y-1.5">
-                {sources.map(s => {
-                  const val  = hist[`${s.id}_${ym}`];
-                  const done = !!val;
-                  const date = fmtDate(val);
-                  return (
-                    <div key={s.id} className="flex items-center gap-2">
-                      <span className={`w-4 h-4 rounded-full flex items-center justify-center text-xs flex-shrink-0 ${
-                        done ? "bg-emerald-100 text-emerald-600" : "bg-rose-100 text-rose-400"
-                      }`}>{done ? "✓" : "!"}</span>
-                      <span className="text-xs text-gray-600">{s.icon} {s.label}</span>
-                      <span className="text-xs font-medium ml-auto">
-                        {done
-                          ? <span className="text-emerald-500">{date ? `✅ ${date}` : "✅"}</span>
-                          : <span className="text-rose-400">未取込</span>
-                        }
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
+            <div key={ym} className="border-b border-gray-50">
+              <button onClick={() => toggleMonth(ym)}
+                className="w-full flex items-center justify-between px-4 py-3 text-left">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold text-gray-700">{fmtYM(ym)}（今月）</span>
+                  {allDone
+                    ? <span className="text-xs text-emerald-500 font-semibold">✅ 完了</span>
+                    : <span className="text-xs text-rose-400 font-semibold">{todo.length}件未取込</span>
+                  }
+                </div>
+                <span className="text-gray-400 text-xs">{isOpen ? "▲" : "▼"}</span>
+              </button>
+              {isOpen && (
+                <div className="px-4 pb-3 space-y-1.5">
+                  {sources.map(s => {
+                    const val  = hist[`${s.id}_${ym}`];
+                    const done = !!val;
+                    const date = fmtDate(val);
+                    return (
+                      <div key={s.id} className="flex items-center gap-2">
+                        <span className={`w-4 h-4 rounded-full flex items-center justify-center text-xs flex-shrink-0 ${
+                          done ? "bg-emerald-100 text-emerald-600" : "bg-rose-100 text-rose-400"
+                        }`}>{done ? "✓" : "!"}</span>
+                        <span className="text-xs text-gray-600">{s.icon} {s.label}</span>
+                        <span className="text-xs font-medium ml-auto">
+                          {done
+                            ? <span className="text-emerald-500">{date ? `✅ ${date}` : "✅"}</span>
+                            : <span className="text-rose-400">未取込</span>
+                          }
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
+        {/* 過去の月（アコーディオン） */}
+        <button
+          onClick={() => toggleMonth("history")}
+          className="w-full flex items-center justify-between px-4 py-2.5 text-left border-b border-gray-50">
+          <span className="text-xs font-semibold text-gray-500">過去の履歴を見る</span>
+          <span className="text-gray-400 text-xs">{openMonths.has("history") ? "▲" : "▼"}</span>
+        </button>
+
+        {openMonths.has("history") && months.slice(1).map((ym) => {
+          const todo = sources.filter(s => !hist[`${s.id}_${ym}`]);
+          const allDone = todo.length === 0;
+          const isOpen  = openMonths.has(ym);
+          return (
+            <div key={ym} className={`border-b border-gray-50 last:border-b-0 ${!allDone ? "bg-amber-50" : ""}`}>
+              <button onClick={() => toggleMonth(ym)}
+                className="w-full flex items-center justify-between px-4 py-2.5 text-left">
+                <div className="flex items-center gap-2">
+                  <span className={`text-xs font-semibold ${allDone ? "text-gray-500" : "text-amber-600"}`}>
+                    {!allDone && "⚠️ "}{fmtYM(ym)}
+                  </span>
+                  {allDone
+                    ? <span className="text-xs text-emerald-500 font-semibold">✅ 完了</span>
+                    : <span className="text-xs text-rose-400 font-semibold">{todo.length}件未取込</span>
+                  }
+                </div>
+                <span className="text-gray-400 text-xs">{isOpen ? "▲" : "▼"}</span>
+              </button>
+              {isOpen && (
+                <div className="px-4 pb-3 space-y-1.5">
+                  {sources.map(s => {
+                    const val  = hist[`${s.id}_${ym}`];
+                    const done = !!val;
+                    const date = fmtDate(val);
+                    return (
+                      <div key={s.id} className="flex items-center gap-2">
+                        <span className={`w-4 h-4 rounded-full flex items-center justify-center text-xs flex-shrink-0 ${
+                          done ? "bg-emerald-100 text-emerald-600" : "bg-rose-100 text-rose-400"
+                        }`}>{done ? "✓" : "!"}</span>
+                        <span className="text-xs text-gray-600">{s.icon} {s.label}</span>
+                        <span className="text-xs font-medium ml-auto">
+                          {done
+                            ? <span className="text-emerald-500">{date ? `✅ ${date}` : "✅"}</span>
+                            : <span className="text-rose-400">未取込</span>
+                          }
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           );
         })}
@@ -330,7 +399,7 @@ export function HomePage({ transactions, categories, pointAccounts, learnedRules
           <BudgetProgress categories={categories} currentMonthTxs={currentMonthTxs} />
 
           {/* CSV取り込み状況 */}
-          <CsvImportStatus importHistory={importHistory} activeCsvSources={activeCsvSources} onNavigate={onNavigate} />
+          <CsvImportStatusImpl importHistory={importHistory} activeCsvSources={activeCsvSources} onNavigate={onNavigate} />
 
           {/* 最近7日 */}
           <RecentExpenseCard amount={last7DaysExpense} />
