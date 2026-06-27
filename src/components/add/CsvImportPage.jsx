@@ -18,6 +18,7 @@ export function CsvImportPage({ categories, existingTransactions, members, point
   const [csvRows,         setCsvRows]         = useState([]);
   const [csvChecked,      setCsvChecked]      = useState({});
   const [csvStep,         setCsvStep]         = useState("upload");
+  const [ocrActions,      setOcrActions]      = useState({});
   const [csvSummary,      setCsvSummary]      = useState(null);
   const [csvEditIdx,      setCsvEditIdx]      = useState(null);
   const [csvPdfLoading,   setCsvPdfLoading]   = useState(false);
