@@ -228,3 +228,96 @@ const parseSMBCLines = (lines) => {
     .filter(Boolean);
 };
 
+export const PDF_FORMAT_LABELS = {
+  epos_pdf: "エポスカード（PDF）",
+  smbc_pdf: "三井住友カード（PDF）",
+};
+
+export const parsePDF = async (file) => {
+  const pdfjsLib = await loadPdfjs();
+  const buf      = await file.arrayBuffer();
+
+  // TextDecoderフォールバック共通関数
+  const tryTextDecode = (buf) => {
+    const decoder = new TextDecoder("utf-8", { fatal: false });
+    const rawText = decoder.decode(buf);
+    const textLines = rawText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    const smbc = parseSMBCLines(textLines);
+    if (smbc.length > 0) return { transactions: smbc, format: "smbc_pdf", lineCount: textLines.length };
+    const epos = parseEposLines(textLines);
+    if (epos.length > 0) return { transactions: epos, format: "epos_pdf", lineCount: textLines.length };
+    return null;
+  };
+
+  let lines;
+  try {
+    lines = await getAllLines(pdfjsLib, buf);
+  } catch (e) {
+    // pdf.js例外 → TextDecoderで再試行
+    const decoded = tryTextDecode(buf);
+    if (decoded) return decoded;
+    throw e;
+  }
+
+  // pdf.jsは成功したが0行 → TextDecoderで再試行
+  if (!lines || lines.length === 0) {
+    const decoded = tryTextDecode(buf);
+    if (decoded) return decoded;
+    throw new Error("PDFからテキストを抽出できませんでした。");
+  }
+
+  const format   = detectPDFFormat(lines);
+
+  let transactions;
+  switch (format) {
+    case "epos_pdf": transactions = parseEposLines(lines); break;
+    case "smbc_pdf": transactions = parseSMBCLines(lines); break;
+    default:
+      throw new Error(
+        "対応していないPDFです。\nエポスカードまたは三井住友カードのPDFのみ対応しています。"
+      );
+  }
+
+  if (transactions.length === 0) {
+    throw new Error(
+      "取引データを抽出できませんでした。\nPDFのフォーマットが想定と異なる可能性があります。"
+    );
+  }
+
+  return { transactions, format, lineCount: lines.length };
+};
+
+// ─── テキスト直接パース（SafariのPDF生成対応）────────────────
+// FileReaderでテキストとして読み込んだ内容をパースする
+export const parsePDFText = (text) => {
+  if (!text || typeof text !== "string") return null;
+
+  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+
+  // 三井住友カード判定
+  const isSMBC = lines.some(l =>
+    l.includes("三井住友") || l.includes("SMBC") || l.includes("smbc-card")
+  );
+
+  // エポスカード判定
+  const isEpos = lines.some(l =>
+    l.includes("エポスカード") || l.includes("eposcard")
+  );
+
+  if (isSMBC) {
+    const transactions = parseSMBCLines(lines);
+    if (transactions.length > 0) return { format: "smbc_pdf", transactions };
+  }
+
+  if (isEpos) {
+    const transactions = parseEposLines(lines);
+    if (transactions.length > 0) return { format: "epos_pdf", transactions };
+  }
+
+  // どちらでもない場合は全行でSMBC形式を試す
+  const fallback = parseSMBCLines(lines);
+  if (fallback.length > 0) return { format: "smbc_pdf", transactions: fallback };
+
+  return null;
+};
+
