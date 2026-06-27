@@ -57,7 +57,26 @@ export function CsvImportPage({ categories, existingTransactions, members, point
     return (
       <div key={i} className={`border-b border-gray-50 last:border-b-0 ${isOcrDup ? "bg-yellow-50/60" : isCategorized ? "bg-emerald-50" : "bg-white"}`}>
         <div className="flex items-center gap-3 px-4 py-3">
-          <BigCheckbox checked={!!csvChecked[i]} onChange={() => setCsvChecked(p => ({ ...p, [i]: !p[i] }))} />
+          {r.ocrDuplicates?.length > 0 ? (
+            // OCR重複行：3択ボタン
+            <div className="flex flex-col gap-1 flex-shrink-0">
+              {[
+                { key: "both",    label: "両方",   color: "bg-blue-100 text-blue-600 ring-blue-400"    },
+                { key: "replace", label: "置換",   color: "bg-amber-100 text-amber-600 ring-amber-400" },
+                { key: "skip",    label: "スキップ", color: "bg-gray-100 text-gray-500 ring-gray-400"  },
+              ].map(({ key, label, color }) => (
+                <button key={key}
+                  onClick={() => setOcrActions(p => ({ ...p, [i]: key }))}
+                  className={`text-xs px-2 py-0.5 rounded-full font-semibold transition-all ${color} ${
+                    (ocrActions[i] || "both") === key ? "ring-2" : "opacity-40"
+                  }`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <BigCheckbox checked={!!csvChecked[i]} onChange={() => setCsvChecked(p => ({ ...p, [i]: !p[i] }))} />
+          )}
           <div className="flex-1 min-w-0" onClick={() => setCsvEditIdx(csvEditIdx === i ? null : i)}>
             <div className="flex items-center gap-1 flex-wrap">
               <p className={`text-sm font-medium truncate ${(r.isDuplicate || r.isTransfer) ? "text-gray-400" : "text-gray-800"}`}>{r.label}</p>
@@ -195,6 +214,12 @@ export function CsvImportPage({ categories, existingTransactions, members, point
       const withDup = allRows.map(r => ({ ...r, isDuplicate: existKeys.has(DUPLICATE_KEY(r)), ocrDuplicate: !existKeys.has(DUPLICATE_KEY(r)) ? findOcrDup(r) : null }));
       const init = {};
       withDup.forEach((r, i) => { init[i] = !r.isDuplicate && !r.isTransfer && !r.isCardWithdrawal && !r.isCardWarning; });
+      // OCR重複行のデフォルトを"both"（両方残す）に設定
+      const initOcrActions = {};
+      withDup.forEach((r, i) => {
+        if (r.ocrDuplicates?.length > 0) initOcrActions[i] = "both";
+      });
+      setOcrActions(initOcrActions);
       setCsvRows(withDup); setCsvChecked(init);
       setCsvStep(allRows.length === 0 ? "empty" : "preview");
     } catch { alert("ファイルの読み込みに失敗しました。"); }
@@ -217,10 +242,19 @@ export function CsvImportPage({ categories, existingTransactions, members, point
 
       if (r.isPointCharge && payPayAccount) {
         onAdd(createTransaction({ ...r, type: "expense", amount: -Math.abs(r.amount), pointAccountId: payPayAccount.id, paymentMethod: payPayAccount.id, shareType: "personal", paidBy: selfId, isTransfer: false, source: "csv" }));
-      } else if (r.ocrDuplicate) {
-        const ocrTx = r.ocrDuplicate;
-        onDelete?.(ocrTx.id);
-        onAdd(createTransaction({ ...withPayer, items: ocrTx.items || [], category: ocrTx.category || withPayer.category, shareType: withPayer.shareType, paidBy: selfId, source: "csv", csvFormatId: csvFormatIds[0] || csvFormat || null }));
+      } else if (r.ocrDuplicates?.length > 0) {
+        const action = ocrActions[r._csvIdx] || "both";
+        if (action === "skip") {
+          // スキップ: 何もしない（OCRをそのまま残す）
+        } else if (action === "replace") {
+          // 置き換え: OCRを削除してCSVを取り込む
+          r.ocrDuplicates.forEach(ocrTx => onDelete?.(ocrTx.id));
+          const ocrTx = r.ocrDuplicates[0];
+          onAdd(createTransaction({ ...withPayer, items: ocrTx.items || [], category: ocrTx.category || withPayer.category, shareType: withPayer.shareType, paidBy: selfId, source: "csv", csvFormatId: csvFormatIds[0] || csvFormat || null }));
+        } else {
+          // both: OCRはそのまま残してCSVも追加
+          onAdd(createTransaction({ ...withPayer, source: "csv", csvFormatId: csvFormatIds[0] || csvFormat || null }));
+        }
       } else {
         onAdd(createTransaction({ ...withPayer, source: "csv", csvFormatId: csvFormatIds[0] || csvFormat || null }));
       }
