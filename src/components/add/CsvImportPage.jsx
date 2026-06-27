@@ -213,16 +213,44 @@ export function CsvImportPage({ categories, existingTransactions, members, point
 
       const withDup = allRows.map(r => ({ ...r, isDuplicate: existKeys.has(DUPLICATE_KEY(r)), ocrDuplicate: !existKeys.has(DUPLICATE_KEY(r)) ? findOcrDup(r) : null }));
       const init = {};
-      withDup.forEach((r, i) => { init[i] = !r.isDuplicate && !r.isTransfer && !r.isCardWithdrawal && !r.isCardWarning; });
+      withDup.forEach((r, i) => {
+        if (r.isDuplicate || r.isTransfer || r.isCardWithdrawal || r.isCardWarning) {
+          init[i] = false;
+        } else if (r.ocrDuplicates?.length > 0) {
+          init[i] = false; // OCR重複はocrActionsで管理
+        } else {
+          init[i] = true;  // カテゴリ問わず全てデフォルトON
+        }
+      });
       // OCR重複行のデフォルトを"both"（両方残す）に設定
       const initOcrActions = {};
       withDup.forEach((r, i) => {
         if (r.ocrDuplicates?.length > 0) initOcrActions[i] = "both";
       });
       setOcrActions(initOcrActions);
+      // 「その他」カテゴリの件数をカウントしてユーザーに通知
+      const uncategorizedCount = withDup.filter(r => r.category === "その他" && !r.isDuplicate && !r.isTransfer && !r.isCardWithdrawal).length;
+      if (uncategorizedCount > 0) {
+        console.log(`[CSV] 未分類: ${uncategorizedCount}件`);
+      }
+      const uncatCount = withDup.filter(r => r.category === "その他" && !r.isDuplicate && !r.isTransfer && !r.isCardWithdrawal).length;
       setCsvRows(withDup); setCsvChecked(init);
+      if (uncatCount > 0) console.log(`[CSV] 未分類 ${uncatCount}件`);
       setCsvStep(allRows.length === 0 ? "empty" : "preview");
-    } catch { alert("ファイルの読み込みに失敗しました。"); }
+    } catch (e) {
+      const msg = e?.message || "";
+      if (msg.includes("対応していないPDF")) {
+        alert("❌ 対応外のPDFです\nエポスカード・三井住友カードのPDFのみ対応しています");
+      } else if (msg.includes("取引データを抽出できませんでした")) {
+        alert("⚠️ PDFから取引データを読み取れませんでした\n\n考えられる原因：\n・ChromeまたはBraveでPDFを作成してください\n・設定→データ取得→三井住友カードの手順を確認");
+      } else if (msg.includes("PDF.js") || msg.includes("読み込みに失敗")) {
+        alert("⚠️ PDFの読み込みに失敗しました\n\n別の方法で試してください：\n・ChromeまたはBraveで明細を開く\n・印刷用ページ→PDFを作成→ファイルに保存");
+      } else if (msg.includes("Shift_JIS") || msg.includes("encoding")) {
+        alert("⚠️ 文字コードの変換に失敗しました\nブラウザを変えて再試行してください");
+      } else {
+        alert(`⚠️ ファイルの読み込みに失敗しました\n\nエラー: ${msg.slice(0, 100) || "不明なエラー"}\n\nファイルが正しい形式か確認してください`);
+      }
+    }
     finally { setCsvPdfLoading(false); }
   };
 
