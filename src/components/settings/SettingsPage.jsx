@@ -28,14 +28,16 @@ const TABS = [
   { id: "budget",     label: "予算",             icon: "🎯" },
 ];
 
-export function SettingsPage({ transactions, categories,
+export function SettingsPage({
   categories, onAddCat, onUpdateCat, onDeleteCat, onReorderCat, onResetCategories,
   learnedRules, onDeleteRule,
   transactions, onAdd, onReset,
   members, onUpdateMember, onAddMember, onDeleteMember,
   pointAccounts, onAddPointAccount, onUpdatePointAccount, onDeletePointAccount,
   shareId, inviteUrl, onJoinShare, syncStatus,
-  activeCsvSources, onActiveCsvSourcesChange}) {
+  activeCsvSources, onActiveCsvSourcesChange,
+  budgets, onBudgetsChange,
+  onReapplyCategories}) {
   const [tab, setTab] = useState(null);
 
   // iOSスワイプバック・ブラウザバックで setTab(null) を呼ぶ
