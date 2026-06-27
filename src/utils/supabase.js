@@ -123,6 +123,8 @@ export const saveMembers       = (shareId, data) => upsertSetting("members",    
 export const savePointAccounts = (shareId, data) => upsertSetting("point_accounts", shareId, data);
 export const saveImportHistory    = (shareId, data) => upsertSetting("import_history",    shareId, data);
 export const saveActiveCsvSources = (shareId, data) => upsertSetting("active_csv_sources", shareId, data);
+export const saveCsvSourceLabels  = (shareId, data) => upsertSetting("csv_source_labels",  shareId, data);
+export const saveBudgets          = (shareId, data) => upsertSetting("budgets",             shareId, data);
 
 export const fetchCategories    = (shareId) => fetchSetting("categories",     shareId);
 export const fetchLearnedRules  = (shareId) => fetchSetting("learned_rules",  shareId);
@@ -130,6 +132,8 @@ export const fetchMembers       = (shareId) => fetchSetting("members",        sh
 export const fetchPointAccounts = (shareId) => fetchSetting("point_accounts", shareId);
 export const fetchImportHistory    = (shareId) => fetchSetting("import_history",    shareId);
 export const fetchActiveCsvSources = (shareId) => fetchSetting("active_csv_sources", shareId);
+export const fetchCsvSourceLabels  = (shareId) => fetchSetting("csv_source_labels",  shareId);
+export const fetchBudgets          = (shareId) => fetchSetting("budgets",             shareId);
 
 // ─── 接続テスト ───────────────────────────────────────────
 export const testConnection = async () => {
