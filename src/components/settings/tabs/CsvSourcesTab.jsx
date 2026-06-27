@@ -3,6 +3,19 @@ import { CSV_SOURCES_ALL } from "../../home/HomePage";
 
 const DEFAULT_SHORTS = Object.fromEntries(CSV_SOURCES_ALL.map(s => [s.id, s.short]));
 
+const loadDefaultShares = () => {
+  try { return JSON.parse(localStorage.getItem("kakeibo_csv_default_share") || "{}"); } catch { return {}; }
+};
+const saveDefaultShares = (obj) => {
+  try { localStorage.setItem("kakeibo_csv_default_share", JSON.stringify(obj)); } catch {}
+};
+
+const SHARE_TYPES = [
+  { val: "shared",   label: "🤝 共有", color: "bg-indigo-500" },
+  { val: "personal", label: "👤 個人", color: "bg-rose-400"   },
+  { val: "partner",  label: "👥 相手", color: "bg-purple-500" },
+];
+
 const loadCsvSourceLabels = () => {
   try { const s = localStorage.getItem("kakeibo_csv_source_labels"); return s ? JSON.parse(s) : {}; } catch { return {}; }
 };
@@ -12,7 +25,8 @@ const saveCsvSourceLabels = (obj) => {
 
 export function CsvSourcesTab({ activeCsvSources, onActiveCsvSourcesChange }) {
   const active   = new Set(activeCsvSources || CSV_SOURCES_ALL.map(s => s.id));
-  const [labels,   setLabels]   = useState(() => loadCsvSourceLabels());
+  const [labels,        setLabels]       = useState(() => loadCsvSourceLabels());
+  const [defaultShares, setDefaultShares] = useState(() => loadDefaultShares());
   const [editing,  setEditing]  = useState(null); // 編集中のid
   const [editVal,  setEditVal]  = useState("");
 
@@ -20,6 +34,12 @@ export function CsvSourcesTab({ activeCsvSources, onActiveCsvSourcesChange }) {
     const next = new Set(active);
     next.has(id) ? next.delete(id) : next.add(id);
     onActiveCsvSourcesChange?.([...next]);
+  };
+
+  const setDefaultShare = (id, val) => {
+    const next = { ...defaultShares, [id]: val };
+    setDefaultShares(next);
+    saveDefaultShares(next);
   };
 
   const startEdit = (id) => {
@@ -72,11 +92,25 @@ export function CsvSourcesTab({ activeCsvSources, onActiveCsvSourcesChange }) {
                       <button onClick={() => setEditing(null)} className="text-xs text-gray-400">キャンセル</button>
                     </div>
                   ) : (
-                    <div className="flex items-center gap-1.5 mt-0.5">
+                    <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
                       <span className="text-xs bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full font-semibold">{shortLabel}</span>
                       <button onClick={() => startEdit(src.id)} className="text-xs text-gray-400 underline">変更</button>
                     </div>
                   )}
+                  {/* デフォルトshareType */}
+                  <div className="flex items-center gap-1 mt-1 flex-wrap">
+                    {SHARE_TYPES.map(({ val, label, color }) => (
+                      <button key={val}
+                        onClick={() => setDefaultShare(src.id, val)}
+                        className={`text-xs px-2 py-0.5 rounded-full font-semibold transition-all ${
+                          (defaultShares[src.id] || "shared") === val
+                            ? `${color} text-white`
+                            : "bg-gray-100 text-gray-400"
+                        }`}>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
                 {/* トグルスイッチ */}
                 <button
