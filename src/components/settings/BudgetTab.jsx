@@ -132,3 +132,4 @@ export function BudgetTab({ transactions, categories, budgets = {}, onBudgetsCha
     </div>
   );
 }
+
