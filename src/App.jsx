@@ -11,6 +11,8 @@ import {
   saveCategories, saveLearnedRules, saveMembers, savePointAccounts,
   fetchImportHistory, saveImportHistory,
   fetchActiveCsvSources, saveActiveCsvSources,
+  fetchCsvSourceLabels, saveCsvSourceLabels,
+  fetchBudgets, saveBudgets,
   testConnection,
 } from "./utils/supabase";
 import { learnTransferKeyword } from "./services/csvParser";
@@ -81,8 +83,9 @@ export default function App() {
   const [editingTx,     setEditingTx]     = useState(null);
   const [importHistory,    setImportHistory]    = useState({});
   const [activeCsvSources,  setActiveCsvSources]  = useState(["sbi","epos","smbc","paypay"]);
-  const [csvSourceLabels,   setCsvSourceLabels]   = useState(() => {
-    try { const s = localStorage.getItem("kakeibo_csv_source_labels"); return s ? JSON.parse(s) : {}; } catch { return {}; }
+  const [csvSourceLabels, setCsvSourceLabels] = useState({});
+  const [budgets,         setBudgets]         = useState(() => {
+    try { const s = localStorage.getItem("kakeibo_budgets"); return s ? JSON.parse(s) : {}; } catch { return {}; }
   });
 
   // ── 初回ロード：Supabaseからデータ取得 ──────────────────
@@ -105,12 +108,31 @@ export default function App() {
         try { activeSources = await fetchActiveCsvSources(shareId); } catch {}
         if (activeSources) setActiveCsvSources(activeSources);
         else {
-          // localStorageからマイグレーション
           try {
             const saved = localStorage.getItem("kakeibo_active_csv_sources");
             if (saved) { const parsed = JSON.parse(saved); setActiveCsvSources(parsed); await saveActiveCsvSources(shareId, parsed); }
           } catch {}
         }
+
+        // csvSourceLabels
+        try {
+          const labels = await fetchCsvSourceLabels(shareId);
+          if (labels) setCsvSourceLabels(labels);
+          else {
+            const saved = localStorage.getItem("kakeibo_csv_source_labels");
+            if (saved) { const parsed = JSON.parse(saved); setCsvSourceLabels(parsed); await saveCsvSourceLabels(shareId, parsed); }
+          }
+        } catch {}
+
+        // budgets
+        try {
+          const bgt = await fetchBudgets(shareId);
+          if (bgt) setBudgets(bgt);
+          else {
+            const saved = localStorage.getItem("kakeibo_budgets");
+            if (saved) { const parsed = JSON.parse(saved); setBudgets(parsed); await saveBudgets(shareId, parsed); }
+          }
+        } catch {}
 
         if (txs && txs.length > 0) {
           setTransactions(txs.map(normalizeTransaction).filter(Boolean));
@@ -239,6 +261,18 @@ export default function App() {
     try { await savePointAccounts(shareId, newAccounts); } catch {}
   };
 
+  const handleCsvSourceLabelsChange = async (newLabels) => {
+    setCsvSourceLabels(newLabels);
+    try { await saveCsvSourceLabels(shareId, newLabels); } catch {}
+    try { localStorage.setItem("kakeibo_csv_source_labels", JSON.stringify(newLabels)); } catch {}
+  };
+
+  const handleBudgetsChange = async (newBudgets) => {
+    setBudgets(newBudgets);
+    try { await saveBudgets(shareId, newBudgets); } catch {}
+    try { localStorage.setItem("kakeibo_budgets", JSON.stringify(newBudgets)); } catch {}
+  };
+
   const handleActiveCsvSourcesChange = async (newSources) => {
     setActiveCsvSources(newSources);
     try { await saveActiveCsvSources(shareId, newSources); } catch {}
@@ -249,6 +283,29 @@ export default function App() {
   const handleImportHistoryChange = async (newHistory) => {
     setImportHistory(newHistory);
     try { await saveImportHistory(shareId, newHistory); } catch {}
+  };
+
+  // ② 過去取引への一括カテゴリ再適用
+  const handleReapplyCategories = async () => {
+    const allCatRules = [...learnedRules, ...DEFAULT_CATEGORY_RULES];
+    let count = 0;
+    const updated = transactions.map(tx => {
+      if (tx.category !== "その他" || !tx.label) return tx;
+      const labelLower = tx.label.toLowerCase();
+      const matched = allCatRules.find(rule =>
+        rule.keywords?.some(kw => labelLower.includes(kw.toLowerCase()))
+      );
+      if (!matched) return tx;
+      count++;
+      return { ...tx, category: matched.category, updatedAt: new Date().toISOString() };
+    });
+    if (count === 0) { alert("再適用できる取引がありませんでした（すべて分類済みです）"); return; }
+    const changed = updated.filter((tx, i) => tx.category !== transactions[i].category);
+    setTransactions(updated);
+    try {
+      await Promise.all(changed.map(tx => upsertTransaction(shareId, tx)));
+    } catch (e) { console.error("再適用保存エラー:", e); }
+    alert(`✅ ${count}件のカテゴリを自動分類しました`);
   };
 
   const handleLearn = (label, cat, type) => {
@@ -342,7 +399,7 @@ export default function App() {
   const renderPage = () => {
     switch (currentPage) {
       case "home":
-        return <HomePage transactions={transactions} categories={categories} pointAccounts={pointAccountsWithBalance} learnedRules={learnedRules} importHistory={importHistory} activeCsvSources={activeCsvSources} onNavigate={navigate} />;
+        return <HomePage transactions={transactions} categories={categories} pointAccounts={pointAccountsWithBalance} learnedRules={learnedRules} importHistory={importHistory} activeCsvSources={activeCsvSources} budgets={budgets} onNavigate={navigate} />;
       case "list":
         return <TransactionListPage
           transactions={transactions}
@@ -400,6 +457,10 @@ export default function App() {
           // CSV管理
           activeCsvSources={activeCsvSources}
           onActiveCsvSourcesChange={handleActiveCsvSourcesChange}
+          // 予算
+          budgets={budgets}
+          onBudgetsChange={handleBudgetsChange}
+          onReapplyCategories={handleReapplyCategories}
           // 共有設定
           shareId={shareId}
           inviteUrl={inviteUrl}
@@ -407,7 +468,7 @@ export default function App() {
           syncStatus={syncStatus}
         />;
       default:
-        return <HomePage transactions={transactions} categories={categories} pointAccounts={pointAccountsWithBalance} learnedRules={learnedRules} importHistory={importHistory} activeCsvSources={activeCsvSources} onNavigate={navigate} />;
+        return <HomePage transactions={transactions} categories={categories} pointAccounts={pointAccountsWithBalance} learnedRules={learnedRules} importHistory={importHistory} activeCsvSources={activeCsvSources} budgets={budgets} onNavigate={navigate} />;
     }
   };
 
