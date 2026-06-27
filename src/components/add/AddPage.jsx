@@ -35,6 +35,7 @@ export function AddPage({
       categories={categories} existingTransactions={existingTransactions}
       members={members} pointAccounts={pointAccounts}
       importHistory={importHistory}
+      allRules={allRules} learnedRules={learnedRules}
       onAdd={onAdd} onDelete={onDelete}
       onLearnRule={onLearnRule} onImportHistoryChange={onImportHistoryChange}
       onBack={() => setMode("select")}
