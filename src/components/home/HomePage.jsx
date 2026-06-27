@@ -9,7 +9,7 @@ import { BalanceCard } from "./BalanceCard";
 import { RecentExpenseCard } from "./RecentExpenseCard";
 import { TransactionItem } from "../transactions/TransactionItem";
 
-const APP_VERSION = "v3.4.0";
+const APP_VERSION = "v3.4.5";
 const BAR_COLORS = ["#6366f1","#f43f5e","#10b981","#f59e0b","#3b82f6","#8b5cf6","#ec4899","#14b8a6"];
 
 // ── 今月サマリーカード ────────────────────────────────────────
@@ -148,13 +148,9 @@ function CategoryBar({ catExpenses, categories }) {
 
 
 // ─── 予算アラート ─────────────────────────────────────────────
-function BudgetAlert({ transactions }) {
+function BudgetAlert({ transactions, budgets = {} }) {
   const now = new Date();
   const ym  = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-
-  const budgets = (() => {
-    try { const s = localStorage.getItem("kakeibo_budgets"); return s ? JSON.parse(s) : {}; } catch { return {}; }
-  })();
 
   const monthExpenses = {};
   transactions
@@ -373,7 +369,7 @@ function CsvImportStatusImpl({ importHistory, activeCsvSources, onNavigate }) {
   );
 }
 
-export function HomePage({ transactions, categories, pointAccounts, learnedRules, importHistory, activeCsvSources, onNavigate }) {
+export function HomePage({ transactions, categories, pointAccounts, learnedRules, importHistory, activeCsvSources, budgets, onNavigate }) {
   const now       = new Date();
   const currentYM = now.toISOString().slice(0, 7);
   const prevDate  = new Date(now.getFullYear(), now.getMonth() - 1, 1);
@@ -455,7 +451,7 @@ export function HomePage({ transactions, categories, pointAccounts, learnedRules
           <BudgetProgress categories={categories} currentMonthTxs={currentMonthTxs} />
 
           {/* CSV取り込み状況 */}
-          <BudgetAlert transactions={transactions} />
+          <BudgetAlert transactions={transactions} budgets={budgets} />
       <CsvImportStatusImpl importHistory={importHistory} activeCsvSources={activeCsvSources} onNavigate={onNavigate} />
 
           {/* 最近7日 */}
