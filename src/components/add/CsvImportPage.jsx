@@ -62,18 +62,26 @@ export function CsvImportPage({ categories, existingTransactions, members, point
             // OCR重複行：3択ボタン
             <div className="flex flex-col gap-1 flex-shrink-0">
               {[
-                { key: "both",    label: "両方",   color: "bg-blue-100 text-blue-600 ring-blue-400"    },
-                { key: "replace", label: "置換",   color: "bg-amber-100 text-amber-600 ring-amber-400" },
-                { key: "skip",    label: "スキップ", color: "bg-gray-100 text-gray-500 ring-gray-400"  },
+                { key: "skip",    label: "スキップ", color: "bg-emerald-100 text-emerald-600 ring-emerald-400" },
+                { key: "both",    label: "両方残す", color: "bg-blue-100 text-blue-600 ring-blue-400"          },
+                { key: "replace", label: "OCR削除",  color: "bg-rose-100 text-rose-500 ring-rose-400"          },
               ].map(({ key, label, color }) => (
                 <button key={key}
                   onClick={() => setOcrActions(p => ({ ...p, [i]: key }))}
                   className={`text-xs px-2 py-0.5 rounded-full font-semibold transition-all ${color} ${
-                    (ocrActions[i] || "both") === key ? "ring-2" : "opacity-40"
+                    (ocrActions[i] || "skip") === key ? "ring-2" : "opacity-40"
                   }`}>
                   {label}
                 </button>
               ))}
+              <button
+                onClick={() => {
+                  r.ocrDuplicates?.forEach(dup => saveOcrDiffRule(r.label, dup.label));
+                  setOcrActions(p => ({ ...p, [i]: "skip" }));
+                }}
+                className="text-xs px-2 py-0.5 rounded-full font-semibold bg-gray-100 text-gray-400 border border-gray-200">
+                🚫 別物として学習
+              </button>
             </div>
           ) : (
             <BigCheckbox checked={!!csvChecked[i]} onChange={() => setCsvChecked(p => ({ ...p, [i]: !p[i] }))} />
@@ -87,7 +95,16 @@ export function CsvImportPage({ categories, existingTransactions, members, point
               {r.isCardWarning    && <span className="text-xs bg-amber-100 text-amber-600 px-1.5 py-0.5 rounded-full flex-shrink-0">💳 カード未取込?</span>}
               {r.ocrDuplicate     && <span className="text-xs bg-amber-100 text-amber-600 px-1.5 py-0.5 rounded-full flex-shrink-0">📷 OCR重複?</span>}
             </div>
-            {r.ocrDuplicate && <p className="text-xs text-gray-400 mt-0.5">OCR:「{r.ocrDuplicate.label}」と重複の可能性</p>}
+            {r.ocrDuplicates?.length > 0 && (
+              <div className="mt-0.5 space-y-0.5">
+                <p className="text-xs text-amber-600 font-semibold">📷 OCR重複候補 {r.ocrDuplicates.length}件</p>
+                {r.ocrDuplicates.map((dup, di) => (
+                  <p key={di} className="text-xs text-gray-400">
+                    {di+1}. 「{dup.label}」 ¥{Math.abs(dup.amount).toLocaleString()} ({dup.date?.slice(5)})
+                  </p>
+                ))}
+              </div>
+            )}
             <div className="flex items-center gap-1.5 mt-1 flex-wrap">
               <p className="text-xs text-gray-400">{r.date}</p>
               {r.category && (
@@ -200,29 +217,33 @@ export function CsvImportPage({ categories, existingTransactions, members, point
       setCsvFormatIds([...detectedFormatIds]);
 
       const existKeys = new Set(existingTransactions.map(DUPLICATE_KEY));
-      // 店舗名類似チェック（先頭4文字以上一致で関連あり）
-      const labelSimilar = (a, b) => {
-        if (!a || !b) return false; // 両方ないと判定不能→false
-        const norm = s => s.toLowerCase().replace(/[　\s・．.\/（）()「」]/g, "");
-        const na = norm(a); const nb = norm(b);
-        if (na.length === 0 || nb.length === 0) return false;
-        const minLen = Math.min(na.length, nb.length, 4);
-        if (minLen < 2) return false;
-        return na.slice(0, minLen) === nb.slice(0, minLen) ||
-               na.includes(nb.slice(0, minLen)) || nb.includes(na.slice(0, minLen));
+      // 「別物」学習ルール（localStorage保存・無料）
+      const ocrDiffRules = (() => {
+        try { return JSON.parse(localStorage.getItem("kakeibo_ocr_diff_rules") || "{}"); } catch { return {}; }
+      })();
+      const saveOcrDiffRule = (labelA, labelB) => {
+        const key = [labelA, labelB].sort().join("|");
+        const rules = { ...ocrDiffRules, [key]: true };
+        try { localStorage.setItem("kakeibo_ocr_diff_rules", JSON.stringify(rules)); } catch {}
+      };
+      const isKnownDiff = (labelA, labelB) => {
+        const key = [labelA, labelB].sort().join("|");
+        return !!ocrDiffRules[key];
       };
 
-      // OCR重複を全件検索（店舗名類似＋金額10%以内＋3日以内）
+      // OCR重複候補を全件検索
+      // 条件: 同日 + 金額±5%以内 → ユーザーが判断して学習
       const findOcrDups = (row) => {
-        const amt = Math.abs(row.amount); const dateObj = new Date(row.date);
+        const amt  = Math.abs(row.amount);
+        const date = (row.date || "").slice(0, 10);
         return existingTransactions.filter(tx => {
           if (tx.source !== "ocr") return false;
-          const diffDays = Math.abs(new Date(tx.date) - dateObj) / 86400000;
-          if (diffDays > 3) return false;
+          if ((tx.date || "").slice(0, 10) !== date) return false; // 当日のみ
           const txAmt = Math.abs(tx.amount);
           if (txAmt === 0 || amt === 0) return false;
-          if (Math.abs(txAmt - amt) / Math.max(txAmt, amt) > 0.10) return false;
-          return labelSimilar(row.label, tx.label); // 店舗名が似ている場合のみ
+          if (Math.abs(txAmt - amt) / Math.max(txAmt, amt) > 0.05) return false; // ±5%以内
+          if (isKnownDiff(row.label, tx.label)) return false; // 学習済み別物はスキップ
+          return true;
         });
       };
       const findOcrDup = (row) => { const r = findOcrDups(row); return r.length > 0 ? r[0] : null; };
