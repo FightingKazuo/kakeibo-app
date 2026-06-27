@@ -18,7 +18,6 @@ export function CsvImportPage({ categories, existingTransactions, members, point
   const [csvRows,         setCsvRows]         = useState([]);
   const [csvChecked,      setCsvChecked]      = useState({});
   const [csvStep,         setCsvStep]         = useState("upload");
-  const [ocrActions,      setOcrActions]      = useState({});
   const [csvSummary,      setCsvSummary]      = useState(null);
   const [csvEditIdx,      setCsvEditIdx]      = useState(null);
   const [csvPdfLoading,   setCsvPdfLoading]   = useState(false);
@@ -27,9 +26,9 @@ export function CsvImportPage({ categories, existingTransactions, members, point
   const fileRef   = useRef(null);
   const selfId    = members?.[0]?.id || null;
 
-  const isDupRow     = (r) => r.isDuplicate || r.isCardWithdrawal || !!r.ocrDuplicate || r.isCardWarning || r.isTransfer;
+  const isDupRow     = (r) => r.isDuplicate || r.isCardWithdrawal || (r.ocrDuplicates?.length > 0) || r.isCardWarning || r.isTransfer;
   const isHardDupRow = (r) => false;
-  const isOcrOnlyDup = (r) => !!r.ocrDuplicate || r.isCardWarning || r.isDuplicate || r.isTransfer || r.isCardWithdrawal;
+  const isOcrOnlyDup = (r) => (r.ocrDuplicates?.length > 0) || r.isCardWarning || r.isDuplicate || r.isTransfer || r.isCardWithdrawal;
 
   const updateCsvRow = (i, key, val) => setCsvRows(p => p.map((r, j) => j === i ? { ...r, [key]: val } : r));
 
@@ -200,19 +199,38 @@ export function CsvImportPage({ categories, existingTransactions, members, point
       setCsvFormatIds([...detectedFormatIds]);
 
       const existKeys = new Set(existingTransactions.map(DUPLICATE_KEY));
-      const findOcrDup = (row) => {
+      // 店舗名類似チェック（先頭4文字以上一致で関連あり）
+      const labelSimilar = (a, b) => {
+        if (!a || !b) return false; // 両方ないと判定不能→false
+        const norm = s => s.toLowerCase().replace(/[　\s・．.\/（）()「」]/g, "");
+        const na = norm(a); const nb = norm(b);
+        if (na.length === 0 || nb.length === 0) return false;
+        const minLen = Math.min(na.length, nb.length, 4);
+        if (minLen < 2) return false;
+        return na.slice(0, minLen) === nb.slice(0, minLen) ||
+               na.includes(nb.slice(0, minLen)) || nb.includes(na.slice(0, minLen));
+      };
+
+      // OCR重複を全件検索（店舗名類似＋金額10%以内＋3日以内）
+      const findOcrDups = (row) => {
         const amt = Math.abs(row.amount); const dateObj = new Date(row.date);
-        return existingTransactions.find(tx => {
+        return existingTransactions.filter(tx => {
           if (tx.source !== "ocr") return false;
           const diffDays = Math.abs(new Date(tx.date) - dateObj) / 86400000;
           if (diffDays > 3) return false;
           const txAmt = Math.abs(tx.amount);
           if (txAmt === 0 || amt === 0) return false;
-          return Math.abs(txAmt - amt) / Math.max(txAmt, amt) <= 0.10;
+          if (Math.abs(txAmt - amt) / Math.max(txAmt, amt) > 0.10) return false;
+          return labelSimilar(row.label, tx.label); // 店舗名が似ている場合のみ
         });
       };
+      const findOcrDup = (row) => { const r = findOcrDups(row); return r.length > 0 ? r[0] : null; };
 
-      const withDup = allRows.map(r => ({ ...r, isDuplicate: existKeys.has(DUPLICATE_KEY(r)), ocrDuplicate: !existKeys.has(DUPLICATE_KEY(r)) ? findOcrDup(r) : null }));
+      const withDup = allRows.map(r => {
+        const isDup  = existKeys.has(DUPLICATE_KEY(r));
+        const dups   = !isDup ? findOcrDups(r) : [];
+        return { ...r, isDuplicate: isDup, ocrDuplicate: dups[0] || null, ocrDuplicates: dups };
+      });
       const init = {};
       withDup.forEach((r, i) => {
         if (r.isDuplicate || r.isTransfer || r.isCardWithdrawal || r.isCardWarning) {
