@@ -149,165 +149,82 @@ const parseEposLines = (lines) => {
 };
 
 // ─── 三井住友カード PDF パーサー ─────────────────────────────
-// 実機のpdf.js出力で検証済み（4月PDF 16件・合計60,221円 一致）
-// 主形式: "B# 26/04/01 店舗名 利用額 １ 回数 支払額 ◎"（1行完結）
-// 例外1: 店舗名が長いと前行に分離（"ウツワヤユウユウ（" → "# 26/04/11 880 １ １ 880"）
-// 例外2: SBI証券のように末尾◎なしの行もある
+// 実機データ（4月16件/5月47件）で検証済み
+// 構造: B#/#単独行 → 日付+店舗名 → 金額行 → [支払金額がまとめて後ろ]
+// アルゴリズム: 2ステップ
+//   1. pendingリストに(日付,店舗名,利用金額)を蓄積
+//   2. 後続の純粋数字行を利用金額とマッチして支払金額を割り当て
 const parseSMBCLines = (lines) => {
-  const results = [];
-  const isAmountLine = (s) => /^[\d,]+\s*[１1一]/.test(s);
-  const isPureNumber = (s) => /^[\d,]+$/.test(s);
+  const isAmt  = s => /^[\d,]+\s*[１1一]/.test(s);
+  const isPure = s => /^[\d,]+$/.test(s);
+  const isDate = s => /^(?:B#|#|\s)*?\d{2}\/\d{2}\/\d{2}/.test(s);
+  const skip   = s => !s || s.startsWith("＜") || s.startsWith("◎") ||
+                      s.startsWith("備") || s.startsWith("考") ||
+                      /^小林.*様/.test(s);
 
+  // ── ステップ1: (日付, 店舗名, 利用金額) を蓄積 ──────────────
+  const pending = [];
   let i = 0;
+
   while (i < lines.length) {
     const line = (lines[i] || "").trim();
-    if (!line || line.startsWith("＜") || line.startsWith("※") || line.startsWith("登録")) { i++; continue; }
+    if (skip(line) || /^(?:B#|#)+$/.test(line)) { i++; continue; }
 
     const mDate = line.match(/^(?:B#|#|\s)*?(\d{2})\/(\d{2})\/(\d{2})\s*(.*)/);
-    if (!mDate) { i++; continue; }
-    const [, yy, mm, dd, rest] = mDate;
+    if (mDate) {
+      const [, yy, mm, dd, rest] = mDate;
+      const storeParts = rest.trim() ? [rest.trim()] : [];
+      let j = i + 1;
+      let found = false;
 
-    // メイン形式: "店舗名 利用金額 １ 回数 支払金額 [備考◎等]"
-    const mFull = rest.match(/^(.+?)\s+([\d,]+)\s+[１1一]\s+[１0-9０-９]+\s+([\d,]+)(?:\s+.*)?$/);
-    if (mFull) {
-      const amount = parseInt(mFull[3].replace(/,/g, ""));
-      const label = cleanLabel(zen2han(mFull[1]));
-      if (amount > 0 && label) {
-        results.push({ date: `20${yy}-${mm.padStart(2,"0")}-${dd.padStart(2,"0")}`, label, amount: -amount, type: "expense", category: "その他", source: "csv" });
-      }
-      i++; continue;
-    }
+      while (j < lines.length) {
+        const nxt = (lines[j] || "").trim();
+        if (skip(nxt) || /^(?:B#|#)+$/.test(nxt)) { j++; continue; }
+        if (isDate(nxt) || nxt.startsWith("＜")) break;
 
-    // 店舗名なし形式: "金額 １ 回数 支払金額"（店舗名は前行に分離）
-    const mNoStore = rest.match(/^([\d,]+)\s+[１1一]\s+[１0-9０-９]+\s+([\d,]+)(?:\s+.*)?$/);
-    if (mNoStore) {
-      const amount = parseInt(mNoStore[2].replace(/,/g, ""));
-      const prevLine = (lines[i - 1] || "").trim();
-      let label = "";
-      if (prevLine && !/^\d/.test(prevLine) && !/^(?:B#|#)/.test(prevLine)) {
-        label = cleanLabel(zen2han(prevLine));
-      }
-      if (amount > 0) {
-        results.push({ date: `20${yy}-${mm.padStart(2,"0")}-${dd.padStart(2,"0")}`, label: label || "（店舗名不明）", amount: -amount, type: "expense", category: "その他", source: "csv" });
-      }
-      i++; continue;
-    }
-
-    // restに金額がない → 後続行から金額行を探す
-    const storeParts = rest.trim() ? [rest.trim()] : [];
-    let j = i + 1;
-    let found = false;
-    while (j < lines.length) {
-      const nxt = (lines[j] || "").trim();
-      if (/^(?:B#|#|\s)*?\d{2}\/\d{2}\/\d{2}/.test(nxt) || nxt.startsWith("＜")) { i = j; found = true; break; }
-      if (isAmountLine(nxt)) {
-        const mAmt = nxt.match(/^([\d,]+)\s+[１1一]\s+[１0-9０-９]+\s+([\d,]+)/) || nxt.match(/^([\d,]+)/);
-        const amount = parseInt((mAmt[2] || mAmt[1]).replace(/,/g, ""));
-        const label = cleanLabel(zen2han(storeParts.join(" ")));
-        if (amount > 0 && label) {
-          results.push({ date: `20${yy}-${mm.padStart(2,"0")}-${dd.padStart(2,"0")}`, label, amount: -amount, type: "expense", category: "その他", source: "csv" });
+        if (isAmt(nxt)) {
+          const useAmt = parseInt(nxt.match(/^([\d,]+)/)[1].replace(/,/g, ""));
+          // 次行が同額の純粋数字 → 支払金額確定
+          const nextLine = (lines[j + 1] || "").trim();
+          let payAmt = 0;
+          if (isPure(nextLine) && parseInt(nextLine.replace(/,/g, "")) === useAmt) {
+            payAmt = useAmt; j++;
+          }
+          pending.push({ yy, mm, dd, storeParts: [...storeParts], useAmt, payAmt });
+          i = j + 1; found = true; break;
         }
-        i = j + 1; found = true; break;
+
+        if (!isPure(nxt) && !/^[◎○●]/.test(nxt)) storeParts.push(nxt);
+        j++;
       }
-      if (nxt && !/^[◎○●]$/.test(nxt) && !isPureNumber(nxt)) storeParts.push(nxt);
-      j++;
+      if (!found) i = j;
+      continue;
     }
-    if (!found) i = j;
-  }
-  return results;
-};
 
-// ─── メイン ──────────────────────────────────────────────────
-export const PDF_FORMAT_LABELS = {
-  epos_pdf: "エポスカード（PDF）",
-  smbc_pdf: "三井住友カード（PDF）",
-};
-
-export const parsePDF = async (file) => {
-  const pdfjsLib = await loadPdfjs();
-  const buf      = await file.arrayBuffer();
-
-  // TextDecoderフォールバック共通関数
-  const tryTextDecode = (buf) => {
-    const decoder = new TextDecoder("utf-8", { fatal: false });
-    const rawText = decoder.decode(buf);
-    const textLines = rawText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-    const smbc = parseSMBCLines(textLines);
-    if (smbc.length > 0) return { transactions: smbc, format: "smbc_pdf", lineCount: textLines.length };
-    const epos = parseEposLines(textLines);
-    if (epos.length > 0) return { transactions: epos, format: "epos_pdf", lineCount: textLines.length };
-    return null;
-  };
-
-  let lines;
-  try {
-    lines = await getAllLines(pdfjsLib, buf);
-  } catch (e) {
-    // pdf.js例外 → TextDecoderで再試行
-    const decoded = tryTextDecode(buf);
-    if (decoded) return decoded;
-    throw e;
+    // ── ステップ2: 純粋数字 → 未解決pendingの利用金額とマッチ ──
+    if (isPure(line)) {
+      const payAmt = parseInt(line.replace(/,/g, ""));
+      const match = pending.find(p => !p.payAmt && p.useAmt === payAmt);
+      if (match) match.payAmt = payAmt;
+    }
+    i++;
   }
 
-  // pdf.jsは成功したが0行 → TextDecoderで再試行
-  if (!lines || lines.length === 0) {
-    const decoded = tryTextDecode(buf);
-    if (decoded) return decoded;
-    throw new Error("PDFからテキストを抽出できませんでした。");
-  }
-
-  const format   = detectPDFFormat(lines);
-
-  let transactions;
-  switch (format) {
-    case "epos_pdf": transactions = parseEposLines(lines); break;
-    case "smbc_pdf": transactions = parseSMBCLines(lines); break;
-    default:
-      throw new Error(
-        "対応していないPDFです。\nエポスカードまたは三井住友カードのPDFのみ対応しています。"
-      );
-  }
-
-  if (transactions.length === 0) {
-    throw new Error(
-      "取引データを抽出できませんでした。\nPDFのフォーマットが想定と異なる可能性があります。"
-    );
-  }
-
-  return { transactions, format, lineCount: lines.length };
-};
-
-// ─── テキスト直接パース（SafariのPDF生成対応）────────────────
-// FileReaderでテキストとして読み込んだ内容をパースする
-export const parsePDFText = (text) => {
-  if (!text || typeof text !== "string") return null;
-
-  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-
-  // 三井住友カード判定
-  const isSMBC = lines.some(l =>
-    l.includes("三井住友") || l.includes("SMBC") || l.includes("smbc-card")
-  );
-
-  // エポスカード判定
-  const isEpos = lines.some(l =>
-    l.includes("エポスカード") || l.includes("eposcard")
-  );
-
-  if (isSMBC) {
-    const transactions = parseSMBCLines(lines);
-    if (transactions.length > 0) return { format: "smbc_pdf", transactions };
-  }
-
-  if (isEpos) {
-    const transactions = parseEposLines(lines);
-    if (transactions.length > 0) return { format: "epos_pdf", transactions };
-  }
-
-  // どちらでもない場合は全行でSMBC形式を試す
-  const fallback = parseSMBCLines(lines);
-  if (fallback.length > 0) return { format: "smbc_pdf", transactions: fallback };
-
-  return null;
+  // ── ステップ3: pending → results ────────────────────────────
+  return pending
+    .map(p => {
+      const amount = p.payAmt || p.useAmt;
+      const label  = cleanLabel(zen2han(p.storeParts.join(" ")));
+      if (!amount || !label) return null;
+      return {
+        date:     `20${p.yy}-${p.mm.padStart(2, "0")}-${p.dd.padStart(2, "0")}`,
+        label,
+        amount:   -amount,
+        type:     "expense",
+        category: "その他",
+        source:   "csv",
+      };
+    })
+    .filter(Boolean);
 };
 
