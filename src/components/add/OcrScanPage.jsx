@@ -229,7 +229,14 @@ export function OcrScanPage({ categories, allRules, learnedRules, members, point
     const learnedCat = correction?.category || null;
     const combined   = [...(allRules || DEFAULT_CATEGORY_RULES), ...(learnedRules || [])];
     const res        = predictCategory(finalLabel, combined);
-    return { label: finalLabel, origLabel: store, amount: amt ? String(amt) : "", date: dt, cat: learnedCat || (res.isConfident ? res.topCategory : "食費"), confidence: result.confidence, ok: true, items, showItems: false };
+    // ルールマッチがあればそれを優先、なければ信頼度が高いGemini予測、最後に「その他」
+    const ruleCat    = (() => {
+      const labelLower = finalLabel.toLowerCase();
+      const matched = combined.find(rule => rule.keywords?.some(kw => labelLower.includes(kw.toLowerCase())));
+      return matched?.category || null;
+    })();
+    const autoCat    = learnedCat || ruleCat || (res.isConfident ? res.topCategory : "その他");
+    return { label: finalLabel, origLabel: store, amount: amt ? String(amt) : "", date: dt, cat: autoCat, confidence: result.confidence, ok: true, items, showItems: false };
   };
 
   const extractFromResult = (result) => {
