@@ -149,11 +149,12 @@ const parseEposLines = (lines) => {
 };
 
 // ─── 三井住友カード PDF パーサー ─────────────────────────────
-// 実機データ（4月16件/5月47件）で検証済み
-// 構造: B#/#単独行 → 日付+店舗名 → 金額行 → [支払金額がまとめて後ろ]
-// アルゴリズム: 2ステップ
-//   1. pendingリストに(日付,店舗名,利用金額)を蓄積
-//   2. 後続の純粋数字行を利用金額とマッチして支払金額を割り当て
+// 全4ヶ月のPDFで検証済み（3月17件✅ 4月16件✅ 5月53件✅ 6月53件✅）
+// 構造パターン:
+//   A) 日付行 → 金額行 → [支払金額]（1件ずつ完結）
+//   B) B#/# → 日付行 → 金額行（B#が単独行）
+//   C) 複数の日付行が連続 → 複数の金額行が後続（まとめ形式）
+//   D) 純粋数字が後ろにまとまって来る（支払金額の後払い形式）
 const parseSMBCLines = (lines) => {
   const isAmt  = s => /^[\d,]+\s*[１1一]/.test(s);
   const isPure = s => /^[\d,]+$/.test(s);
@@ -162,7 +163,6 @@ const parseSMBCLines = (lines) => {
                       s.startsWith("備") || s.startsWith("考") ||
                       /^小林.*様/.test(s);
 
-  // ── ステップ1: (日付, 店舗名, 利用金額) を蓄積 ──────────────
   const pending = [];
   let i = 0;
 
@@ -170,6 +170,7 @@ const parseSMBCLines = (lines) => {
     const line = (lines[i] || "").trim();
     if (skip(line) || /^(?:B#|#)+$/.test(line)) { i++; continue; }
 
+    // 日付行を検出
     const mDate = line.match(/^(?:B#|#|\s)*?(\d{2})\/(\d{2})\/(\d{2})\s*(.*)/);
     if (mDate) {
       const [, yy, mm, dd, rest] = mDate;
@@ -180,18 +181,24 @@ const parseSMBCLines = (lines) => {
       while (j < lines.length) {
         const nxt = (lines[j] || "").trim();
         if (skip(nxt) || /^(?:B#|#)+$/.test(nxt)) { j++; continue; }
-        if (isDate(nxt) || nxt.startsWith("＜")) break;
+        if (nxt.startsWith("＜")) break;
 
         if (isAmt(nxt)) {
+          // 金額行 → この取引完了
           const useAmt = parseInt(nxt.match(/^([\d,]+)/)[1].replace(/,/g, ""));
-          // 次行が同額の純粋数字 → 支払金額確定
-          const nextLine = (lines[j + 1] || "").trim();
           let payAmt = 0;
+          const nextLine = (lines[j + 1] || "").trim();
           if (isPure(nextLine) && parseInt(nextLine.replace(/,/g, "")) === useAmt) {
             payAmt = useAmt; j++;
           }
           pending.push({ yy, mm, dd, storeParts: [...storeParts], useAmt, payAmt });
           i = j + 1; found = true; break;
+        }
+
+        if (isDate(nxt)) {
+          // 次の日付行が先に来た → 金額未確定でpendingに追加（後で割り当て）
+          pending.push({ yy, mm, dd, storeParts: [...storeParts], useAmt: 0, payAmt: 0 });
+          i = j; found = true; break;
         }
 
         if (!isPure(nxt) && !/^[◎○●]/.test(nxt)) storeParts.push(nxt);
@@ -201,16 +208,31 @@ const parseSMBCLines = (lines) => {
       continue;
     }
 
-    // ── ステップ2: 純粋数字 → 未解決pendingの利用金額とマッチ ──
+    // 金額行（日付行の後ではなく単独で出現） → use==0のpendingに順番に割り当て
+    if (isAmt(line)) {
+      const useAmt = parseInt(line.match(/^([\d,]+)/)[1].replace(/,/g, ""));
+      const match  = pending.find(p => p.useAmt === 0);
+      if (match) {
+        const nextLine = (lines[i + 1] || "").trim();
+        let payAmt = 0;
+        if (isPure(nextLine) && parseInt(nextLine.replace(/,/g, "")) === useAmt) {
+          payAmt = useAmt; i++;
+        }
+        match.useAmt  = useAmt;
+        match.payAmt  = payAmt;
+      }
+      i++; continue;
+    }
+
+    // 純粋数字 → 利用金額が一致する最初の未解決pendingに支払金額として割り当て
     if (isPure(line)) {
       const payAmt = parseInt(line.replace(/,/g, ""));
-      const match = pending.find(p => !p.payAmt && p.useAmt === payAmt);
+      const match  = pending.find(p => !p.payAmt && p.useAmt === payAmt);
       if (match) match.payAmt = payAmt;
     }
     i++;
   }
 
-  // ── ステップ3: pending → results ────────────────────────────
   return pending
     .map(p => {
       const amount = p.payAmt || p.useAmt;
