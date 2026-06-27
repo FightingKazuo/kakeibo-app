@@ -45,10 +45,10 @@ export const DEFAULT_CATEGORY_RULES = [
   { id: "r050", keywords: ["東京電力", "関西電力", "電気代", "電力"],                         category: "水道・光熱費", type: "expense", priority: 92 },
   { id: "r051", keywords: ["東京ガス", "大阪ガス", "ガス代"],                                 category: "水道・光熱費", type: "expense", priority: 92 },
   // 通信費
-  { id: "r060", keywords: ["ドコモ", "au", "ソフトバンク", "楽天モバイル"],                   category: "通信費",     type: "expense", priority: 92 },
-  { id: "r110", keywords: ["rakuten mobile"],                                                  category: "通信費",     type: "expense", priority: 92 },
+  { id: "r060", keywords: ["ドコモ", "au", "ソフトバンク", "楽天モバイル", "ラクテンモバイル", "ラクテンモバイルツウシンリヨウ", "ＲＡＫＵＴＥＮ"], category: "通信費", type: "expense", priority: 92 },
+  { id: "r110", keywords: ["rakuten mobile", "RAKUTEN MOBILE"],                               category: "通信費",     type: "expense", priority: 92 },
   // 趣味・娯楽
-  { id: "r070", keywords: ["netflix", "ネットフリックス", "spotify", "amazon prime", "disney+"], category: "趣味・娯楽", type: "expense", priority: 95 },
+  { id: "r070", keywords: ["netflix", "NETFLIX", "ＮＥＴＦＬＩＸ", "ネットフリックス", "spotify", "SPOTIFY", "amazon prime", "disney+", "YOUTUBE", "ＹＯＵＴＵＢＥ", "youtubepremium", "ＹＯＵＴＵＢＥＰＲＥＭＩＵＭ"], category: "趣味・娯楽", type: "expense", priority: 95 },
   { id: "r071", keywords: ["映画", "シネマ", "toho"],                                         category: "趣味・娯楽", type: "expense", priority: 88 },
   { id: "r112", keywords: ["google play", "googleplay"],                                       category: "趣味・娯楽", type: "expense", priority: 93 },
   // 健康・医療
@@ -78,8 +78,12 @@ export const DEFAULT_CATEGORY_RULES = [
   { id: "r120", keywords: ["家具", "家電", "引越し", "リフォーム", "ヤマダ", "ケーズデンキ", "ヨドバシ", "ビックカメラ"], category: "特別な支出", type: "expense", priority: 85 },
   // 投資
   { id: "r109", keywords: ["sbi証券", "sbi", "投信積立"],                                     category: "投資",       type: "expense", priority: 95 },
+  // ガソリン・自動車
+  { id: "r126", keywords: ["エネオス", "ＥＮＥＯＳ", "ENEOS", "イデミツ", "アポロステーション", "出光", "コスモ石油", "ガソリン", "SS"], category: "自動車", type: "expense", priority: 91 },
+  // 投資・証券
+  { id: "r127", keywords: ["SBI証券", "ＳＢＩ証券", "投信積立", "投資信託", "積立サービス"], category: "投資", type: "expense", priority: 96 },
   // ETC・高速道路
-  { id: "r121", keywords: ["etc", "ＥＴＣ", "高速道路", "首都高", "阪神高速", "名古屋高速", "中日本高速", "東日本高速", "西日本高速"], category: "交通費", type: "expense", priority: 93 },
+  { id: "r121", keywords: ["etc", "ＥＴＣ", "ETC", "高速道路", "首都高", "阪神高速", "名古屋高速", "中日本高速", "東日本高速", "西日本高速", "中部地区", "東京支社", "深夜割引", "特割"], category: "交通費", type: "expense", priority: 93 },
   // ホームセンター・雑貨
   { id: "r122", keywords: ["ダイソー", "セリア", "キャンドゥ", "百均", "100均", "リヨウヒンシヨツプ", "雑貨"], category: "日用品", type: "expense", priority: 88 },
   // 飲食店
