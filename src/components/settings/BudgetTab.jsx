@@ -1,14 +1,5 @@
 import { useState, useMemo } from "react";
-import { fmtCurrency } from "../../utils/format";
-
-const BUDGET_KEY = "kakeibo_budgets";
-
-const loadBudgets = () => {
-  try { const s = localStorage.getItem(BUDGET_KEY); return s ? JSON.parse(s) : {}; } catch { return {}; }
-};
-const saveBudgets = (b) => {
-  try { localStorage.setItem(BUDGET_KEY, JSON.stringify(b)); } catch {}
-};
+import { fmtCurrency } from "../../../utils/format";
 
 const DEFAULT_CATS = [
   "食費","外食","日用品","趣味・娯楽","交際費","交通費","衣服・美容",
@@ -16,15 +7,13 @@ const DEFAULT_CATS = [
   "通信費","税・社会保障","保険","投資","その他",
 ];
 
-export function BudgetTab({ transactions, categories }) {
-  const [budgets, setBudgets] = useState(() => loadBudgets());
+export function BudgetTab({ transactions, categories, budgets = {}, onBudgetsChange }) {
   const [editing, setEditing] = useState(null);
   const [editVal, setEditVal] = useState("");
 
   const now = new Date();
   const ym  = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 
-  // 今月のカテゴリ別支出
   const monthExpenses = useMemo(() => {
     const map = {};
     transactions
@@ -36,32 +25,26 @@ export function BudgetTab({ transactions, categories }) {
     return map;
   }, [transactions, ym]);
 
-  const allCats = [...new Set([
-    ...DEFAULT_CATS,
-    ...(categories?.map(c => c.name) || []),
-  ])];
+  const allCats      = [...new Set([...DEFAULT_CATS, ...(categories?.map(c => c.name) || [])])];
+  const budgetedCats = allCats.filter(c => budgets[c]);
+  const freeCats     = allCats.filter(c => !budgets[c]);
 
-  // 予算設定があるカテゴリのみ表示（設定がなければ追加できる）
-  const setBudget = (cat, val) => {
-    const amt = parseInt(val.replace(/[^0-9]/g, ""));
+  const totalBudget = Object.values(budgets).reduce((s, v) => s + v, 0);
+  const totalSpent  = budgetedCats.reduce((s, c) => s + (monthExpenses[c] || 0), 0);
+  const totalPct    = totalBudget > 0 ? Math.min(totalSpent / totalBudget * 100, 100) : 0;
+
+  const saveBudget = (cat, val) => {
+    const amt = parseInt(String(val).replace(/[^0-9]/g, ""));
     const next = { ...budgets };
     if (!amt || amt <= 0) delete next[cat];
     else next[cat] = amt;
-    setBudgets(next);
-    saveBudgets(next);
+    onBudgetsChange?.(next);
     setEditing(null);
   };
 
-  const budgetedCats = allCats.filter(c => budgets[c]);
-  const unbudgetedCats = allCats.filter(c => !budgets[c]);
-
-  const totalBudget  = Object.values(budgets).reduce((s, v) => s + v, 0);
-  const totalSpent   = budgetedCats.reduce((s, c) => s + (monthExpenses[c] || 0), 0);
-  const totalPct     = totalBudget > 0 ? Math.min(totalSpent / totalBudget * 100, 100) : 0;
-
   return (
     <div className="px-4 py-4 space-y-4">
-      {/* 合計サマリー */}
+      {/* 合計 */}
       {budgetedCats.length > 0 && (
         <div className="bg-gradient-to-r from-indigo-50 to-purple-50 rounded-2xl p-4 border border-indigo-100">
           <p className="text-xs text-indigo-600 font-semibold mb-1">今月の予算合計</p>
@@ -77,17 +60,16 @@ export function BudgetTab({ transactions, categories }) {
         </div>
       )}
 
-      {/* 予算設定済みカテゴリ */}
+      {/* 設定済み */}
       {budgetedCats.length > 0 && (
         <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
           <p className="text-xs font-semibold text-gray-500 px-4 py-2 border-b border-gray-50">予算設定中</p>
           {budgetedCats.map(cat => {
-            const budget  = budgets[cat] || 0;
-            const spent   = monthExpenses[cat] || 0;
-            const pct     = budget > 0 ? Math.min(spent / budget * 100, 100) : 0;
-            const over    = spent > budget;
-            const warn    = pct >= 80 && !over;
-            const isEdit  = editing === cat;
+            const budget = budgets[cat] || 0;
+            const spent  = monthExpenses[cat] || 0;
+            const pct    = budget > 0 ? Math.min(spent / budget * 100, 100) : 0;
+            const over   = spent > budget;
+            const isEdit = editing === cat;
             return (
               <div key={cat} className="px-4 py-3 border-b border-gray-50 last:border-b-0">
                 <div className="flex items-center justify-between mb-1.5">
@@ -98,10 +80,8 @@ export function BudgetTab({ transactions, categories }) {
                       <input value={editVal} onChange={e => setEditVal(e.target.value)}
                         className="w-24 text-xs border border-indigo-300 rounded px-1.5 py-0.5 text-right"
                         type="number" autoFocus />
-                      <button onClick={() => setBudget(cat, editVal)}
-                        className="text-xs text-indigo-500 font-semibold">保存</button>
-                      <button onClick={() => setEditing(null)}
-                        className="text-xs text-gray-400">×</button>
+                      <button onClick={() => saveBudget(cat, editVal)} className="text-xs text-indigo-500 font-semibold">保存</button>
+                      <button onClick={() => setEditing(null)} className="text-xs text-gray-400">×</button>
                     </div>
                   ) : (
                     <button onClick={() => { setEditing(cat); setEditVal(String(budget)); }}
@@ -110,12 +90,12 @@ export function BudgetTab({ transactions, categories }) {
                 </div>
                 <div className="flex items-center gap-2">
                   <div className="flex-1 bg-gray-100 rounded-full h-1.5">
-                    <div className={`h-1.5 rounded-full transition-all ${over ? "bg-rose-500" : warn ? "bg-amber-400" : "bg-emerald-500"}`}
+                    <div className={`h-1.5 rounded-full transition-all ${over ? "bg-rose-500" : pct >= 80 ? "bg-amber-400" : "bg-emerald-500"}`}
                       style={{ width: `${pct}%` }} />
                   </div>
-                  <span className={`text-xs font-semibold flex-shrink-0 ${over ? "text-rose-500" : warn ? "text-amber-500" : "text-gray-500"}`}>
-                    {over ? "⚠️ " : ""}{fmtCurrency(spent)}
-                    {over && <span className="text-rose-400 text-xs"> (+{fmtCurrency(spent - budget)})</span>}
+                  <span className={`text-xs font-semibold flex-shrink-0 ${over ? "text-rose-500" : pct >= 80 ? "text-amber-500" : "text-gray-500"}`}>
+                    {over && "⚠️ "}{fmtCurrency(spent)}
+                    {over && <span className="text-rose-400"> (+{fmtCurrency(spent - budget)})</span>}
                   </span>
                 </div>
               </div>
@@ -124,10 +104,10 @@ export function BudgetTab({ transactions, categories }) {
         </div>
       )}
 
-      {/* 未設定カテゴリへの追加 */}
+      {/* 未設定 */}
       <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
         <p className="text-xs font-semibold text-gray-500 px-4 py-2 border-b border-gray-50">予算を追加</p>
-        {unbudgetedCats.map(cat => {
+        {freeCats.map(cat => {
           const isEdit = editing === cat;
           return (
             <div key={cat} className="flex items-center justify-between px-4 py-2.5 border-b border-gray-50 last:border-b-0">
@@ -138,10 +118,8 @@ export function BudgetTab({ transactions, categories }) {
                   <input value={editVal} onChange={e => setEditVal(e.target.value)}
                     className="w-24 text-xs border border-indigo-300 rounded px-1.5 py-0.5 text-right"
                     type="number" autoFocus />
-                  <button onClick={() => setBudget(cat, editVal)}
-                    className="text-xs text-indigo-500 font-semibold">設定</button>
-                  <button onClick={() => setEditing(null)}
-                    className="text-xs text-gray-400">×</button>
+                  <button onClick={() => saveBudget(cat, editVal)} className="text-xs text-indigo-500 font-semibold">設定</button>
+                  <button onClick={() => setEditing(null)} className="text-xs text-gray-400">×</button>
                 </div>
               ) : (
                 <button onClick={() => { setEditing(cat); setEditVal(""); }}
