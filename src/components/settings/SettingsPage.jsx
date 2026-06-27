@@ -25,6 +25,7 @@ const TABS = [
   { id: "rules",      label: "学習ルール",       icon: "🧠" },
   { id: "backup",     label: "バックアップ",     icon: "💾" },
   { id: "data",       label: "データ管理",       icon: "⚙️" },
+  { id: "budget",     label: "予算",             icon: "🎯" },
 ];
 
 export function SettingsPage({ transactions, categories,
@@ -100,7 +101,7 @@ export function SettingsPage({ transactions, categories,
         <PointTab pointAccounts={pointAccounts} onAddPointAccount={onAddPointAccount} onUpdatePointAccount={onUpdatePointAccount} onDeletePointAccount={onDeletePointAccount} onAdd={onAdd} />
       )}
       {tab === "csvsources" && <CsvSourcesTab activeCsvSources={activeCsvSources} onActiveCsvSourcesChange={onActiveCsvSourcesChange} />}
-      {tab === "budget"     && <BudgetTab transactions={transactions} categories={categories} />}
+      {tab === "budget"     && <BudgetTab transactions={transactions} categories={categories} budgets={budgets} onBudgetsChange={onBudgetsChange} />}
       {tab === "share" && (
         <ShareTab shareId={shareId} inviteUrl={inviteUrl} onJoinShare={onJoinShare} syncStatus={syncStatus} />
       )}
@@ -109,7 +110,7 @@ export function SettingsPage({ transactions, categories,
       {tab === "taxrules"  && <TaxRulesTab />}
       {tab === "rules"     && <RulesTab learnedRules={learnedRules} onDeleteRule={onDeleteRule} />}
       {tab === "backup"    && <BackupTab transactions={transactions} categories={categories} learnedRules={learnedRules} onAdd={onAdd} />}
-      {tab === "data"      && <DataTab transactions={transactions} categories={categories} learnedRules={learnedRules} onDeleteRule={onDeleteRule} onResetCategories={onResetCategories} onReset={onReset} />}
+      {tab === "data"      && <DataTab transactions={transactions} categories={categories} learnedRules={learnedRules} onDeleteRule={onDeleteRule} onResetCategories={onResetCategories} onReset={onReset} onReapplyCategories={onReapplyCategories} />}
     </div>
   );
 }
