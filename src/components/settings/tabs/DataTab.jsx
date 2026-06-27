@@ -1,7 +1,7 @@
 import { STORAGE_KEYS } from "../../../constants/storage";
 import { removeStorage } from "../../../utils/storage";
 
-export function DataTab({ transactions, categories, learnedRules, onDeleteRule, onResetCategories, onReset }) {
+export function DataTab({ transactions, categories, learnedRules, onDeleteRule, onResetCategories, onReset , onReapplyCategories}) {
   return (
     <div className="px-4 py-4 space-y-4">
       <div className="bg-white rounded-2xl p-4 border border-gray-100 space-y-2">
@@ -34,6 +34,19 @@ export function DataTab({ transactions, categories, learnedRules, onDeleteRule, 
 
       <div className="rounded-2xl overflow-hidden border border-rose-200">
         <div className="bg-rose-50 px-4 py-3 border-b border-rose-200">
+          {/* カテゴリ一括再適用 */}
+          {onReapplyCategories && (
+            <div className="px-4 py-3 border-b border-gray-100">
+              <p className="text-xs font-bold text-indigo-700 mb-1">🔄 カテゴリ一括再適用</p>
+              <p className="text-xs text-gray-400 mb-2 leading-relaxed">
+                「その他」の過去取引にルールを自動適用します。確認なしに処理されます。
+              </p>
+              <button onClick={onReapplyCategories}
+                className="w-full py-2 bg-indigo-500 text-white text-xs font-semibold rounded-lg">
+                🔄 過去取引に一括適用
+              </button>
+            </div>
+          )}
           <p className="text-xs font-bold text-rose-600 uppercase tracking-wide">⚠️ 危険な操作</p>
         </div>
         <div className="bg-white divide-y divide-gray-50">
