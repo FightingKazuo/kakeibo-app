@@ -127,11 +127,13 @@ export const CSV_FORMATS = {
     normalize: (r) => {
       const col0 = r[0] || r["0"] || "";
       const col1 = r[1] || r["1"] || "";
-      const col5 = r[5] || r["5"] || "";
 
       const dateRaw = String(col0).trim();
-      if (!dateRaw.match(/^\d{4}\/\d{2}\/\d{2}$/)) return null;
-      const date = dateRaw.replace(/\//g, "-");
+      // 旧フォーマット: 2026/02/02（ゼロ埋めあり）
+      // 新フォーマット: 2026/6/25（ゼロ埋めなし）→ 両方対応
+      const dateMatch = dateRaw.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})$/);
+      if (!dateMatch) return null;
+      const date = `${dateMatch[1]}-${dateMatch[2].padStart(2,"0")}-${dateMatch[3].padStart(2,"0")}`;
 
       const label = String(col1 || "不明")
         .replace(/[Ａ-Ｚａ-ｚ０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
@@ -139,8 +141,22 @@ export const CSV_FORMATS = {
         .trim();
       if (!label) return null;
 
-      const amtStr = String(col5 || "0").replace(/[,，\s]/g, "");
-      const amount = parseFloat(amtStr) || 0;
+      // フォーマット判別: 列数で旧(7列)か新(13列)かを判定
+      // 旧: col5=今回金額（"7444"）
+      // 新: col5='26/07（支払月）、col7=今回金額（"130"）
+      const col5 = String(r[5] || r["5"] || "").trim();
+      const col7 = String(r[7] || r["7"] || "").trim();
+
+      let amtStr;
+      // col5が数字のみ → 旧フォーマット
+      if (/^\d+$/.test(col5.replace(/,/g, ""))) {
+        amtStr = col5;
+      } else {
+        // 新フォーマット: col7が今回金額
+        amtStr = col7;
+      }
+
+      const amount = parseFloat(amtStr.replace(/[,，\s]/g, "")) || 0;
       if (!amount) return null;
 
       return { date, label, category: "その他", amount: -Math.abs(amount), type: "expense" };
