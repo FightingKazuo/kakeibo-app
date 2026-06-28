@@ -5,6 +5,28 @@ import { loadStorage, saveStorage } from "../../utils/storage";
 
 const ASSETS_KEY = "kakeibo_assets";
 
+// ─── 積立設定 ────────────────────────────────────────────────
+const TSUMITATE_KEY = "kakeibo_tsumitate_settings";
+const loadTsumitateSettings = () => {
+  try { return JSON.parse(localStorage.getItem(TSUMITATE_KEY) || "[]"); } catch { return []; }
+};
+const saveTsumitateSettings = (arr) => {
+  try { localStorage.setItem(TSUMITATE_KEY, JSON.stringify(arr)); } catch {}
+};
+
+// 基準価額を投信協会APIから取得（ブラウザfetch）
+const fetchFundPrice = async (fundCode) => {
+  const url = `https://toushin-lib.fam.cx/api/v1/fund-informations/${fundCode}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = await res.json();
+  return {
+    price:     data.basePrice || data.base_price || 0,
+    priceDate: data.basePriceDate || data.base_price_date || "",
+    name:      data.fundName || data.fund_name || "",
+  };
+};
+
 // ─── SBI証券CSVパーサー ───────────────────────────────────
 const parseSBISecuritiesCSV = (text) => {
   const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
@@ -82,6 +104,11 @@ export function AssetsPage({ transactions, pointAccounts }) {
   }));
   const [loading,         setLoading]        = useState(false);
   const [activeTab,       setActiveTab]      = useState("overview");
+  const [tsumitateList,   setTsumitateList]  = useState(() => loadTsumitateSettings());
+  const [fundPrices,      setFundPrices]     = useState({});
+  const [fundLoading,     setFundLoading]    = useState(false);
+  const [showAddTsumi,    setShowAddTsumi]   = useState(false);
+  const [newTsumi,        setNewTsumi]       = useState({ name: "", fundCode: "", monthlyAmount: "", startYM: "" });
   const [manualBankBalance, setManualBankBalance] = useState("");
   const [manualBankDate,    setManualBankDate]    = useState(() => new Date().toISOString().slice(0, 10));
 
@@ -153,10 +180,11 @@ export function AssetsPage({ transactions, pointAccounts }) {
   const monthlyNet = monthlyIncome + monthlyExpense;
 
   const TABS = [
-    { id: "overview",  label: "概要"    },
-    { id: "bank",      label: "銀行"    },
-    { id: "securities",label: "証券"    },
-    { id: "ideco",     label: "iDeCo"  },
+    { id: "overview",   label: "概要"   },
+    { id: "bank",       label: "銀行"   },
+    { id: "securities", label: "証券"   },
+    { id: "tsumitate",  label: "積立"   },
+    { id: "ideco",      label: "iDeCo"  },
   ];
 
   return (
@@ -386,6 +414,27 @@ export function AssetsPage({ transactions, pointAccounts }) {
           </div>
         )}
 
+        {/* ── 積立タブ ── */}
+        {activeTab === "tsumitate" && (
+          <TsumitateTab
+            transactions={transactions}
+            tsumitateList={tsumitateList}
+            onSave={(list) => { setTsumitateList(list); saveTsumitateSettings(list); }}
+            fundPrices={fundPrices}
+            onFetchPrices={async (list) => {
+              setFundLoading(true);
+              const prices = {};
+              for (const t of list) {
+                if (!t.fundCode) continue;
+                try { prices[t.fundCode] = await fetchFundPrice(t.fundCode); } catch (e) { prices[t.fundCode] = { error: e.message }; }
+              }
+              setFundPrices(prices);
+              setFundLoading(false);
+            }}
+            fundLoading={fundLoading}
+          />
+        )}
+
         {/* ── iDeCoタブ ── */}
         {activeTab === "ideco" && (
           <div className="space-y-4">
@@ -400,6 +449,164 @@ export function AssetsPage({ transactions, pointAccounts }) {
         )}
 
       </div>
+    </div>
+  );
+}
+
+// ─── 積立タブコンポーネント ───────────────────────────────────
+function TsumitateTab({ transactions, tsumitateList, onSave, fundPrices, onFetchPrices, fundLoading }) {
+  const [showAdd, setShowAdd] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [form,    setForm]    = useState({ name: "", fundCode: "", monthlyAmount: "", startYM: "" });
+
+  const now = new Date();
+  const currentYM = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+
+  // SBI証券積立の取引からactualな積立月を取得
+  const sbiTxs = (transactions || []).filter(t =>
+    t.label?.includes("SBI証券投信積立") || t.label?.includes("ＳＢＩ証券投信積立")
+  );
+
+  // 積立設定ごとに計算
+  const calcTsumi = (t) => {
+    const start = t.startYM || "2024-01";
+    const [sy, sm] = start.split("-").map(Number);
+    const [ny, nm] = currentYM.split("-").map(Number);
+    const months = Math.max(0, (ny - sy) * 12 + (nm - sm) + 1);
+    const totalInvested = (parseInt(t.monthlyAmount) || 0) * months;
+    const fp = fundPrices[t.fundCode];
+    const evalAmt   = fp?.price ? Math.round(totalInvested * (fp.price / 10000)) : null;
+    const gainAmt   = evalAmt != null ? evalAmt - totalInvested : null;
+    const gainPct   = totalInvested > 0 && gainAmt != null ? (gainAmt / totalInvested * 100) : null;
+    return { months, totalInvested, evalAmt, gainAmt, gainPct, fp };
+  };
+
+  const totalInvested = tsumitateList.reduce((s, t) => s + calcTsumi(t).totalInvested, 0);
+  const totalEval     = tsumitateList.reduce((s, t) => { const c = calcTsumi(t); return s + (c.evalAmt ?? c.totalInvested); }, 0);
+  const totalGain     = totalEval - totalInvested;
+
+  const startEdit = (t, idx) => {
+    setForm({ ...t, _idx: idx });
+    setEditing(idx);
+    setShowAdd(true);
+  };
+
+  const saveForm = () => {
+    const next = [...tsumitateList];
+    if (editing != null) next[editing] = { ...form };
+    else next.push({ ...form, id: Date.now() });
+    onSave(next);
+    setShowAdd(false); setEditing(null);
+    setForm({ name: "", fundCode: "", monthlyAmount: "", startYM: "" });
+  };
+
+  const deleteTsumi = (idx) => {
+    if (!window.confirm("削除しますか？")) return;
+    const next = tsumitateList.filter((_, i) => i !== idx);
+    onSave(next);
+  };
+
+  return (
+    <div className="px-4 py-4 space-y-4">
+      {/* SBI積立の取引実績 */}
+      {sbiTxs.length > 0 && (
+        <div className="bg-blue-50 rounded-2xl p-3 border border-blue-100">
+          <p className="text-xs font-semibold text-blue-700 mb-1">📊 SBI証券積立の取引履歴</p>
+          <p className="text-xs text-blue-500">{sbiTxs.length}件 合計¥{Math.abs(sbiTxs.reduce((s,t)=>s+t.amount,0)).toLocaleString()}</p>
+        </div>
+      )}
+
+      {/* 合計サマリー */}
+      {tsumitateList.length > 0 && (
+        <div className="bg-gradient-to-r from-emerald-50 to-teal-50 rounded-2xl p-4 border border-emerald-100">
+          <div className="flex items-center justify-between mb-1">
+            <p className="text-xs font-semibold text-emerald-700">積立合計（概算）</p>
+            <button onClick={() => onFetchPrices(tsumitateList)}
+              disabled={fundLoading}
+              className="text-xs text-emerald-600 bg-white px-2 py-0.5 rounded-full border border-emerald-200">
+              {fundLoading ? "取得中..." : "🔄 基準価額更新"}
+            </button>
+          </div>
+          <p className="text-2xl font-bold text-emerald-700">¥{totalEval.toLocaleString()}</p>
+          <p className={`text-xs font-semibold mt-0.5 ${totalGain >= 0 ? "text-emerald-500" : "text-rose-500"}`}>
+            {totalGain >= 0 ? "+" : ""}¥{totalGain.toLocaleString()} 含み{totalGain >= 0 ? "益" : "損"}
+          </p>
+          <p className="text-xs text-gray-400 mt-1">投資元本: ¥{totalInvested.toLocaleString()}</p>
+        </div>
+      )}
+
+      {/* 銘柄一覧 */}
+      {tsumitateList.map((t, idx) => {
+        const { months, totalInvested: inv, evalAmt, gainAmt, gainPct, fp } = calcTsumi(t);
+        return (
+          <div key={t.id || idx} className="bg-white rounded-2xl border border-gray-100 p-4">
+            <div className="flex items-start justify-between">
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold text-gray-800">{t.name || "銘柄名未設定"}</p>
+                {t.fundCode && <p className="text-xs text-gray-400 mt-0.5">コード: {t.fundCode}</p>}
+                {fp?.price && <p className="text-xs text-gray-400">基準価額: ¥{fp.price.toLocaleString()} ({fp.priceDate})</p>}
+                {fp?.error && <p className="text-xs text-rose-400">⚠️ 取得失敗: {fp.error}</p>}
+              </div>
+              <div className="flex gap-2 flex-shrink-0">
+                <button onClick={() => startEdit(t, idx)} className="text-xs text-gray-400">✏️</button>
+                <button onClick={() => deleteTsumi(idx)} className="text-xs text-rose-400">✕</button>
+              </div>
+            </div>
+            <div className="mt-3 grid grid-cols-3 gap-2">
+              <div className="bg-gray-50 rounded-xl p-2 text-center">
+                <p className="text-xs font-bold text-gray-700">¥{(parseInt(t.monthlyAmount)||0).toLocaleString()}</p>
+                <p className="text-xs text-gray-400">月額</p>
+              </div>
+              <div className="bg-gray-50 rounded-xl p-2 text-center">
+                <p className="text-xs font-bold text-gray-700">{months}ヶ月</p>
+                <p className="text-xs text-gray-400">{t.startYM}〜</p>
+              </div>
+              <div className="bg-gray-50 rounded-xl p-2 text-center">
+                <p className="text-xs font-bold text-gray-700">¥{inv.toLocaleString()}</p>
+                <p className="text-xs text-gray-400">元本合計</p>
+              </div>
+            </div>
+            {evalAmt != null && (
+              <div className="mt-2 flex items-center justify-between bg-emerald-50 rounded-xl px-3 py-2">
+                <p className="text-sm font-bold text-emerald-700">¥{evalAmt.toLocaleString()}</p>
+                <p className={`text-xs font-semibold ${gainAmt >= 0 ? "text-emerald-500" : "text-rose-500"}`}>
+                  {gainAmt >= 0 ? "+" : ""}¥{gainAmt.toLocaleString()} ({gainPct?.toFixed(1)}%)
+                </p>
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      {/* 追加フォーム */}
+      {showAdd && (
+        <div className="bg-white rounded-2xl border border-indigo-100 p-4 space-y-3">
+          <p className="text-sm font-bold text-gray-700">{editing != null ? "銘柄を編集" : "銘柄を追加"}</p>
+          {[
+            { key: "name",          label: "銘柄名",          placeholder: "eMAXIS Slim S&P500" },
+            { key: "fundCode",      label: "ファンドコード",  placeholder: "0331418A" },
+            { key: "monthlyAmount", label: "月額（円）",       placeholder: "20000", type: "number" },
+            { key: "startYM",       label: "開始年月",         placeholder: "2024-01" },
+          ].map(({ key, label, placeholder, type }) => (
+            <div key={key}>
+              <p className="text-xs text-gray-500 mb-1">{label}</p>
+              <input value={form[key] || ""} onChange={e => setForm(p => ({ ...p, [key]: e.target.value }))}
+                type={type || "text"} placeholder={placeholder}
+                className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:border-indigo-300" />
+            </div>
+          ))}
+          <p className="text-xs text-gray-400">※ファンドコードは投信協会サイトで確認できます</p>
+          <div className="flex gap-2">
+            <button onClick={saveForm} className="flex-1 py-2.5 bg-indigo-500 text-white text-sm font-semibold rounded-xl">保存</button>
+            <button onClick={() => { setShowAdd(false); setEditing(null); }} className="flex-1 py-2.5 bg-gray-100 text-gray-500 text-sm font-semibold rounded-xl">キャンセル</button>
+          </div>
+        </div>
+      )}
+
+      <button onClick={() => { setShowAdd(true); setEditing(null); setForm({ name: "", fundCode: "", monthlyAmount: "", startYM: "" }); }}
+        className="w-full py-3 rounded-2xl border-2 border-dashed border-gray-200 text-gray-400 text-sm font-semibold">
+        ＋ 銘柄を追加
+      </button>
     </div>
   );
 }
