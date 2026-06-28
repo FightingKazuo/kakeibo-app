@@ -204,27 +204,33 @@ export function CsvImportPage({ categories, existingTransactions, members, point
       const existKeys = new Set(existingTransactions.map(DUPLICATE_KEY));
       // 店舗名類似チェック（先頭4文字以上一致で関連あり）
       const labelSimilar = (a, b) => {
-        if (!a || !b) return false; // 両方ないと判定不能→false
-        const norm = s => s.toLowerCase().replace(/[　\s・．.\/（）()「」]/g, "");
+        if (!a || !b) return false;
+        const norm = s => s.toLowerCase().replace(/[　\s・．.\/（）()「」／]/g, "");
         const na = norm(a); const nb = norm(b);
-        if (na.length === 0 || nb.length === 0) return false;
+        if (!na || !nb) return false;
+        // 1. 完全一致
+        if (na === nb) return true;
+        // 2. 先頭3文字以上の一致
         const minLen = Math.min(na.length, nb.length, 4);
-        if (minLen < 2) return false;
-        return na.slice(0, minLen) === nb.slice(0, minLen) ||
-               na.includes(nb.slice(0, minLen)) || nb.includes(na.slice(0, minLen));
+        if (minLen >= 3 && na.slice(0, minLen) === nb.slice(0, minLen)) return true;
+        // 3. 短い方の先頭3文字が長い方に含まれる（部分一致）
+        const shorter = na.length <= nb.length ? na : nb;
+        const longer  = na.length <= nb.length ? nb : na;
+        if (shorter.length >= 3 && longer.includes(shorter.slice(0, 3))) return true;
+        return false;
       };
 
-      // OCR重複を全件検索（店舗名類似＋金額10%以内＋3日以内）
+      // 既存取引との重複チェック（OCR・CSV問わず同日±1日・金額±5%・ラベル類似）
       const findOcrDups = (row) => {
         const amt = Math.abs(row.amount); const dateObj = new Date(row.date);
         return existingTransactions.filter(tx => {
-          if (tx.source !== "ocr") return false;
+          // sourceは問わない（OCRをCSVとmergeした場合でも検出）
           const diffDays = Math.abs(new Date(tx.date) - dateObj) / 86400000;
-          if (diffDays > 3) return false;
+          if (diffDays > 1) return false;          // 同日または翌日のみ
           const txAmt = Math.abs(tx.amount);
           if (txAmt === 0 || amt === 0) return false;
-          if (Math.abs(txAmt - amt) / Math.max(txAmt, amt) > 0.10) return false;
-          return labelSimilar(row.label, tx.label); // 店舗名が似ている場合のみ
+          if (Math.abs(txAmt - amt) / Math.max(txAmt, amt) > 0.05) return false; // ±5%
+          return labelSimilar(row.label, tx.label);
         });
       };
       const findOcrDup = (row) => { const r = findOcrDups(row); return r.length > 0 ? r[0] : null; };
