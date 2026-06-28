@@ -159,6 +159,8 @@ export function CsvImportPage({ categories, existingTransactions, members, point
     if (!files.length) return;
     setCsvPdfLoading(true);
     try {
+      // フォーマット別のデフォルトshareTypeを取得（ループ外で定義）
+      const csvDefaultShares = (() => { try { return JSON.parse(localStorage.getItem("kakeibo_csv_default_share") || "{}"); } catch { return {}; } })();
       let allRows = [];
       const detectedLabels    = new Set();
       const detectedFormatIds = new Set();
@@ -187,9 +189,6 @@ export function CsvImportPage({ categories, existingTransactions, members, point
           const formatToUse = detected !== "generic" ? detected : csvFormat;
           if (detected !== "generic") { detectedLabels.add(CSV_FORMATS[detected]?.label || detected); detectedFormatIds.add(detected); }
           const activeCsvSources = props_activeCsvSources || (() => { try { const s = localStorage.getItem(STORAGE_KEYS.ACTIVE_CSV_SOURCES); return s ? JSON.parse(s) : null; } catch { return null; } })();
-
-      // フォーマット別のデフォルトshareTypeを取得
-      const csvDefaultShares = (() => { try { return JSON.parse(localStorage.getItem("kakeibo_csv_default_share") || "{}"); } catch { return {}; } })();
           allRows = [...allRows, ...parseCSVText(text, formatToUse, importHistory || {}, activeCsvSources)];
         }
       }
