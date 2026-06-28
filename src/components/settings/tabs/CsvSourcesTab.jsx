@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { CSV_SOURCES_ALL } from "../../home/HomePage";
+import { CSV_SOURCES_ALL } from "../../../constants";
 
 const DEFAULT_SHORTS = Object.fromEntries(CSV_SOURCES_ALL.map(s => [s.id, s.short]));
 
