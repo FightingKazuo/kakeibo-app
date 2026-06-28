@@ -1,612 +1,499 @@
-import { useState, useRef } from "react";
-import { fmtCurrency } from "../../utils/format";
-import { readCSVFile } from "../../services/csvParser";
-import { loadStorage, saveStorage } from "../../utils/storage";
+import { useMemo, useState } from "react";
+import {
+  ResponsiveContainer, LineChart, Line,
+  XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+  BarChart, Bar, Cell,
+} from "recharts";
+import { toYM, fmtCurrency } from "../../utils/format";
+import { BalanceCard } from "./BalanceCard";
+import { RecentExpenseCard } from "./RecentExpenseCard";
+import { TransactionItem } from "../transactions/TransactionItem";
 
-const ASSETS_KEY = "kakeibo_assets";
+const APP_VERSION = "v3.6.1";
+const BAR_COLORS = ["#6366f1","#f43f5e","#10b981","#f59e0b","#3b82f6","#8b5cf6","#ec4899","#14b8a6"];
 
-// ─── 積立設定 ────────────────────────────────────────────────
-const TSUMITATE_KEY = "kakeibo_tsumitate_settings";
-const loadTsumitateSettings = () => {
-  try { return JSON.parse(localStorage.getItem(TSUMITATE_KEY) || "[]"); } catch { return []; }
-};
-const saveTsumitateSettings = (arr) => {
-  try { localStorage.setItem(TSUMITATE_KEY, JSON.stringify(arr)); } catch {}
-};
+// ── 今月サマリーカード ────────────────────────────────────────
+function MonthlySummary({ currentMonthTxs, prevMonthTxs, now }) {
+  const inc  = currentMonthTxs.filter(t => t.type === "income").reduce((s, t) => s + t.amount, 0);
+  const exp  = currentMonthTxs.filter(t => t.type === "expense").reduce((s, t) => s + Math.abs(t.amount), 0);
+  const bal  = inc - exp;
+  const pExp = prevMonthTxs.filter(t => t.type === "expense").reduce((s, t) => s + Math.abs(t.amount), 0);
+  const diff = pExp > 0 ? exp - pExp : null;
+  const diffPct = pExp > 0 ? Math.round(((exp - pExp) / pExp) * 100) : null;
 
-// 基準価額を投信協会APIから取得（ブラウザfetch）
-const fetchFundPrice = async (fundCode) => {
-  const url = `https://toushin-lib.fam.cx/api/v1/fund-informations/${fundCode}`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const data = await res.json();
-  return {
-    price:     data.basePrice || data.base_price || 0,
-    priceDate: data.basePriceDate || data.base_price_date || "",
-    name:      data.fundName || data.fund_name || "",
-  };
-};
-
-// ─── SBI証券CSVパーサー ───────────────────────────────────
-const parseSBISecuritiesCSV = (text) => {
-  const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
-  const funds = [];
-  let totalEval = 0;
-  let totalGain = 0;
-  let inSummary  = false; // 合計行の次行を読む状態
-
-  for (const line of lines) {
-    const cols = line.split(",").map(c => c.replace(/^"|"$/g, "").trim());
-
-    // 「評価額合計,評価損益合計」ヘッダー行の次行が口座別合計値
-    if (cols[0] === "評価額合計" && cols[1] === "評価損益合計") {
-      inSummary = true;
-      continue;
-    }
-    if (inSummary && cols.length >= 2) {
-      const v = parseInt(cols[0].replace(/[^0-9]/g, "")) || 0;
-      const g = parseInt(cols[1].replace(/[^0-9]/g, "").replace("+", "")) || 0;
-      const gSign = cols[1].startsWith("-") ? -1 : 1;
-      if (v > 0) {
-        totalEval += v;
-        totalGain += g * gSign;
-      }
-      inSummary = false;
-      continue;
-    }
-
-    // ファンド行（ファンド名を含む行）
-    if (cols.length >= 8 && (
-      cols[0].includes("Ｓｌｉｍ") || cols[0].includes("eMAXIS") ||
-      cols[0].includes("ｅＭＡＸＩＳ") || cols[0].includes("ＳＬＩＭ")
-    )) {
-      // 全角→半角変換
-      const name = cols[0].replace(/[Ａ-Ｚａ-ｚ０-９（）　ー]/g, c =>
-        c.charCodeAt(0) >= 0xFF01 && c.charCodeAt(0) <= 0xFF5E
-          ? String.fromCharCode(c.charCodeAt(0) - 0xFEE0)
-          : c === "　" ? " " : c
-      ).replace(/\s+/g, " ").trim();
-      const evalAmt = parseInt(String(cols[6] || "0").replace(/[^0-9]/g, "")) || 0;
-      const gainStr = String(cols[7] || "0");
-      const gainSign = gainStr.startsWith("-") ? -1 : 1;
-      const gainAmt = (parseInt(gainStr.replace(/[^0-9]/g, "")) || 0) * gainSign;
-      if (evalAmt > 0) {
-        funds.push({ name, evalAmt, gainAmt });
-      }
-    }
-  }
-
-  return { funds, totalEval, totalGain };
-};
-
-// ─── 住信SBI残高パーサー ─────────────────────────────────
-const parseSBIBankBalance = (text) => {
-  const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
-  // ヘッダー行をスキップして1行目のデータ行を読む
-  // 形式: 日付,内容,出金,入金,残高(円),メモ
-  for (const line of lines) {
-    const cols = line.split(",").map(c => c.replace(/^"|"$/g, "").trim());
-    if (cols[0].match(/^\d{4}\/\d{2}\/\d{2}$/)) {
-      // 最初のデータ行 = 最新残高
-      const balance = parseInt(String(cols[4] || "0").replace(/[,，]/g, "")) || 0;
-      const date    = cols[0].replace(/\//g, "-");
-      if (balance > 0) return { balance, date };
-    }
-  }
-  return null;
-};
-
-export function AssetsPage({ transactions, pointAccounts }) {
-  const [assets,          setAssets]         = useState(() => loadStorage(ASSETS_KEY, {
-    bankBalance:  null,
-    securities:   null,
-    ideco:        null,
-  }));
-  const [loading,         setLoading]        = useState(false);
-  const [activeTab,       setActiveTab]      = useState("overview");
-  const [tsumitateList,   setTsumitateList]  = useState(() => loadTsumitateSettings());
-  const [fundPrices,      setFundPrices]     = useState({});
-  const [fundLoading,     setFundLoading]    = useState(false);
-  const [showAddTsumi,    setShowAddTsumi]   = useState(false);
-  const [newTsumi,        setNewTsumi]       = useState({ name: "", fundCode: "", monthlyAmount: "", startYM: "" });
-  const [manualBankBalance, setManualBankBalance] = useState("");
-  const [manualBankDate,    setManualBankDate]    = useState(() => new Date().toISOString().slice(0, 10));
-
-  const bankFileRef  = useRef(null);
-  const secFileRef   = useRef(null);
-
-  // ── ファイル読み込み ──────────────────────────────────
-  const handleBankFile = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setLoading(true);
-    try {
-      const text   = await readCSVFile(file);
-      const result = parseSBIBankBalance(text);
-      if (result) {
-        const newAssets = { ...assets, bankBalance: { ...result, updatedAt: new Date().toISOString() } };
-        setAssets(newAssets);
-        saveStorage(ASSETS_KEY, newAssets);
-      } else {
-        alert("残高を読み取れませんでした。住信SBIネット銀行のCSVか確認してください。");
-      }
-    } catch (e) {
-      alert("読み込みエラー: " + e.message);
-    } finally {
-      setLoading(false);
-    }
-    e.target.value = "";
-  };
-
-  const handleSecFile = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setLoading(true);
-    try {
-      const text   = await readCSVFile(file);
-      const result = parseSBISecuritiesCSV(text);
-      if (result.totalEval > 0) {
-        const newAssets = { ...assets, securities: { ...result, updatedAt: new Date().toISOString() } };
-        setAssets(newAssets);
-        saveStorage(ASSETS_KEY, newAssets);
-      } else {
-        alert("証券データを読み取れませんでした。SBI証券のSaveFile.csvか確認してください。");
-      }
-    } catch (e) {
-      alert("読み込みエラー: " + e.message);
-    } finally {
-      setLoading(false);
-    }
-    e.target.value = "";
-  };
-
-  // ── 計算 ─────────────────────────────────────────────
-  const bankBalance  = assets.bankBalance?.balance  || 0;
-  const secTotal     = assets.securities?.totalEval || 0;
-  const secGain      = assets.securities?.totalGain || 0;
-  const idecoBalance = assets.ideco?.balance        || 0;
-  const pointTotal   = (pointAccounts || []).reduce((s, a) => s + Math.max(0, a.balance), 0);
-  const totalAssets  = bankBalance + secTotal + idecoBalance;
-
-  // ── 今月の銀行増減 ────────────────────────────────────
-  const now       = new Date();
-  const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-  const monthlyIncome  = (transactions || [])
-    .filter(t => t.date?.startsWith(thisMonth) && t.type === "income")
-    .reduce((s, t) => s + t.amount, 0);
-  const monthlyExpense = (transactions || [])
-    .filter(t => t.date?.startsWith(thisMonth) && t.type === "expense")
-    .reduce((s, t) => s + t.amount, 0);
-  const monthlyNet = monthlyIncome + monthlyExpense;
-
-  const TABS = [
-    { id: "overview",   label: "概要"   },
-    { id: "bank",       label: "銀行"   },
-    { id: "securities", label: "証券"   },
-    { id: "tsumitate",  label: "積立"   },
-    { id: "ideco",      label: "iDeCo"  },
-  ];
+  const daysInMonth  = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  const daysPassed   = now.getDate();
+  const monthProgress = Math.round((daysPassed / daysInMonth) * 100);
+  const dailyAvg = daysPassed > 0 ? Math.round(exp / daysPassed) : 0;
+  const projectedExp = dailyAvg * daysInMonth;
 
   return (
-    <div className="pb-24">
-      <div className="bg-white px-4 pt-12 pb-4 border-b border-gray-100">
-        <h1 className="text-xl font-bold text-gray-900">資産状況</h1>
-        <p className="text-xs text-gray-400 mt-0.5">
-          最終更新：{assets.bankBalance?.updatedAt?.slice(0,10) || "未取得"}
-        </p>
+    <div className="mx-4 md:mx-0 mt-4 md:mt-0 bg-white rounded-2xl p-4 border border-gray-100 space-y-4">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">今月のサマリー</p>
+        <span className="text-xs text-gray-400">{now.getMonth() + 1}月 {daysPassed}/{daysInMonth}日</span>
       </div>
-
-      {/* タブ */}
-      <div className="flex gap-1 px-4 py-3 overflow-x-auto">
-        {TABS.map(t => (
-          <button key={t.id} onClick={() => setActiveTab(t.id)}
-            className={`px-4 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all ${
-              activeTab === t.id ? "bg-indigo-500 text-white" : "bg-gray-100 text-gray-500"
-            }`}>
-            {t.label}
-          </button>
-        ))}
+      <div className="grid grid-cols-3 gap-2">
+        <div className="bg-emerald-50 rounded-xl p-3 text-center">
+          <p className="text-xs text-emerald-600 font-semibold">収入</p>
+          <p className="text-sm font-bold text-emerald-700 mt-1">{fmtCurrency(inc)}</p>
+        </div>
+        <div className="bg-rose-50 rounded-xl p-3 text-center">
+          <p className="text-xs text-rose-600 font-semibold">支出</p>
+          <p className="text-sm font-bold text-rose-700 mt-1">{fmtCurrency(exp)}</p>
+        </div>
+        <div className={`rounded-xl p-3 text-center ${bal >= 0 ? "bg-indigo-50" : "bg-orange-50"}`}>
+          <p className={`text-xs font-semibold ${bal >= 0 ? "text-indigo-500" : "text-orange-500"}`}>収支</p>
+          <p className={`text-sm font-bold mt-1 ${bal >= 0 ? "text-indigo-700" : "text-orange-600"}`}>{bal >= 0 ? "+" : ""}{fmtCurrency(bal)}</p>
+        </div>
       </div>
-
-      <div className="px-4 py-2 space-y-4">
-
-        {/* ── 概要タブ ── */}
-        {activeTab === "overview" && (
-          <>
-            {/* 合計資産カード */}
-            <div className="bg-gradient-to-br from-indigo-500 to-purple-600 rounded-2xl p-5 text-white">
-              <p className="text-xs font-semibold opacity-80 mb-1">合計資産</p>
-              <p className="text-4xl font-bold tracking-tight">
-                {fmtCurrency(totalAssets)}
-              </p>
-              <div className="flex gap-4 mt-3">
-                <div>
-                  <p className="text-xs opacity-70">証券含み益</p>
-                  <p className={`text-sm font-bold ${secGain >= 0 ? "text-emerald-300" : "text-rose-300"}`}>
-                    {secGain >= 0 ? "+" : ""}{fmtCurrency(secGain)}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs opacity-70">今月収支</p>
-                  <p className={`text-sm font-bold ${monthlyNet >= 0 ? "text-emerald-300" : "text-rose-300"}`}>
-                    {monthlyNet >= 0 ? "+" : ""}{fmtCurrency(monthlyNet)}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* 内訳 */}
-            <div className="bg-white rounded-2xl overflow-hidden border border-gray-100">
-              {[
-                { label:"住信SBIネット銀行", icon:"🏦", value: bankBalance,  sub: assets.bankBalance?.date || "未取得", color:"text-blue-600" },
-                { label:"SBI証券（NISA）",   icon:"📈", value: secTotal,     sub: `含み益 ${secGain >= 0 ? "+" : ""}${fmtCurrency(secGain)}`, color:"text-emerald-600" },
-                { label:"iDeCo",             icon:"🏛️", value: idecoBalance, sub: assets.ideco ? assets.ideco.date : "未取得", color:"text-purple-600" },
-                { label:"ポイント合計",        icon:"⭐", value: pointTotal,   sub: `${(pointAccounts||[]).length}口座`, color:"text-amber-600" },
-              ].map(item => (
-                <div key={item.label} className="flex items-center justify-between px-4 py-3.5 border-b border-gray-50 last:border-b-0">
-                  <div className="flex items-center gap-3">
-                    <span className="text-xl">{item.icon}</span>
-                    <div>
-                      <p className="text-sm font-medium text-gray-800">{item.label}</p>
-                      <p className="text-xs text-gray-400">{item.sub}</p>
-                    </div>
-                  </div>
-                  <p className={`text-sm font-bold ${item.color}`}>{fmtCurrency(item.value)}</p>
-                </div>
-              ))}
-            </div>
-
-            {/* ファイル更新ボタン */}
-            <div className="grid grid-cols-2 gap-3">
-              <input ref={bankFileRef} type="file" accept=".csv" onChange={handleBankFile} className="hidden" />
-              <button onClick={() => bankFileRef.current?.click()}
-                className="py-3 bg-blue-50 border border-blue-200 rounded-xl text-xs font-semibold text-blue-600 flex flex-col items-center gap-1">
-                <span className="text-xl">🏦</span>
-                銀行残高を更新
-              </button>
-              <input ref={secFileRef} type="file" accept=".csv" onChange={handleSecFile} className="hidden" />
-              <button onClick={() => secFileRef.current?.click()}
-                className="py-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs font-semibold text-emerald-600 flex flex-col items-center gap-1">
-                <span className="text-xl">📈</span>
-                証券を更新
-              </button>
-            </div>
-          </>
+      <div className="space-y-2">
+        <div className="flex items-center justify-between text-xs text-gray-400">
+          <span>月の経過 {monthProgress}%</span>
+          {diff !== null && (
+            <span className={diff > 0 ? "text-rose-500 font-semibold" : "text-emerald-500 font-semibold"}>
+              前月比 {diff > 0 ? "+" : ""}{fmtCurrency(diff)}（{diffPct > 0 ? "+" : ""}{diffPct}%）
+            </span>
+          )}
+        </div>
+        <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+          <div className="h-full bg-indigo-300 rounded-full" style={{ width: `${monthProgress}%` }} />
+        </div>
+        {exp > 0 && (
+          <p className="text-xs text-gray-400 text-right">
+            1日平均 {fmtCurrency(dailyAvg)}・月末予測 {fmtCurrency(projectedExp)}
+          </p>
         )}
-
-        {/* ── 銀行タブ ── */}
-        {activeTab === "bank" && (
-          <div className="space-y-4">
-            <div className="bg-white rounded-2xl p-4 border border-gray-100">
-              <div className="flex justify-between items-start mb-4">
-                <div>
-                  <p className="text-xs text-gray-400 font-semibold">住信SBIネット銀行</p>
-                  <p className="text-3xl font-bold text-blue-600 mt-1">{fmtCurrency(bankBalance)}</p>
-                  <p className="text-xs text-gray-400 mt-1">
-                    {assets.bankBalance ? `${assets.bankBalance.date} 時点` : "未取得"}
-                  </p>
-                </div>
-                <input ref={bankFileRef} type="file" accept=".csv" onChange={handleBankFile} className="hidden" />
-                <button onClick={() => bankFileRef.current?.click()}
-                  className="px-3 py-2 bg-blue-500 text-white rounded-xl text-xs font-semibold">
-                  CSV更新
-                </button>
-              </div>
-              <div className="grid grid-cols-2 gap-2 border-t border-gray-50 pt-3">
-                <div className="bg-emerald-50 rounded-xl p-3 text-center">
-                  <p className="text-xs text-emerald-500 font-semibold">今月入金</p>
-                  <p className="text-lg font-bold text-emerald-600 mt-0.5">{fmtCurrency(monthlyIncome)}</p>
-                </div>
-                <div className="bg-rose-50 rounded-xl p-3 text-center">
-                  <p className="text-xs text-rose-500 font-semibold">今月出金</p>
-                  <p className="text-lg font-bold text-rose-600 mt-0.5">{fmtCurrency(Math.abs(monthlyExpense))}</p>
-                </div>
-              </div>
-            </div>
-
-            {/* 手動入力 */}
-            <div className="bg-white rounded-2xl p-4 border border-gray-100 space-y-3">
-              <p className="text-xs font-bold text-gray-600">✏️ 残高を手動入力</p>
-              <div className="flex gap-2 items-center">
-                <label className="text-xs text-gray-500 whitespace-nowrap">日付：</label>
-                <input type="date"
-                  value={manualBankDate}
-                  onChange={e => setManualBankDate(e.target.value)}
-                  className="flex-1 text-xs px-2 py-1.5 bg-gray-50 border border-gray-200 rounded-lg outline-none" />
-              </div>
-              <div className="flex gap-2 items-center">
-                <label className="text-xs text-gray-500 whitespace-nowrap">残高：</label>
-                <div className="flex-1 flex items-center gap-1">
-                  <span className="text-xs text-gray-400">¥</span>
-                  <input type="number"
-                    value={manualBankBalance}
-                    onChange={e => setManualBankBalance(e.target.value)}
-                    placeholder="例: 190000"
-                    className="flex-1 text-sm font-bold px-2 py-1.5 bg-gray-50 border border-gray-200 rounded-lg outline-none" />
-                </div>
-              </div>
-              <button
-                onClick={() => {
-                  if (!manualBankBalance) return;
-                  const newAssets = {
-                    ...assets,
-                    bankBalance: {
-                      balance:   parseInt(manualBankBalance),
-                      date:      manualBankDate,
-                      updatedAt: new Date().toISOString(),
-                      source:    "manual",
-                    }
-                  };
-                  setAssets(newAssets);
-                  saveStorage(ASSETS_KEY, newAssets);
-                  setManualBankBalance("");
-                  alert(`✅ ${manualBankDate}時点の残高を¥${parseInt(manualBankBalance).toLocaleString()}で記録しました`);
-                }}
-                className="w-full py-2.5 bg-blue-500 text-white rounded-xl text-sm font-semibold">
-                記録する
-              </button>
-            </div>
-
-            <div className="bg-amber-50 rounded-xl p-3 border border-amber-100">
-              <p className="text-xs font-semibold text-amber-600 mb-1">📌 取得方法</p>
-              <p className="text-xs text-amber-500 leading-relaxed">
-                CSV更新：住信SBIネット銀行 → 入出金明細 → CSVダウンロード<br/>
-                手動入力：ネットバンキングで残高照会して直接入力
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* ── 証券タブ ── */}
-        {activeTab === "securities" && (
-          <div className="space-y-4">
-            <div className="bg-white rounded-2xl p-4 border border-gray-100">
-              <div className="flex justify-between items-start mb-3">
-                <div>
-                  <p className="text-xs text-gray-400 font-semibold">SBI証券（NISA）</p>
-                  <p className="text-3xl font-bold text-emerald-600 mt-1">{fmtCurrency(secTotal)}</p>
-                  <p className={`text-sm font-semibold mt-0.5 ${secGain >= 0 ? "text-emerald-500" : "text-rose-500"}`}>
-                    含み益 {secGain >= 0 ? "+" : ""}{fmtCurrency(secGain)}
-                  </p>
-                </div>
-                <input ref={secFileRef} type="file" accept=".csv" onChange={handleSecFile} className="hidden" />
-                <button onClick={() => secFileRef.current?.click()}
-                  className="px-3 py-2 bg-emerald-500 text-white rounded-xl text-xs font-semibold">
-                  CSV更新
-                </button>
-              </div>
-            </div>
-
-            {/* 銘柄一覧 */}
-            {assets.securities?.funds?.length > 0 && (
-              <div className="bg-white rounded-2xl overflow-hidden border border-gray-100">
-                <div className="px-4 py-3 border-b border-gray-50">
-                  <p className="text-xs font-bold text-gray-500 uppercase tracking-wide">保有銘柄</p>
-                </div>
-                {assets.securities.funds.map((f, i) => (
-                  <div key={i} className="px-4 py-3 border-b border-gray-50 last:border-b-0">
-                    <p className="text-xs font-medium text-gray-800 leading-snug">{f.name}</p>
-                    <div className="flex justify-between mt-1">
-                      <p className="text-sm font-bold text-gray-700">{fmtCurrency(f.evalAmt)}</p>
-                      <p className={`text-xs font-semibold ${f.gainAmt >= 0 ? "text-emerald-500" : "text-rose-500"}`}>
-                        {f.gainAmt >= 0 ? "+" : ""}{fmtCurrency(f.gainAmt)}
-                      </p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {!assets.securities && (
-              <div className="bg-gray-50 rounded-2xl p-6 text-center border border-gray-100">
-                <p className="text-3xl mb-2">📊</p>
-                <p className="text-sm font-semibold text-gray-600">SBI証券のデータ未取得</p>
-                <p className="text-xs text-gray-400 mt-1">SaveFile.csvをアップロードしてください</p>
-              </div>
-            )}
-
-            <div className="bg-amber-50 rounded-xl p-3 border border-amber-100">
-              <p className="text-xs font-semibold text-amber-600 mb-1">📌 取得方法</p>
-              <p className="text-xs text-amber-500 leading-relaxed">
-                SBI証券 → 口座管理 → 保有証券一覧 → 「保存」ボタン → SaveFile.csvをアップロード
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* ── 積立タブ ── */}
-        {activeTab === "tsumitate" && (
-          <TsumitateTab
-            transactions={transactions}
-            tsumitateList={tsumitateList}
-            onSave={(list) => { setTsumitateList(list); saveTsumitateSettings(list); }}
-            fundPrices={fundPrices}
-            onFetchPrices={async (list) => {
-              setFundLoading(true);
-              const prices = {};
-              for (const t of list) {
-                if (!t.fundCode) continue;
-                try { prices[t.fundCode] = await fetchFundPrice(t.fundCode); } catch (e) { prices[t.fundCode] = { error: e.message }; }
-              }
-              setFundPrices(prices);
-              setFundLoading(false);
-            }}
-            fundLoading={fundLoading}
-          />
-        )}
-
-        {/* ── iDeCoタブ ── */}
-        {activeTab === "ideco" && (
-          <div className="space-y-4">
-            <div className="bg-purple-50 rounded-2xl p-5 border border-purple-100 text-center">
-              <p className="text-3xl mb-2">🏛️</p>
-              <p className="text-sm font-semibold text-purple-700">iDeCo設定待ち</p>
-              <p className="text-xs text-purple-400 mt-1 leading-relaxed">
-                iDeCoのCSVファイルを確認後に対応します
-              </p>
-            </div>
-          </div>
-        )}
-
       </div>
     </div>
   );
 }
 
-// ─── 積立タブコンポーネント ───────────────────────────────────
-function TsumitateTab({ transactions, tsumitateList, onSave, fundPrices, onFetchPrices, fundLoading }) {
-  const [showAdd, setShowAdd] = useState(false);
-  const [editing, setEditing] = useState(null);
-  const [form,    setForm]    = useState({ name: "", fundCode: "", monthlyAmount: "", startYM: "" });
+// ── 予算進捗バー ──────────────────────────────────────────────
+function BudgetProgress({ categories, currentMonthTxs }) {
+  const budgetCats = categories.filter(c => c.type === "expense" && c.budget > 0);
+  if (budgetCats.length === 0) return null;
 
-  const now = new Date();
-  const currentYM = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-
-  // SBI証券積立の取引からactualな積立月を取得
-  const sbiTxs = (transactions || []).filter(t =>
-    t.label?.includes("SBI証券投信積立") || t.label?.includes("ＳＢＩ証券投信積立")
+  const spentMap = useMemo(() =>
+    currentMonthTxs
+      .filter(t => t.type === "expense")
+      .reduce((acc, t) => {
+        acc[t.category] = (acc[t.category] || 0) + Math.abs(t.amount);
+        return acc;
+      }, {}),
+    [currentMonthTxs]
   );
 
-  // 積立設定ごとに計算
-  const calcTsumi = (t) => {
-    const start = t.startYM || "2024-01";
-    const [sy, sm] = start.split("-").map(Number);
-    const [ny, nm] = currentYM.split("-").map(Number);
-    const months = Math.max(0, (ny - sy) * 12 + (nm - sm) + 1);
-    const totalInvested = (parseInt(t.monthlyAmount) || 0) * months;
-    const fp = fundPrices[t.fundCode];
-    const evalAmt   = fp?.price ? Math.round(totalInvested * (fp.price / 10000)) : null;
-    const gainAmt   = evalAmt != null ? evalAmt - totalInvested : null;
-    const gainPct   = totalInvested > 0 && gainAmt != null ? (gainAmt / totalInvested * 100) : null;
-    return { months, totalInvested, evalAmt, gainAmt, gainPct, fp };
+  return (
+    <div className="mx-4 md:mx-0 mt-4 md:mt-0 bg-white rounded-2xl p-4 border border-gray-100">
+      <p className="text-xs font-semibold text-gray-500 mb-3 uppercase tracking-wide">今月の予算</p>
+      <div className="space-y-3">
+        {budgetCats.map(cat => {
+          const spent = spentMap[cat.name] || 0;
+          const pct   = Math.min((spent / cat.budget) * 100, 100);
+          const over  = spent > cat.budget;
+          const warn  = pct >= 80 && !over;
+          const barColor = over ? "bg-rose-500" : warn ? "bg-amber-400" : "bg-indigo-400";
+          return (
+            <div key={cat.id}>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs font-medium text-gray-700">{cat.emoji} {cat.name}</span>
+                <span className={`text-xs font-bold ${over ? "text-rose-500" : warn ? "text-amber-500" : "text-gray-500"}`}>
+                  {fmtCurrency(spent)}
+                  <span className="font-normal text-gray-400"> / {fmtCurrency(cat.budget)}</span>
+                  {over && <span className="ml-1">⚠️</span>}
+                </span>
+              </div>
+              <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                <div className={`h-full rounded-full transition-all duration-500 ${barColor}`} style={{ width: `${pct}%` }} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── カテゴリ別支出バーチャート ────────────────────────────────
+function CategoryBar({ catExpenses, categories }) {
+  const data = catExpenses.map(([cat, amt]) => ({
+    cat, amt,
+    emoji: categories.find(x => x.name === cat)?.emoji || "📦",
+  }));
+  return (
+    <ResponsiveContainer width="100%" height={catExpenses.length * 44 + 20}>
+      <BarChart data={data} layout="vertical" margin={{ top: 0, right: 60, left: 8, bottom: 0 }}>
+        <XAxis type="number" hide domain={[0, (data[0]?.amt || 1) * 1.1]} />
+        <YAxis type="category" dataKey="cat"
+          tick={({ x, y, payload }) => {
+            const item = data.find(d => d.cat === payload.value);
+            return <text x={x} y={y} dy={4} textAnchor="end" fontSize={12} fill="#6b7280">{item?.emoji} {payload.value}</text>;
+          }}
+          width={100}
+        />
+        <Tooltip cursor={{ fill: "rgba(99,102,241,0.05)" }} formatter={(v) => [`¥${v.toLocaleString()}`, "支出"]} />
+        <Bar dataKey="amt" radius={[0, 6, 6, 0]}>
+          {data.map((_, i) => <Cell key={i} fill={BAR_COLORS[i % BAR_COLORS.length]} />)}
+        </Bar>
+      </BarChart>
+    </ResponsiveContainer>
+  );
+}
+
+// ─── 予算アラート ─────────────────────────────────────────────
+function BudgetAlert({ transactions, budgets = {} }) {
+  const now = new Date();
+  const ym  = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+
+  const monthExpenses = {};
+  transactions
+    .filter(t => t.type === "expense" && t.date?.startsWith(ym))
+    .forEach(t => {
+      const cat = t.category || "その他";
+      monthExpenses[cat] = (monthExpenses[cat] || 0) + Math.abs(t.amount);
+    });
+
+  const alerts = Object.entries(budgets)
+    .map(([cat, budget]) => {
+      const spent = monthExpenses[cat] || 0;
+      const pct   = spent / budget * 100;
+      return { cat, budget, spent, pct };
+    })
+    .filter(a => a.pct >= 80)
+    .sort((a, b) => b.pct - a.pct);
+
+  if (alerts.length === 0) return null;
+
+  return (
+    <div className="mx-4 md:mx-0 mt-4">
+      <div className="bg-amber-50 rounded-2xl border border-amber-200 px-4 py-3 space-y-2">
+        <p className="text-xs font-bold text-amber-700">🎯 予算アラート</p>
+        {alerts.map(({ cat, budget, spent, pct }) => (
+          <div key={cat} className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className={`text-xs font-bold ${pct >= 100 ? "text-rose-500" : "text-amber-500"}`}>
+                {pct >= 100 ? "⚠️" : "🔶"}
+              </span>
+              <span className="text-xs text-gray-700">{cat}</span>
+            </div>
+            <div className="text-right">
+              <span className={`text-xs font-bold ${pct >= 100 ? "text-rose-500" : "text-amber-600"}`}>
+                {pct.toFixed(0)}%
+              </span>
+              <span className="text-xs text-gray-400 ml-1">
+                ({fmtCurrency(spent)}/{fmtCurrency(budget)})
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── CSV取り込み状況 ─────────────────────────────────────────
+export const CSV_SOURCES_ALL = [
+  { id: "sbi",     label: "住信SBI銀行",    short: "SBI",  icon: "🏦" },
+  { id: "epos",    label: "エポスカード",    short: "EPOS", icon: "💳" },
+  { id: "smbc",    label: "三井住友カード",  short: "三井", icon: "💳" },
+  { id: "paypay",  label: "PayPay",          short: "PPay", icon: "💛" },
+  { id: "recruit", label: "リクルートカード", short: "RC",  icon: "💳" },
+  { id: "mufg",    label: "三菱UFJ銀行",     short: "UFJ",  icon: "🏦" },
+  { id: "amazon",  label: "Amazon",          short: "AMZ",  icon: "📦" },
+];
+
+function CsvImportStatusImpl({ importHistory, activeCsvSources, onNavigate }) {
+  const [openMonths, setOpenMonths] = useState(new Set(["current"]));
+
+  const now    = new Date();
+  const hist   = importHistory || {};
+  const active = new Set(activeCsvSources || ["sbi","epos","smbc","paypay"]);
+  const sources = CSV_SOURCES_ALL.filter(s => active.has(s.id));
+
+  const months = [];
+  const start  = new Date(2026, 3, 1);
+  for (let d = new Date(start); d <= now; d.setMonth(d.getMonth() + 1)) {
+    months.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+  }
+  months.reverse();
+  const currentYM = months[0];
+
+  const todoCount = sources.filter(s => !hist[`${s.id}_${currentYM}`]).length;
+
+  const fmtYM = (ym) => {
+    const [y, m] = ym.split("-");
+    return `${y.slice(2)}年${parseInt(m)}月`;
+  };
+  const fmtDate = (isoStr) => {
+    if (!isoStr || isoStr === true) return null;
+    const d = new Date(isoStr);
+    return isNaN(d) ? null : `${d.getMonth() + 1}/${d.getDate()}`;
   };
 
-  const totalInvested = tsumitateList.reduce((s, t) => s + calcTsumi(t).totalInvested, 0);
-  const totalEval     = tsumitateList.reduce((s, t) => { const c = calcTsumi(t); return s + (c.evalAmt ?? c.totalInvested); }, 0);
-  const totalGain     = totalEval - totalInvested;
-
-  const startEdit = (t, idx) => {
-    setForm({ ...t, _idx: idx });
-    setEditing(idx);
-    setShowAdd(true);
-  };
-
-  const saveForm = () => {
-    const next = [...tsumitateList];
-    if (editing != null) next[editing] = { ...form };
-    else next.push({ ...form, id: Date.now() });
-    onSave(next);
-    setShowAdd(false); setEditing(null);
-    setForm({ name: "", fundCode: "", monthlyAmount: "", startYM: "" });
-  };
-
-  const deleteTsumi = (idx) => {
-    if (!window.confirm("削除しますか？")) return;
-    const next = tsumitateList.filter((_, i) => i !== idx);
-    onSave(next);
+  const toggleMonth = (ym) => {
+    setOpenMonths(prev => {
+      const next = new Set(prev);
+      next.has(ym) ? next.delete(ym) : next.add(ym);
+      return next;
+    });
   };
 
   return (
-    <div className="px-4 py-4 space-y-4">
-      {/* SBI積立の取引実績 */}
-      {sbiTxs.length > 0 && (
-        <div className="bg-blue-50 rounded-2xl p-3 border border-blue-100">
-          <p className="text-xs font-semibold text-blue-700 mb-1">📊 SBI証券積立の取引履歴</p>
-          <p className="text-xs text-blue-500">{sbiTxs.length}件 合計¥{Math.abs(sbiTxs.reduce((s,t)=>s+t.amount,0)).toLocaleString()}</p>
-        </div>
-      )}
-
-      {/* 合計サマリー */}
-      {tsumitateList.length > 0 && (
-        <div className="bg-gradient-to-r from-emerald-50 to-teal-50 rounded-2xl p-4 border border-emerald-100">
-          <div className="flex items-center justify-between mb-1">
-            <p className="text-xs font-semibold text-emerald-700">積立合計（概算）</p>
-            <button onClick={() => onFetchPrices(tsumitateList)}
-              disabled={fundLoading}
-              className="text-xs text-emerald-600 bg-white px-2 py-0.5 rounded-full border border-emerald-200">
-              {fundLoading ? "取得中..." : "🔄 基準価額更新"}
-            </button>
-          </div>
-          <p className="text-2xl font-bold text-emerald-700">¥{totalEval.toLocaleString()}</p>
-          <p className={`text-xs font-semibold mt-0.5 ${totalGain >= 0 ? "text-emerald-500" : "text-rose-500"}`}>
-            {totalGain >= 0 ? "+" : ""}¥{totalGain.toLocaleString()} 含み{totalGain >= 0 ? "益" : "損"}
-          </p>
-          <p className="text-xs text-gray-400 mt-1">投資元本: ¥{totalInvested.toLocaleString()}</p>
-        </div>
-      )}
-
-      {/* 銘柄一覧 */}
-      {tsumitateList.map((t, idx) => {
-        const { months, totalInvested: inv, evalAmt, gainAmt, gainPct, fp } = calcTsumi(t);
-        return (
-          <div key={t.id || idx} className="bg-white rounded-2xl border border-gray-100 p-4">
-            <div className="flex items-start justify-between">
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-bold text-gray-800">{t.name || "銘柄名未設定"}</p>
-                {t.fundCode && <p className="text-xs text-gray-400 mt-0.5">コード: {t.fundCode}</p>}
-                {fp?.price && <p className="text-xs text-gray-400">基準価額: ¥{fp.price.toLocaleString()} ({fp.priceDate})</p>}
-                {fp?.error && <p className="text-xs text-rose-400">⚠️ 取得失敗: {fp.error}</p>}
-              </div>
-              <div className="flex gap-2 flex-shrink-0">
-                <button onClick={() => startEdit(t, idx)} className="text-xs text-gray-400">✏️</button>
-                <button onClick={() => deleteTsumi(idx)} className="text-xs text-rose-400">✕</button>
-              </div>
-            </div>
-            <div className="mt-3 grid grid-cols-3 gap-2">
-              <div className="bg-gray-50 rounded-xl p-2 text-center">
-                <p className="text-xs font-bold text-gray-700">¥{(parseInt(t.monthlyAmount)||0).toLocaleString()}</p>
-                <p className="text-xs text-gray-400">月額</p>
-              </div>
-              <div className="bg-gray-50 rounded-xl p-2 text-center">
-                <p className="text-xs font-bold text-gray-700">{months}ヶ月</p>
-                <p className="text-xs text-gray-400">{t.startYM}〜</p>
-              </div>
-              <div className="bg-gray-50 rounded-xl p-2 text-center">
-                <p className="text-xs font-bold text-gray-700">¥{inv.toLocaleString()}</p>
-                <p className="text-xs text-gray-400">元本合計</p>
-              </div>
-            </div>
-            {evalAmt != null && (
-              <div className="mt-2 flex items-center justify-between bg-emerald-50 rounded-xl px-3 py-2">
-                <p className="text-sm font-bold text-emerald-700">¥{evalAmt.toLocaleString()}</p>
-                <p className={`text-xs font-semibold ${gainAmt >= 0 ? "text-emerald-500" : "text-rose-500"}`}>
-                  {gainAmt >= 0 ? "+" : ""}¥{gainAmt.toLocaleString()} ({gainPct?.toFixed(1)}%)
-                </p>
-              </div>
+    <div className="mx-4 md:mx-0 mt-4">
+      <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-50">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-bold text-gray-800">📊 CSV取り込み状況</span>
+            {todoCount > 0 && (
+              <span className="text-xs bg-rose-100 text-rose-600 font-semibold px-2 py-0.5 rounded-full">
+                {todoCount}件未取込
+              </span>
             )}
           </div>
-        );
-      })}
+          <button onClick={() => onNavigate?.("add-csv")}
+            className="text-xs text-indigo-500 font-semibold bg-indigo-50 px-3 py-1.5 rounded-full">
+            取り込む →
+          </button>
+        </div>
 
-      {/* 追加フォーム */}
-      {showAdd && (
-        <div className="bg-white rounded-2xl border border-indigo-100 p-4 space-y-3">
-          <p className="text-sm font-bold text-gray-700">{editing != null ? "銘柄を編集" : "銘柄を追加"}</p>
-          {[
-            { key: "name",          label: "銘柄名",          placeholder: "eMAXIS Slim S&P500" },
-            { key: "fundCode",      label: "ファンドコード",  placeholder: "0331418A" },
-            { key: "monthlyAmount", label: "月額（円）",       placeholder: "20000", type: "number" },
-            { key: "startYM",       label: "開始年月",         placeholder: "2024-01" },
-          ].map(({ key, label, placeholder, type }) => (
-            <div key={key}>
-              <p className="text-xs text-gray-500 mb-1">{label}</p>
-              <input value={form[key] || ""} onChange={e => setForm(p => ({ ...p, [key]: e.target.value }))}
-                type={type || "text"} placeholder={placeholder}
-                className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:border-indigo-300" />
+        {(() => {
+          const ym = currentYM;
+          const todo = sources.filter(s => !hist[`${s.id}_${ym}`]);
+          const allDone = todo.length === 0;
+          const isOpen = openMonths.has(ym);
+          return (
+            <div key={ym} className="border-b border-gray-50">
+              <button onClick={() => toggleMonth(ym)}
+                className="w-full flex items-center justify-between px-4 py-3 text-left">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold text-gray-700">{fmtYM(ym)}（今月）</span>
+                  {allDone
+                    ? <span className="text-xs text-emerald-500 font-semibold">✅ 完了</span>
+                    : <span className="text-xs text-rose-400 font-semibold">{todo.length}件未取込</span>
+                  }
+                </div>
+                <span className="text-gray-400 text-xs">{isOpen ? "▲" : "▼"}</span>
+              </button>
+              {isOpen && (
+                <div className="px-4 pb-3 space-y-1.5">
+                  {sources.map(s => {
+                    const val  = hist[`${s.id}_${ym}`];
+                    const done = !!val;
+                    const date = fmtDate(val);
+                    return (
+                      <div key={s.id} className="flex items-center gap-2">
+                        <span className={`w-4 h-4 rounded-full flex items-center justify-center text-xs flex-shrink-0 ${
+                          done ? "bg-emerald-100 text-emerald-600" : "bg-rose-100 text-rose-400"
+                        }`}>{done ? "✓" : "!"}</span>
+                        <span className="text-xs text-gray-600">{s.icon} {s.label}</span>
+                        <span className="text-xs font-medium ml-auto">
+                          {done
+                            ? <span className="text-emerald-500">{date ? `✅ ${date}` : "✅"}</span>
+                            : <span className="text-rose-400">未取込</span>
+                          }
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
-          ))}
-          <p className="text-xs text-gray-400">※ファンドコードは投信協会サイトで確認できます</p>
-          <div className="flex gap-2">
-            <button onClick={saveForm} className="flex-1 py-2.5 bg-indigo-500 text-white text-sm font-semibold rounded-xl">保存</button>
-            <button onClick={() => { setShowAdd(false); setEditing(null); }} className="flex-1 py-2.5 bg-gray-100 text-gray-500 text-sm font-semibold rounded-xl">キャンセル</button>
+          );
+        })()}
+
+        <button
+          onClick={() => toggleMonth("history")}
+          className="w-full flex items-center justify-between px-4 py-2.5 text-left border-b border-gray-50">
+          <span className="text-xs font-semibold text-gray-500">過去の履歴を見る</span>
+          <span className="text-gray-400 text-xs">{openMonths.has("history") ? "▲" : "▼"}</span>
+        </button>
+
+        {openMonths.has("history") && months.slice(1).map((ym) => {
+          const todo = sources.filter(s => !hist[`${s.id}_${ym}`]);
+          const allDone = todo.length === 0;
+          const isOpen  = openMonths.has(ym);
+          return (
+            <div key={ym} className={`border-b border-gray-50 last:border-b-0 ${!allDone ? "bg-amber-50" : ""}`}>
+              <button onClick={() => toggleMonth(ym)}
+                className="w-full flex items-center justify-between px-4 py-2.5 text-left">
+                <div className="flex items-center gap-2">
+                  <span className={`text-xs font-semibold ${allDone ? "text-gray-500" : "text-amber-600"}`}>
+                    {!allDone && "⚠️ "}{fmtYM(ym)}
+                  </span>
+                  {allDone
+                    ? <span className="text-xs text-emerald-500 font-semibold">✅ 完了</span>
+                    : <span className="text-xs text-rose-400 font-semibold">{todo.length}件未取込</span>
+                  }
+                </div>
+                <span className="text-gray-400 text-xs">{isOpen ? "▲" : "▼"}</span>
+              </button>
+              {isOpen && (
+                <div className="px-4 pb-3 space-y-1.5">
+                  {sources.map(s => {
+                    const val  = hist[`${s.id}_${ym}`];
+                    const done = !!val;
+                    const date = fmtDate(val);
+                    return (
+                      <div key={s.id} className="flex items-center gap-2">
+                        <span className={`w-4 h-4 rounded-full flex items-center justify-center text-xs flex-shrink-0 ${
+                          done ? "bg-emerald-100 text-emerald-600" : "bg-rose-100 text-rose-400"
+                        }`}>{done ? "✓" : "!"}</span>
+                        <span className="text-xs text-gray-600">{s.icon} {s.label}</span>
+                        <span className="text-xs font-medium ml-auto">
+                          {done
+                            ? <span className="text-emerald-500">{date ? `✅ ${date}` : "✅"}</span>
+                            : <span className="text-rose-400">未取込</span>
+                          }
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+export function HomePage({ transactions, categories, pointAccounts, learnedRules, importHistory, activeCsvSources, budgets, onNavigate }) {
+  const now       = new Date();
+  const currentYM = now.toISOString().slice(0, 7);
+  const prevDate  = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const prevYM    = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, "0")}`;
+
+  const expenseTxs      = useMemo(() => transactions.filter(t => t.type === "expense"), [transactions]);
+  const currentMonthTxs = useMemo(() => transactions.filter(t => t.date.slice(0, 7) === currentYM), [transactions, currentYM]);
+  const prevMonthTxs    = useMemo(() => transactions.filter(t => t.date.slice(0, 7) === prevYM),    [transactions, prevYM]);
+
+  const totalIncome  = useMemo(() => transactions.filter(t => t.type === "income").reduce((s, t) => s + t.amount, 0), [transactions]);
+  const totalExpense = useMemo(() => expenseTxs.reduce((s, t) => s + Math.abs(t.amount), 0), [expenseTxs]);
+
+  const thisMonthBalance = useMemo(() => {
+    const inc = currentMonthTxs.filter(t => t.type === "income").reduce((s, t) => s + t.amount, 0);
+    const exp = currentMonthTxs.filter(t => t.type === "expense").reduce((s, t) => s + Math.abs(t.amount), 0);
+    return inc - exp;
+  }, [currentMonthTxs]);
+
+  const last7DaysExpense = useMemo(() => {
+    const d = new Date(); d.setDate(d.getDate() - 6);
+    const cutoff = d.toISOString().split("T")[0];
+    return expenseTxs.filter(t => t.date >= cutoff).reduce((s, t) => s + Math.abs(t.amount), 0);
+  }, [expenseTxs]);
+
+  const chartData = useMemo(() => {
+    const months = [...new Set(transactions.map(t => toYM(t.date)))].sort();
+    return months.map(m => {
+      const mt  = transactions.filter(t => toYM(t.date) === m);
+      const inc = mt.filter(t => t.type === "income").reduce((s, t) => s + t.amount, 0);
+      const exp = mt.filter(t => t.type === "expense").reduce((s, t) => s + Math.abs(t.amount), 0);
+      return { month: m.slice(5) + "月", income: inc, expense: exp, balance: inc - exp };
+    });
+  }, [transactions]);
+
+  const catExpenses = useMemo(() =>
+    Object.entries(
+      currentMonthTxs.filter(t => t.type === "expense").reduce((acc, t) => {
+        acc[t.category] = (acc[t.category] || 0) + Math.abs(t.amount);
+        return acc;
+      }, {})
+    ).sort((a, b) => b[1] - a[1]).slice(0, 8),
+    [currentMonthTxs]
+  );
+
+  const recentTxs = useMemo(() =>
+    [...transactions].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 8),
+    [transactions]
+  );
+
+  return (
+    <div className="pb-20 md:pb-8">
+      <div className="bg-white px-4 md:px-8 pt-12 md:pt-8 pb-3 border-b border-gray-100 flex items-center justify-between">
+        <h1 className="text-xl font-bold text-gray-900">ホーム</h1>
+        <span className="text-xs text-gray-300 font-mono">{APP_VERSION}</span>
+      </div>
+
+      <div className="md:grid md:grid-cols-5 md:gap-6 md:px-8 md:py-6">
+        <div className="md:col-span-2 md:space-y-4">
+          <BalanceCard
+            totalIncome={totalIncome}
+            totalExpense={totalExpense}
+            thisMonthBalance={thisMonthBalance}
+            year={now.getFullYear()}
+            month={now.getMonth() + 1}
+          />
+          <MonthlySummary
+            currentMonthTxs={currentMonthTxs}
+            prevMonthTxs={prevMonthTxs}
+            now={now}
+          />
+          <BudgetProgress categories={categories} currentMonthTxs={currentMonthTxs} />
+          <BudgetAlert transactions={transactions} budgets={budgets} />
+          <CsvImportStatusImpl importHistory={importHistory} activeCsvSources={activeCsvSources} onNavigate={onNavigate} />
+          <RecentExpenseCard amount={last7DaysExpense} />
+          {pointAccounts && pointAccounts.length > 0 && (
+            <div className="mx-4 md:mx-0 mt-4 md:mt-0 bg-white rounded-2xl p-4 border border-gray-100">
+              <p className="text-xs font-semibold text-gray-500 mb-3 uppercase tracking-wide">ポイント口座</p>
+              <div className="space-y-2">
+                {pointAccounts.map(a => (
+                  <div key={a.id} className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg">{a.icon}</span>
+                      <span className="text-sm text-gray-700">{a.name}</span>
+                    </div>
+                    <span className={`text-sm font-bold ${a.balance >= 0 ? "text-emerald-600" : "text-rose-600"}`}>
+                      {a.balance.toLocaleString()}円
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {catExpenses.length > 0 && (
+            <div className="mx-4 md:mx-0 mt-4 md:mt-0 bg-white rounded-2xl p-4 border border-gray-100">
+              <p className="text-xs font-semibold text-gray-500 mb-3 uppercase tracking-wide">今月カテゴリ別支出</p>
+              <CategoryBar catExpenses={catExpenses} categories={categories} />
+            </div>
+          )}
+        </div>
+
+        <div className="md:col-span-3 md:space-y-4">
+          {chartData.length > 0 && (
+            <div className="mx-4 md:mx-0 mt-4 md:mt-0 bg-white rounded-2xl p-4 border border-gray-100">
+              <p className="text-xs font-semibold text-gray-500 mb-3 uppercase tracking-wide">月別収支推移</p>
+              <ResponsiveContainer width="100%" height={220}>
+                <LineChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                  <XAxis dataKey="month" tick={{ fontSize: 10 }} />
+                  <YAxis tick={{ fontSize: 9 }} tickFormatter={v => `${(v / 10000).toFixed(0)}万`} width={32} />
+                  <Tooltip formatter={(v, n) => [`¥${v.toLocaleString()}`, { income: "収入", expense: "支出", balance: "残高" }[n]]} />
+                  <Legend formatter={v => ({ income: "収入", expense: "支出", balance: "残高" }[v])} />
+                  <Line type="monotone" dataKey="income"  stroke="#10b981" strokeWidth={2} dot={{ r: 3 }} />
+                  <Line type="monotone" dataKey="expense" stroke="#f43f5e" strokeWidth={2} dot={{ r: 3 }} />
+                  <Line type="monotone" dataKey="balance" stroke="#6366f1" strokeWidth={2} dot={{ r: 3 }} strokeDasharray="4 2" />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+          <div className="mx-4 md:mx-0 mt-5 md:mt-0">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">最近の取引</h2>
+              <button onClick={() => onNavigate("list")} className="text-xs text-indigo-500 font-semibold">すべて見る →</button>
+            </div>
+            <div className="bg-white rounded-2xl overflow-hidden shadow-sm border border-gray-100">
+              {recentTxs.map(t => (
+                <TransactionItem key={t.id} transaction={t} categories={categories} learnedRules={learnedRules} />
+              ))}
+              {transactions.length === 0 && (
+                <p className="text-xs text-gray-400 text-center py-8">取引データがありません</p>
+              )}
+            </div>
           </div>
         </div>
-      )}
-
-      <button onClick={() => { setShowAdd(true); setEditing(null); setForm({ name: "", fundCode: "", monthlyAmount: "", startYM: "" }); }}
-        className="w-full py-3 rounded-2xl border-2 border-dashed border-gray-200 text-gray-400 text-sm font-semibold">
-        ＋ 銘柄を追加
-      </button>
+      </div>
     </div>
   );
 }
