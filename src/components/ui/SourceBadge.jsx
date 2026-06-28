@@ -1,5 +1,4 @@
-import { SOURCE_CFG } from "../../constants";
-import { CSV_SOURCES_ALL } from "../home/HomePage";
+import { SOURCE_CFG, CSV_SOURCES_ALL } from "../../constants";
 
 // CSVフォーマットIDから短縮ラベルを取得
 const getCsvShortLabel = (csvFormatId, csvSourceLabels) => {
