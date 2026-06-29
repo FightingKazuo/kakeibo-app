@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import { toYM, fmtCurrency } from "../../utils/format";
 import { MonthSelector } from "../common/MonthSelector";
 import { TransactionItem } from "./TransactionItem";
+import { CSV_SOURCES_ALL }  from "../../constants";
 import { EmptyState } from "../ui/EmptyState";
 
 // ─── 取引を共有/個人/相手に分割した表示行を生成 ───────────────
@@ -60,6 +61,7 @@ export function TransactionListPage({ transactions, categories, members, pointAc
   const [q,             setQ]             = useState("");
   const [selMonth,      setSelMonth]      = useState("all");
   const [srcFilter,     setSrcFilter]     = useState("all");
+  const [csvSrcFilter,  setCsvSrcFilter]  = useState("all"); // CSV内カード絞り込み
   const [shareFilter,   setShareFilter]   = useState("all");
   const [errFilter,     setErrFilter]     = useState(false);
   const [catFilters,    setCatFilters]    = useState(new Set());
@@ -82,10 +84,11 @@ export function TransactionListPage({ transactions, categories, members, pointAc
     transactions
       .filter(t => selMonth === "all" || toYM(t.date) === selMonth)
       .filter(t => srcFilter === "all" || t.source === srcFilter)
+      .filter(t => srcFilter !== "csv" || csvSrcFilter === "all" || t.csvFormatId === csvSrcFilter)
       .filter(t => !q || t.label.includes(q) || t.category.includes(q) || t.items?.some(i => i.name?.includes(q)))
       .filter(t => catFilters.size === 0 || catFilters.has(t.category) || t.items?.some(i => catFilters.has(i.category)))
       .filter(t => !errFilter || (t.type === "expense" && !t.paidBy && t.shareType !== "personal" && t.shareType !== "partner")),
-    [transactions, selMonth, srcFilter, q, catFilters, errFilter]
+    [transactions, selMonth, srcFilter, csvSrcFilter, q, catFilters, errFilter]
   );
 
   // 分割表示行を生成してからshareFilter・ソートを適用
@@ -213,7 +216,7 @@ export function TransactionListPage({ transactions, categories, members, pointAc
             {/* ソース・エラーフィルター */}
             <div className="flex gap-2 overflow-x-auto scrollbar-none">
               {[["all","すべて"],["manual","✏️手動"],["csv","📊CSV"],["ocr","📷OCR"]].map(([id, lb]) => (
-                <button key={id} onClick={() => setSrcFilter(id)}
+                <button key={id} onClick={() => { setSrcFilter(id); if (id !== "csv") setCsvSrcFilter("all"); }}
                   className={`flex-shrink-0 px-3 py-1 rounded-full text-xs font-semibold border transition-all duration-200 ${
                     srcFilter === id ? "bg-gray-700 text-white border-gray-700" : "bg-white text-gray-500 border-gray-200"
                   }`}>
@@ -229,6 +232,38 @@ export function TransactionListPage({ transactions, categories, members, pointAc
                 </button>
               )}
             </div>
+
+            {/* CSV カード別サブフィルター（📊CSVフィルター選択時のみ表示） */}
+            {srcFilter === "csv" && (() => {
+              // 現在表示中のCSV取引に含まれるcsvFormatIdを収集
+              const activeFmtIds = [...new Set(
+                transactions
+                  .filter(t => t.source === "csv" && t.csvFormatId)
+                  .map(t => t.csvFormatId)
+              )];
+              if (activeFmtIds.length === 0) return null;
+              const srcOptions = [
+                { id: "all", short: "すべて", icon: "" },
+                ...CSV_SOURCES_ALL
+                  .filter(s => activeFmtIds.includes(s.id))
+                  .map(s => ({ id: s.id, short: s.short, icon: s.icon })),
+              ];
+              return (
+                <div className="flex gap-2 overflow-x-auto scrollbar-none pb-0.5">
+                  {srcOptions.map(({ id, short, icon }) => (
+                    <button key={id} onClick={() => setCsvSrcFilter(id)}
+                      className={`flex-shrink-0 px-3 py-1 rounded-full text-xs font-semibold border transition-all duration-200 ${
+                        csvSrcFilter === id
+                          ? "bg-indigo-500 text-white border-indigo-500"
+                          : "bg-white text-gray-500 border-gray-200"
+                      }`}>
+                      {icon} {short}
+                    </button>
+                  ))}
+                </div>
+              );
+            })()}
+
             {/* 共有区分フィルター */}
             <div className="flex gap-2 overflow-x-auto scrollbar-none">
               {[
