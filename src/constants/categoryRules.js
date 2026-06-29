@@ -11,6 +11,7 @@ export const BANK_CARD_MAPPING = [
   { bankKeyword: "イデミツクレジツト",    formatId: "idemitsu", label: "出光クレジット" },
   { bankKeyword: "ポケットカード",        formatId: "pocket",   label: "ポケットカード" },
   { bankKeyword: "ジェーシービー",        formatId: "jcb",      label: "JCBカード"      },
+  { bankKeyword: "ジエーシービー",        formatId: "jcb",      label: "JCBカード"      },
   { bankKeyword: "ＪＣＢ",              formatId: "jcb",      label: "JCBカード"      },
   { bankKeyword: "楽天カード",            formatId: "rakuten",  label: "楽天カード"     },
   { bankKeyword: "アマゾン",             formatId: "smbc",     label: "Amazonマスター" },
