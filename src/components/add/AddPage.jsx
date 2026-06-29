@@ -2,6 +2,7 @@ import { useState } from "react";
 import { ManualAddForm }  from "./ManualAddForm";
 import { OcrScanPage }    from "./OcrScanPage";
 import { CsvImportPage }  from "./CsvImportPage";
+import { STORAGE_KEYS }   from "../../constants/storage";
 
 export function AddPage({
   categories, existingTransactions, allRules, learnedRules,
@@ -30,17 +31,25 @@ export function AddPage({
     />
   );
 
-  if (mode === "csv") return (
-    <CsvImportPage
-      categories={categories} existingTransactions={existingTransactions}
-      members={members} pointAccounts={pointAccounts}
-      importHistory={importHistory}
-      allRules={allRules} learnedRules={learnedRules}
-      onAdd={onAdd} onDelete={onDelete}
-      onLearnRule={onLearnRule} onImportHistoryChange={onImportHistoryChange}
-      onBack={() => setMode("select")}
-    />
-  );
+  if (mode === "csv") {
+    // localStorageからocrCorrectionsを読み込んでCsvImportPageに渡す
+    const ocrCorrections = (() => {
+      try { return JSON.parse(localStorage.getItem(STORAGE_KEYS.OCR_CORRECTIONS) || "{}"); } catch { return {}; }
+    })();
+    return (
+      <CsvImportPage
+        categories={categories} existingTransactions={existingTransactions}
+        ocrCorrections={ocrCorrections}
+        learnedRules={learnedRules}
+        members={members} pointAccounts={pointAccounts}
+        importHistory={importHistory}
+        allRules={allRules}
+        onAdd={onAdd} onDelete={onDelete}
+        onLearnRule={onLearnRule} onImportHistoryChange={onImportHistoryChange}
+        onBack={() => setMode("select")}
+      />
+    );
+  }
 
   // ─── select 画面 ──────────────────────────────────────────
   return (
