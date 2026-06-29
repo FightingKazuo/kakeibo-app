@@ -153,7 +153,7 @@ export const detectCSVFormat = (text) => {
  * @param {object} importHistory - 取り込み済みカード履歴 { "smbc_2026-06": true, ... }
  * @param {Array}  activeCsvSources - 管理対象CSVソースID配列（OFFのものは振替扱いしない）
  */
-export const parseCSVText = (text, formatId, importHistory = {}, activeCsvSources = null) => {
+export const parseCSVText = (text, formatId, importHistory = {}, activeCsvSources = null, catRules = []) => {
   let processText = text;
 
   // ── リクルートカード専用前処理 ──────────────────────────
@@ -198,6 +198,20 @@ export const parseCSVText = (text, formatId, importHistory = {}, activeCsvSource
 
         const tx = { ...n, date: safeDate(n.date), amount: amt, _i: i };
 
+        // ── カテゴリルール自動適用 ──────────────────────────
+        // category="その他"の場合のみルールを適用（手動設定を上書きしない）
+        if (catRules.length > 0 && (!tx.category || tx.category === "その他") && tx.label) {
+          const labelLow = tx.label.toLowerCase().replace(/[　\s]/g, "");
+          const matched = catRules
+            .filter(r => r.type === (tx.type || "expense") || !r.type)
+            .sort((a, b) => (b.priority || 50) - (a.priority || 50))
+            .find(r => r.keywords?.some(kw => {
+              const kl = kw.toLowerCase().replace(/[　\s]/g, "");
+              return labelLow.includes(kl) || kl.includes(labelLow.slice(0, Math.min(labelLow.length, 4)));
+            }));
+          if (matched) tx.category = matched.category;
+        }
+
         // ── 住信SBI銀行：PayPayチャージ（フリカエ ＰＡＹＰＡＹ）──
         // 銀行→PayPayの振替なので収支には計上しない（isTransfer扱い）
         // ただしPayPay残高増加として記録するため pointTransfer フラグを立てる
@@ -228,7 +242,8 @@ export const parseCSVText = (text, formatId, importHistory = {}, activeCsvSource
         }
 
         // ── 振替フラグ（SBI銀行の振替行を自動検出）──────
-        if (formatId === "sbi" && !tx.isTransfer && isTransferLabel(tx.label)) {
+        // 入金（amt>0）は振替にしない（例: 振込＊コバヤシ　カズシ の入金は収入として計上）
+        if (formatId === "sbi" && !tx.isTransfer && amt < 0 && isTransferLabel(tx.label)) {
           tx.isTransfer = true;
         }
 
