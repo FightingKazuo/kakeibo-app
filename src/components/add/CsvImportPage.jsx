@@ -9,7 +9,7 @@ import { loadStorage } from "../../utils/storage";
 import { fmtCurrency } from "../../utils/format";
 import { PrimaryButton } from "../ui/PrimaryButton";
 
-export function CsvImportPage({ categories, existingTransactions, members, pointAccounts, importHistory, activeCsvSources: props_activeCsvSources, onActiveCsvSourcesChange, onAdd, onDelete, onLearnRule, onImportHistoryChange, onBack }) {
+export function CsvImportPage({ categories, existingTransactions, ocrCorrections, learnedRules, members, pointAccounts, importHistory, activeCsvSources: props_activeCsvSources, onActiveCsvSourcesChange, onAdd, onDelete, onLearnRule, onImportHistoryChange, onBack }) {
   const [csvFormat,       setCsvFormat]       = useState("generic");
   const [defaultShareType,setDefaultShareType]= useState("shared");
   const [csvDetected,     setCsvDetected]     = useState(null);
@@ -69,7 +69,7 @@ export function CsvImportPage({ categories, existingTransactions, members, point
                 <button key={key}
                   onClick={() => setOcrActions(p => ({ ...p, [i]: key }))}
                   className={`text-xs px-2 py-0.5 rounded-full font-semibold transition-all ${color} ${
-                    (ocrActions[i] || "both") === key ? "ring-2" : "opacity-40"
+                    (ocrActions[i] || "skip") === key ? "ring-2" : "opacity-40"
                   }`}>
                   {label}
                 </button>
@@ -175,12 +175,23 @@ export function CsvImportPage({ categories, existingTransactions, members, point
               const { cardName, transactions } = await analyzePDFWithGemini(file, geminiKey, () => {});
               detectedLabels.add(`${cardName}（PDF・Gemini）`);
               allRows = [...allRows, ...transactions];
+              // Gemini PDFのカード名からsrcIdを推定してimportHistory用に追加
+              const geminiCardToSrcId = {
+                "エポスカード": "epos", "三井住友": "smbc", "楽天カード": "rakuten",
+                "リクルートカード": "recruit", "住信SBI": "sbi",
+              };
+              const srcId = Object.entries(geminiCardToSrcId).find(([k]) => cardName.includes(k))?.[1];
+              if (srcId) detectedFormatIds.add(srcId);
             } catch (err) { errors.push(`${file.name}: ${err.message}`); }
           } else {
             try {
               const { transactions, format } = await parsePDF(file);
               detectedLabels.add(PDF_FORMAT_LABELS[format] || format);
               allRows = [...allRows, ...transactions];
+              // PDFフォーマットIDをimportHistory用に変換（epos_pdf→epos等）
+              const pdfToSrcId = { epos_pdf: "epos", smbc_pdf: "smbc", rakuten_pdf: "rakuten" };
+              const srcId = pdfToSrcId[format];
+              if (srcId) detectedFormatIds.add(srcId);
             } catch { errors.push(`${file.name}: PDFの読み込みにはGeminiキーの設定を推奨します`); }
           }
         } else if (isCSV) {
@@ -189,7 +200,8 @@ export function CsvImportPage({ categories, existingTransactions, members, point
           const formatToUse = detected !== "generic" ? detected : csvFormat;
           if (detected !== "generic") { detectedLabels.add(CSV_FORMATS[detected]?.label || detected); detectedFormatIds.add(detected); }
           const activeCsvSources = props_activeCsvSources || (() => { try { const s = localStorage.getItem(STORAGE_KEYS.ACTIVE_CSV_SOURCES); return s ? JSON.parse(s) : null; } catch { return null; } })();
-          allRows = [...allRows, ...parseCSVText(text, formatToUse, importHistory || {}, activeCsvSources)];
+          const allCatRules = [...(typeof learnedRules !== "undefined" ? learnedRules : []), ...DEFAULT_CATEGORY_RULES];
+          allRows = [...allRows, ...parseCSVText(text, formatToUse, importHistory || {}, activeCsvSources, allCatRules)];
         }
       }
 
@@ -203,33 +215,63 @@ export function CsvImportPage({ categories, existingTransactions, members, point
 
       const existKeys = new Set(existingTransactions.map(DUPLICATE_KEY));
       // 店舗名類似チェック（先頭4文字以上一致で関連あり）
+      // ocrCorrectionsを使ったラベル正規化（学習データで表記ゆれを解決）
+      // 例: "Every BIGDAY 長沼店" → "エブリィビッグデー 長沼店" に変換してから比較
+      const resolveLabel = (rawLabel) => {
+        if (!rawLabel || !ocrCorrections) return rawLabel;
+        const lower = rawLabel.toLowerCase().trim();
+        // 完全一致
+        if (ocrCorrections[rawLabel]) return ocrCorrections[rawLabel].label;
+        // 大文字小文字無視一致
+        for (const [k, v] of Object.entries(ocrCorrections)) {
+          if (k.toLowerCase().trim() === lower) return v.label;
+        }
+        // 部分一致（3文字以上）
+        for (const [k, v] of Object.entries(ocrCorrections)) {
+          const kl = k.toLowerCase().trim();
+          if (kl.length >= 3 && (lower.includes(kl) || kl.includes(lower))) return v.label;
+        }
+        return rawLabel;
+      };
+
       const labelSimilar = (a, b) => {
         if (!a || !b) return false;
+        // 学習データで表記ゆれを解決してから比較
+        const ra = resolveLabel(a);
+        const rb = resolveLabel(b);
         const norm = s => s.toLowerCase().replace(/[　\s・．.\/（）()「」／]/g, "");
-        const na = norm(a); const nb = norm(b);
-        if (!na || !nb) return false;
-        // 1. 完全一致
-        if (na === nb) return true;
-        // 2. 先頭3文字以上の一致
-        const minLen = Math.min(na.length, nb.length, 4);
-        if (minLen >= 3 && na.slice(0, minLen) === nb.slice(0, minLen)) return true;
-        // 3. 短い方の先頭3文字が長い方に含まれる（部分一致）
-        const shorter = na.length <= nb.length ? na : nb;
-        const longer  = na.length <= nb.length ? nb : na;
-        if (shorter.length >= 3 && longer.includes(shorter.slice(0, 3))) return true;
+        // 解決済みラベルで比較（aの解決 vs b、a vs bの解決、解決済み同士）
+        const pairs = [[norm(a), norm(b)], [norm(ra), norm(b)], [norm(a), norm(rb)], [norm(ra), norm(rb)]];
+        for (const [na, nb] of pairs) {
+          if (!na || !nb) continue;
+          // 1. 完全一致
+          if (na === nb) return true;
+          // 2. 先頭3文字以上の一致
+          const minLen = Math.min(na.length, nb.length, 4);
+          if (minLen >= 3 && na.slice(0, minLen) === nb.slice(0, minLen)) return true;
+          // 3. 短い方の先頭3文字が長い方に含まれる（部分一致）
+          const shorter = na.length <= nb.length ? na : nb;
+          const longer  = na.length <= nb.length ? nb : na;
+          if (shorter.length >= 3 && longer.includes(shorter.slice(0, 3))) return true;
+        }
         return false;
       };
 
-      // 既存取引との重複チェック（OCR・CSV問わず同日±1日・金額±5%・ラベル類似）
+      // 既存取引との重複チェック
+      // 条件1: 同日 + 金額完全一致 → ラベル問わず重複とみなす（英字/カタカナ表記ゆれ対応）
+      // 条件2: 同日±1日 + 金額±5% + ラベル類似（念のため）
       const findOcrDups = (row) => {
         const amt = Math.abs(row.amount); const dateObj = new Date(row.date);
         return existingTransactions.filter(tx => {
-          // sourceは問わない（OCRをCSVとmergeした場合でも検出）
-          const diffDays = Math.abs(new Date(tx.date) - dateObj) / 86400000;
-          if (diffDays > 1) return false;          // 同日または翌日のみ
+          if (amt === 0) return false;
           const txAmt = Math.abs(tx.amount);
-          if (txAmt === 0 || amt === 0) return false;
-          if (Math.abs(txAmt - amt) / Math.max(txAmt, amt) > 0.05) return false; // ±5%
+          if (txAmt === 0) return false;
+          const diffDays = Math.abs(new Date(tx.date) - dateObj) / 86400000;
+          // 条件1: 同日 + 金額完全一致（表記ゆれ・英字/カタカナ違いも検出）
+          if (diffDays === 0 && txAmt === amt) return true;
+          // 条件2: ±1日 + 金額±5% + ラベル類似
+          if (diffDays > 1) return false;
+          if (Math.abs(txAmt - amt) / Math.max(txAmt, amt) > 0.05) return false;
           return labelSimilar(row.label, tx.label);
         });
       };
@@ -253,7 +295,7 @@ export function CsvImportPage({ categories, existingTransactions, members, point
       // OCR重複行のデフォルトを"both"（両方残す）に設定
       const initOcrActions = {};
       withDup.forEach((r, i) => {
-        if (r.ocrDuplicates?.length > 0) initOcrActions[i] = "both";
+        if (r.ocrDuplicates?.length > 0) initOcrActions[i] = "skip";
       });
       setOcrActions(initOcrActions);
       // 「その他」カテゴリの件数をカウントしてユーザーに通知
@@ -306,7 +348,7 @@ export function CsvImportPage({ categories, existingTransactions, members, point
       if (r.isPointCharge && payPayAccount) {
         onAdd(createTransaction({ ...r, type: "expense", amount: -Math.abs(r.amount), pointAccountId: payPayAccount.id, paymentMethod: payPayAccount.id, shareType: "personal", paidBy: selfId, isTransfer: false, source: "csv" }));
       } else if (r.ocrDuplicates?.length > 0) {
-        const action = ocrActions[r._csvIdx] || "both";
+        const action = ocrActions[r._csvIdx] || "skip";
         if (action === "skip") {
           // スキップ: 何もしない（OCRをそのまま残す）
         } else if (action === "replace") {
