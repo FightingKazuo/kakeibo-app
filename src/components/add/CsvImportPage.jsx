@@ -355,13 +355,13 @@ export function CsvImportPage({ categories, existingTransactions, ocrCorrections
           // 置き換え: OCRを削除してCSVを取り込む
           r.ocrDuplicates.forEach(ocrTx => onDelete?.(ocrTx.id));
           const ocrTx = r.ocrDuplicates[0];
-          onAdd(createTransaction({ ...withPayer, items: ocrTx.items || [], category: ocrTx.category || withPayer.category, shareType: withPayer.shareType, paidBy: selfId, source: "csv", csvFormatId: csvFormatIds[0] || csvFormat || null }));
+          onAdd(createTransaction({ ...withPayer, items: ocrTx.items || [], category: ocrTx.category || withPayer.category, shareType: withPayer.shareType, paidBy: selfId, source: "csv", csvFormatId: r.csvFormatId || csvFormatIds[0] || csvFormat || null }));
         } else {
           // both: OCRはそのまま残してCSVも追加
-          onAdd(createTransaction({ ...withPayer, source: "csv", csvFormatId: csvFormatIds[0] || csvFormat || null }));
+          onAdd(createTransaction({ ...withPayer, source: "csv", csvFormatId: r.csvFormatId || csvFormatIds[0] || csvFormat || null }));
         }
       } else {
-        onAdd(createTransaction({ ...withPayer, source: "csv", csvFormatId: csvFormatIds[0] || csvFormat || null }));
+        onAdd(createTransaction({ ...withPayer, source: "csv", csvFormatId: r.csvFormatId || csvFormatIds[0] || csvFormat || null }));
       }
       if (r.label && r.category) onLearnRule?.(r.label, r.category, r.type || "expense");
     });
