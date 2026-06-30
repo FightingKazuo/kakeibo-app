@@ -196,7 +196,7 @@ export const parseCSVText = (text, formatId, importHistory = {}, activeCsvSource
         const amt = safeAmount(n.amount);
         if (amt === 0) return null;
 
-        const tx = { ...n, date: safeDate(n.date), amount: amt, _i: i };
+        const tx = { ...n, date: safeDate(n.date), amount: amt, _i: i, csvFormatId: formatId };
 
         // ── カテゴリルール自動適用 ──────────────────────────
         // category="その他"の場合のみルールを適用（手動設定を上書きしない）
