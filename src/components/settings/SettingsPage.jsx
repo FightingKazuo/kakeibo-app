@@ -12,6 +12,7 @@ import { DataTab }      from "./tabs/DataTab";
 
 import { CsvSourcesTab } from "./tabs/CsvSourcesTab";
 import { BudgetTab }     from "./tabs/BudgetTab";
+import { UpdateLogTab }  from "./tabs/UpdateLogTab";
 
 const TABS = [
   { id: "categories", label: "カテゴリ",        icon: "🏷️" },
@@ -26,6 +27,7 @@ const TABS = [
   { id: "backup",     label: "バックアップ",     icon: "💾" },
   { id: "data",       label: "データ管理",       icon: "⚙️" },
   { id: "budget",     label: "予算",             icon: "🎯" },
+  { id: "updatelog",  label: "アップデート履歴",  icon: "📝" },
 ];
 
 export function SettingsPage({
@@ -104,6 +106,7 @@ export function SettingsPage({
       )}
       {tab === "csvsources" && <CsvSourcesTab activeCsvSources={activeCsvSources} onActiveCsvSourcesChange={onActiveCsvSourcesChange} />}
       {tab === "budget"     && <BudgetTab transactions={transactions} categories={categories} budgets={budgets} onBudgetsChange={onBudgetsChange} />}
+      {tab === "updatelog" && <UpdateLogTab />}
       {tab === "share" && (
         <ShareTab shareId={shareId} inviteUrl={inviteUrl} onJoinShare={onJoinShare} syncStatus={syncStatus} />
       )}
