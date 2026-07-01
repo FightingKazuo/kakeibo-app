@@ -201,12 +201,14 @@ export const parseCSVText = (text, formatId, importHistory = {}, activeCsvSource
         // ── カテゴリルール自動適用 ──────────────────────────
         // category="その他"の場合のみルールを適用（手動設定を上書きしない）
         if (catRules.length > 0 && (!tx.category || tx.category === "その他") && tx.label) {
-          const labelLow = tx.label.toLowerCase().replace(/[　\s]/g, "");
+          // ハイフン・長音記号・中点等の表記ゆれを除去してから比較
+          const stripSym = s => s.toLowerCase().replace(/[　\s\-－ー・./（）()「」]/g, "");
+          const labelLow = stripSym(tx.label);
           const matched = catRules
             .filter(r => r.type === (tx.type || "expense") || !r.type)
             .sort((a, b) => (b.priority || 50) - (a.priority || 50))
             .find(r => r.keywords?.some(kw => {
-              const kl = kw.toLowerCase().replace(/[　\s]/g, "");
+              const kl = stripSym(kw);
               return labelLow.includes(kl) || kl.includes(labelLow.slice(0, Math.min(labelLow.length, 4)));
             }));
           if (matched) tx.category = matched.category;
