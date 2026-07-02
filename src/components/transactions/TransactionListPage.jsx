@@ -72,6 +72,7 @@ export function TransactionListPage({ transactions, categories, members, pointAc
   // カレンダービュー
   const [calView,    setCalView]    = useState(false);
   const [calSelDay,  setCalSelDay]  = useState(null);
+  const [calNavYM,   setCalNavYM]   = useState(null); // カレンダー独自の表示月（null=selMonthに従う）
 
   // 選択モード
   const [selectMode,  setSelectMode]  = useState(false);
@@ -218,7 +219,7 @@ export function TransactionListPage({ transactions, categories, members, pointAc
                     選択
                   </button>
                 )}
-                <button onClick={() => { setCalView(p => !p); setSelectMode(false); }}
+                <button onClick={() => { setCalView(p => !p); setSelectMode(false); setCalSelDay(null); setCalNavYM(null); }}
                   className={`text-sm font-bold px-2.5 py-1.5 rounded-lg transition-all ${
                     calView ? "bg-indigo-500 text-white" : "bg-gray-100 text-gray-500"
                   }`}>
@@ -480,14 +481,15 @@ export function TransactionListPage({ transactions, categories, members, pointAc
           if (a >= 1000)   return `${(a/1000).toFixed(1)}k`;
           return String(a);
         };
-        // calViewではselMonthが"all"の場合は現在月を使う
-        const now = new Date();
-        const calYM = (selMonth && selMonth !== "all") ? selMonth
-          : `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
+        // カレンダー表示中の月（selMonthが"all"のときはcalNavYMで独自管理）
+        const allYMs = months.filter(m => m !== "all"); // MonthSelectorのmonths（降順）
+        const defaultYM = allYMs[0] || (() => { const n = new Date(); return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}`; })();
+        const calYM = calNavYM || ((selMonth && selMonth !== "all") ? selMonth : defaultYM);
         const [calY, calM] = calYM.split("-").map(Number);
 
-        // その月のフィルター済み取引
-        const calTxs = displayRows.filter(t => (t.date || "").startsWith(calYM));
+        // その月のフィルター済み取引（selMonth="all"のときは全期間から当月分を抽出）
+        const calTxs = (selMonth === "all" ? transactions : displayRows)
+          .filter(t => (t.date || "").startsWith(calYM));
 
         // 日→{inc,exp,txs}のマップ
         const dayMap = {};
@@ -509,6 +511,29 @@ export function TransactionListPage({ transactions, categories, members, pointAc
         // 同じレベルで管理できるよう、stateを上に移動済み（calSelDay）
         return (
           <div className="bg-white">
+            {/* 月ナビゲーション（全期間フィルター時 or selMonthに関係なく月移動可能） */}
+            {(() => {
+              const prevYM = (() => { const d = new Date(calY, calM - 2, 1); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`; })();
+              const nextYM = (() => { const d = new Date(calY, calM, 1);     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`; })();
+              const hasPrev = allYMs.includes(prevYM) || (selMonth === "all" && displayRows.some(t => t.date?.startsWith(prevYM)));
+              const hasNext = allYMs.includes(nextYM) || (selMonth === "all" && displayRows.some(t => t.date?.startsWith(nextYM)));
+              return (
+                <div className="flex items-center justify-between px-4 py-2 border-b border-gray-100">
+                  <button onClick={() => { setCalNavYM(prevYM); setCalSelDay(null); }}
+                    disabled={!hasPrev}
+                    className={`w-8 h-8 flex items-center justify-center rounded-full text-sm font-bold transition-all ${hasPrev ? "text-indigo-500 hover:bg-indigo-50 active:bg-indigo-100" : "text-gray-200"}`}>
+                    ‹
+                  </button>
+                  <span className="text-sm font-bold text-gray-800">{calY}年{calM}月</span>
+                  <button onClick={() => { setCalNavYM(nextYM); setCalSelDay(null); }}
+                    disabled={!hasNext}
+                    className={`w-8 h-8 flex items-center justify-center rounded-full text-sm font-bold transition-all ${hasNext ? "text-indigo-500 hover:bg-indigo-50 active:bg-indigo-100" : "text-gray-200"}`}>
+                    ›
+                  </button>
+                </div>
+              );
+            })()}
+
             {/* 曜日ヘッダー */}
             <div className="grid grid-cols-7 border-b border-gray-100">
               {DOW.map((d, i) => (
