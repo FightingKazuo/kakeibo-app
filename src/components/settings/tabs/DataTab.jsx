@@ -35,28 +35,15 @@ export function DataTab({ transactions, categories, learnedRules, onDeleteRule, 
       <div className="rounded-2xl overflow-hidden border border-rose-200">
         <div className="bg-rose-50 px-4 py-3 border-b border-rose-200">
           {/* カテゴリ一括再適用 */}
-          {onReapplyCsvFormatId && (
-            <div className="bg-indigo-50 rounded-2xl p-4 border border-indigo-100 mb-3">
-              <p className="text-xs font-bold text-indigo-700 mb-1">📊 CSVカード名バッジを補完</p>
-              <p className="text-xs text-indigo-500 mb-2">
-                過去に取り込んだCSV取引の「📊 CSV」バッジを「📊 三井」「📊 EPOS」「📊 PPay」等に更新します。
-              </p>
-              <button onClick={onReapplyCsvFormatId}
-                className="w-full py-2 text-xs font-bold bg-indigo-500 text-white rounded-lg">
-                📊 過去データのバッジを更新
-              </button>
-            </div>
-          )}
-
           {onRebuildImportHistory && (
-            <div className="bg-emerald-50 rounded-2xl p-4 border border-emerald-100 mb-3">
-              <p className="text-xs font-bold text-emerald-700 mb-1">📅 取込履歴を補完</p>
-              <p className="text-xs text-emerald-600 mb-2">
-                ホーム画面の「CSV取り込み状況」が未反映の場合、取込済みデータから履歴を再構築します。
+            <div className="bg-indigo-50 rounded-2xl p-4 border border-indigo-100 mb-3">
+              <p className="text-xs font-bold text-indigo-700 mb-1">🔄 バッジ・取込履歴を一括補完</p>
+              <p className="text-xs text-indigo-500 mb-2">
+                過去の取引に「📊 三井」「📊 SBI」等のバッジを付け、ホーム画面の取込状況を更新します。
               </p>
               <button onClick={onRebuildImportHistory}
-                className="w-full py-2 text-xs font-bold bg-emerald-500 text-white rounded-lg">
-                📅 取込履歴を再構築
+                className="w-full py-2 text-xs font-bold bg-indigo-500 text-white rounded-lg">
+                🔄 バッジ・取込履歴を一括更新
               </button>
             </div>
           )}
