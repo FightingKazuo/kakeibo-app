@@ -13,6 +13,7 @@ const CSV_FORMAT_HINTS = [
   { id: "sbi",     patterns: ["口座振替　", "給与＊", "賞与＊", "振込＊", "利息", "ＳＢＩハイブリッド"] },
   { id: "amazon",  patterns: ["Amazon -", "Amazon　-"] },
   { id: "recruit", patterns: ["コジマ", "ニトリ"] },
+  { id: "rakuten", patterns: ["楽天スーパー", "楽天市場", "ランプショップ"] },
 ];
 const inferCsvFormatId = (tx) => {
   if (tx.source !== "csv" || tx.csvFormatId) return tx;
