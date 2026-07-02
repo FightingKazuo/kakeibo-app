@@ -1,7 +1,7 @@
 import { STORAGE_KEYS } from "../../../constants/storage";
 import { removeStorage } from "../../../utils/storage";
 
-export function DataTab({ transactions, categories, learnedRules, onDeleteRule, onResetCategories, onReset , onReapplyCategories, onReapplyCsvFormatId}) {
+export function DataTab({ transactions, categories, learnedRules, onDeleteRule, onResetCategories, onReset , onReapplyCategories, onReapplyCsvFormatId, onRebuildImportHistory}) {
   return (
     <div className="px-4 py-4 space-y-4">
       <div className="bg-white rounded-2xl p-4 border border-gray-100 space-y-2">
@@ -44,6 +44,19 @@ export function DataTab({ transactions, categories, learnedRules, onDeleteRule, 
               <button onClick={onReapplyCsvFormatId}
                 className="w-full py-2 text-xs font-bold bg-indigo-500 text-white rounded-lg">
                 📊 過去データのバッジを更新
+              </button>
+            </div>
+          )}
+
+          {onRebuildImportHistory && (
+            <div className="bg-emerald-50 rounded-2xl p-4 border border-emerald-100 mb-3">
+              <p className="text-xs font-bold text-emerald-700 mb-1">📅 取込履歴を補完</p>
+              <p className="text-xs text-emerald-600 mb-2">
+                ホーム画面の「CSV取り込み状況」が未反映の場合、取込済みデータから履歴を再構築します。
+              </p>
+              <button onClick={onRebuildImportHistory}
+                className="w-full py-2 text-xs font-bold bg-emerald-500 text-white rounded-lg">
+                📅 取込履歴を再構築
               </button>
             </div>
           )}
