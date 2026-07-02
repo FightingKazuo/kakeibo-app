@@ -4,6 +4,23 @@ import { SAMPLE_TX } from "./data/sampleData";
 import { loadStorage, saveStorage, clearAllStorage } from "./utils/storage";
 import { learnCategoryRule } from "./services/categoryPredictor";
 import { normalizeTransaction } from "./services/transaction";
+
+// ── 既存データのcsvFormatId補完（csvParser.js修正前に取り込んだデータ対応） ──
+// source="csv"でcsvFormatIdがない取引をlabelから推測して補完する
+const CSV_FORMAT_HINTS = [
+  { id: "smbc",    patterns: ["ＥＴＣ", "イデミツ", "ラクテンモバイル", "アポロステーション", "ＹＯＵＴＵＢＥ", "ＮＥＴＦＬＩＸ", "ダイソー／ＮＦＣ", "ＳＢＩ証券投信積立", "ＧＯＯＧＬＥ", "Google", "セブン－", "ローソン", "ウエルシア", "ミニストップ", "ＥＮＥＯＳ", "藍屋", "ドン・キホーテ", "ハウマッチ", "プレミアム付き"] },
+  { id: "epos",    patterns: ["ＡＰ／", "ＱＰ／", "ＮＩＮＴＥＮＤＯ　ＣＣ"] },
+  { id: "sbi",     patterns: ["口座振替　", "給与＊", "賞与＊", "振込＊", "利息", "ＳＢＩハイブリッド"] },
+  { id: "amazon",  patterns: ["Amazon -", "Amazon　-"] },
+  { id: "recruit", patterns: ["コジマ", "ニトリ"] },
+];
+const inferCsvFormatId = (tx) => {
+  if (tx.source !== "csv" || tx.csvFormatId) return tx;
+  for (const { id, patterns } of CSV_FORMAT_HINTS) {
+    if (patterns.some(p => (tx.label || "").includes(p))) return { ...tx, csvFormatId: id };
+  }
+  return tx;
+};
 import {
   getShareId, setShareId,
   fetchTransactions, upsertTransaction, deleteTransaction, upsertTransactions,
@@ -135,7 +152,7 @@ export default function App() {
         } catch {}
 
         if (txs && txs.length > 0) {
-          setTransactions(txs.map(normalizeTransaction).filter(Boolean));
+          setTransactions(txs.map(normalizeTransaction).filter(Boolean).map(inferCsvFormatId));
         } else {
           // Supabaseが空なら空で開始（サンプルデータは投入しない）
           setTransactions([]);
@@ -160,7 +177,7 @@ export default function App() {
       } catch (e) {
         console.error("Supabase load error:", e);
         // フォールバック：localStorage
-        setTransactions((loadStorage(STORAGE_KEYS.TRANSACTIONS, SAMPLE_TX) || []).map(normalizeTransaction).filter(Boolean));
+        setTransactions((loadStorage(STORAGE_KEYS.TRANSACTIONS, SAMPLE_TX) || []).map(normalizeTransaction).filter(Boolean).map(inferCsvFormatId));
         setCategories(loadStorage(STORAGE_KEYS.CATEGORIES, DEFAULT_CATS));
         setLearnedRules(loadStorage(STORAGE_KEYS.RULES, []));
         setMembers(loadStorage(STORAGE_KEYS.MEMBERS, DEFAULT_MEMBERS));
