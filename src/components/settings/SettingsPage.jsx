@@ -39,7 +39,9 @@ export function SettingsPage({
   shareId, inviteUrl, onJoinShare, syncStatus,
   activeCsvSources, onActiveCsvSourcesChange,
   budgets, onBudgetsChange,
-  onReapplyCategories}) {
+  onReapplyCategories,
+  onReapplyCsvFormatId,
+  onRebuildImportHistory}) {
   const [tab, setTab] = useState(null);
 
   // iOSスワイプバック・ブラウザバックで setTab(null) を呼ぶ
@@ -115,7 +117,7 @@ export function SettingsPage({
       {tab === "taxrules"  && <TaxRulesTab />}
       {tab === "rules"     && <RulesTab learnedRules={learnedRules} onDeleteRule={onDeleteRule} />}
       {tab === "backup"    && <BackupTab transactions={transactions} categories={categories} learnedRules={learnedRules} onAdd={onAdd} />}
-      {tab === "data"      && <DataTab transactions={transactions} categories={categories} learnedRules={learnedRules} onDeleteRule={onDeleteRule} onResetCategories={onResetCategories} onReset={onReset} onReapplyCategories={onReapplyCategories} />}
+      {tab === "data"      && <DataTab transactions={transactions} categories={categories} learnedRules={learnedRules} onDeleteRule={onDeleteRule} onResetCategories={onResetCategories} onReset={onReset} onReapplyCategories={onReapplyCategories} onReapplyCsvFormatId={onReapplyCsvFormatId} onRebuildImportHistory={onRebuildImportHistory} />}
     </div>
   );
 }
