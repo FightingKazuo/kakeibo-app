@@ -355,28 +355,33 @@ export default function App() {
 
     // Step2: 補完済みtransactionsからimportHistoryを再構築
     const now = new Date().toISOString();
-    // 既存のimportHistoryは引き継がず完全に作り直す（誤ったエントリをクリア）
-    const rebuilt = {};
 
-    // カードごとにDBに存在する最新取引日付を取得
-    // → その月以降には✅を付けない（7月のデータがないのに7月✅になるのを防ぐ）
+    // DBにある取引から「カード×月」のセットを作る
+    const txKeys = new Set();
     const latestDateByFmt = {};
     updatedTxs
       .filter(t => t.source === "csv" && t.csvFormatId && t.date)
       .forEach(t => {
+        txKeys.add(`${t.csvFormatId}_${t.date.slice(0, 7)}`);
         const prev = latestDateByFmt[t.csvFormatId];
         if (!prev || t.date > prev) latestDateByFmt[t.csvFormatId] = t.date;
       });
 
-    updatedTxs
-      .filter(t => t.source === "csv" && t.csvFormatId && t.date)
-      .forEach(t => {
-        const ym  = t.date.slice(0, 7);
-        const key = `${t.csvFormatId}_${ym}`;
-        // その月がDBの最新取引日付と同月以前のみ記録
-        const latestYM = (latestDateByFmt[t.csvFormatId] || "").slice(0, 7);
-        if (!rebuilt[key] && ym <= latestYM) rebuilt[key] = now;
-      });
+    // 既存のimportHistoryをベースに:
+    // ① DBに取引がある月 → 記録する（新規追加 or 既存維持）
+    // ② DBに取引がない月 → 削除（誤ったエントリをクリア）
+    const rebuilt = {};
+    // まずDBに取引がある月を全て記録
+    txKeys.forEach(key => {
+      const m = key.match(/^(.+)_(\d{4}-\d{2})$/);
+      if (!m) return;
+      const [, fmt, ym] = m;
+      const latestYM = (latestDateByFmt[fmt] || "").slice(0, 7);
+      if (ym <= latestYM) {
+        // 既存の取込日があればそれを優先、なければ今日
+        rebuilt[key] = (importHistory || {})[key] || now;
+      }
+    });
 
     // Step3: 状態を更新して保存
     setTransactions(updatedTxs);
