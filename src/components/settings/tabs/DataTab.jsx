@@ -1,7 +1,7 @@
 import { STORAGE_KEYS } from "../../../constants/storage";
 import { removeStorage } from "../../../utils/storage";
 
-export function DataTab({ transactions, categories, learnedRules, onDeleteRule, onResetCategories, onReset , onReapplyCategories}) {
+export function DataTab({ transactions, categories, learnedRules, onDeleteRule, onResetCategories, onReset , onReapplyCategories, onReapplyCsvFormatId}) {
   return (
     <div className="px-4 py-4 space-y-4">
       <div className="bg-white rounded-2xl p-4 border border-gray-100 space-y-2">
@@ -35,6 +35,19 @@ export function DataTab({ transactions, categories, learnedRules, onDeleteRule, 
       <div className="rounded-2xl overflow-hidden border border-rose-200">
         <div className="bg-rose-50 px-4 py-3 border-b border-rose-200">
           {/* カテゴリ一括再適用 */}
+          {onReapplyCsvFormatId && (
+            <div className="bg-indigo-50 rounded-2xl p-4 border border-indigo-100 mb-3">
+              <p className="text-xs font-bold text-indigo-700 mb-1">📊 CSVカード名バッジを補完</p>
+              <p className="text-xs text-indigo-500 mb-2">
+                過去に取り込んだCSV取引の「📊 CSV」バッジを「📊 三井」「📊 EPOS」「📊 PPay」等に更新します。
+              </p>
+              <button onClick={onReapplyCsvFormatId}
+                className="w-full py-2 text-xs font-bold bg-indigo-500 text-white rounded-lg">
+                📊 過去データのバッジを更新
+              </button>
+            </div>
+          )}
+
           {onReapplyCategories && (
             <div className="px-4 py-3 border-b border-gray-100">
               <p className="text-xs font-bold text-indigo-700 mb-1">🔄 カテゴリ一括再適用</p>
