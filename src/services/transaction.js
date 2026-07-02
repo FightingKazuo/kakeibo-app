@@ -128,6 +128,7 @@ export const normalizeTransaction = (raw) => {
     isTransfer:       raw.isTransfer      || false,
     isCardWithdrawal: raw.isCardWithdrawal || false,
     shareAmount:      raw.shareAmount != null ? safeAmount(raw.shareAmount) : null,
+    csvFormatId:      raw.csvFormatId      || null,
 
     store,
     items,
