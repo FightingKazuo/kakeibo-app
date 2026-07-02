@@ -369,8 +369,16 @@ export function CsvImportPage({ categories, existingTransactions, ocrCorrections
     setCsvSummary({ count: toImport.length, skipped: csvRows.length - toImport.length, expTotal, incTotal });
     setCsvStep("done");
 
-    if (csvFormatIds.length > 0 && toImport.length > 0) {
-      const months  = [...new Set(toImport.map(r => r.date).filter(Boolean).sort().map(d => d.slice(0, 7)))];
+    if (csvFormatIds.length > 0) {
+      // 全件重複でも「取り込み操作をした」事実を記録する
+      // toImportが0件でもcsvRows（読み込み済み全行）から月を取得する
+      const targetRows = toImport.length > 0 ? toImport : csvRows;
+      const months  = [...new Set(targetRows.map(r => r.date).filter(Boolean).sort().map(d => d.slice(0, 7)))];
+      if (months.length === 0) {
+        // 月が取得できない場合は今月を使う
+        const now = new Date();
+        months.push(`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`);
+      }
       const newHist = { ...(importHistory || {}) };
       const importedAt = new Date().toISOString();
       csvFormatIds.forEach(fmtId => months.forEach(ym => { newHist[`${fmtId}_${ym}`] = importedAt; }));
