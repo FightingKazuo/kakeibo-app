@@ -476,10 +476,11 @@ export function TransactionListPage({ transactions, categories, members, pointAc
         // フィルター済みの取引を月×日でマップ化
         const fmt = (n) => {
           const a = Math.abs(n);
-          if (a >= 100000) return `${(a/10000).toFixed(0)}万`;
-          if (a >= 10000)  return `${(a/10000).toFixed(1)}万`;
-          if (a >= 1000)   return `${(a/1000).toFixed(1)}k`;
-          return String(a);
+          if (a >= 10000) {
+            const man = a / 10000;
+            return man % 1 === 0 ? `${man}万` : `${man.toFixed(1)}万`;
+          }
+          return a.toLocaleString(); // 9,999以下はそのまま（カンマあり）
         };
         // カレンダー表示中の月（selMonthが"all"のときはcalNavYMで独自管理）
         const allYMs = months.filter(m => m !== "all"); // MonthSelectorのmonths（降順）
@@ -553,8 +554,8 @@ export function TransactionListPage({ transactions, categories, members, pointAc
                     <span className={`text-xs font-bold w-5 h-5 rounded-full flex items-center justify-center ${dow===0?"text-rose-400":dow===6?"text-indigo-400":"text-gray-700"}`}>{day}</span>
                     {data && (
                       <div className="flex flex-col items-center mt-0.5 gap-0.5">
-                        {data.inc > 0 && <span className="text-emerald-500 font-bold leading-none" style={{fontSize:"8px"}}>+{fmt(data.inc)}</span>}
-                        {data.exp > 0 && <span className="text-rose-500 font-bold leading-none" style={{fontSize:"8px"}}>-{fmt(data.exp)}</span>}
+                        {data.inc > 0 && <span className="text-emerald-500 font-bold leading-none" style={{fontSize:"9px"}}>+{fmt(data.inc)}</span>}
+                        {data.exp > 0 && <span className="text-rose-500 font-bold leading-none" style={{fontSize:"9px"}}>-{fmt(data.exp)}</span>}
                       </div>
                     )}
                     {isSelected && <div className="mt-auto w-3 h-0.5 bg-indigo-400 rounded-full mb-0.5" />}
