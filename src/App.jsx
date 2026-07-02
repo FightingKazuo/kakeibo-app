@@ -15,8 +15,14 @@ const CSV_FORMAT_HINTS = [
   { id: "recruit", patterns: ["コジマ", "ニトリ"] },
   { id: "rakuten", patterns: ["楽天スーパー", "楽天市場", "ランプショップ"] },
 ];
-const inferCsvFormatId = (tx) => {
+const inferCsvFormatId = (tx, pointAccounts = []) => {
   if (tx.source !== "csv" || tx.csvFormatId) return tx;
+  // PayPay: paymentMethodがPayPayのpointAccountIdと一致する場合
+  const payPayId = pointAccounts.find(a => a.name === "PayPay")?.id;
+  if (payPayId && (tx.paymentMethod === payPayId || tx.pointAccountId === payPayId)) {
+    return { ...tx, csvFormatId: "paypay" };
+  }
+  // ラベルパターンで判定
   for (const { id, patterns } of CSV_FORMAT_HINTS) {
     if (patterns.some(p => (tx.label || "").includes(p))) return { ...tx, csvFormatId: id };
   }
@@ -153,7 +159,8 @@ export default function App() {
         } catch {}
 
         if (txs && txs.length > 0) {
-          setTransactions(txs.map(normalizeTransaction).filter(Boolean).map(inferCsvFormatId));
+          const pa = points || loadStorage(STORAGE_KEYS.POINT_ACCOUNTS, DEFAULT_POINT_ACCOUNTS) || [];
+          setTransactions(txs.map(normalizeTransaction).filter(Boolean).map(tx => inferCsvFormatId(tx, pa)));
         } else {
           // Supabaseが空なら空で開始（サンプルデータは投入しない）
           setTransactions([]);
@@ -178,7 +185,8 @@ export default function App() {
       } catch (e) {
         console.error("Supabase load error:", e);
         // フォールバック：localStorage
-        setTransactions((loadStorage(STORAGE_KEYS.TRANSACTIONS, SAMPLE_TX) || []).map(normalizeTransaction).filter(Boolean).map(inferCsvFormatId));
+        const localPoints = loadStorage(STORAGE_KEYS.POINT_ACCOUNTS, DEFAULT_POINT_ACCOUNTS) || [];
+        setTransactions((loadStorage(STORAGE_KEYS.TRANSACTIONS, SAMPLE_TX) || []).map(normalizeTransaction).filter(Boolean).map(tx => inferCsvFormatId(tx, localPoints)));
         setCategories(loadStorage(STORAGE_KEYS.CATEGORIES, DEFAULT_CATS));
         setLearnedRules(loadStorage(STORAGE_KEYS.RULES, []));
         setMembers(loadStorage(STORAGE_KEYS.MEMBERS, DEFAULT_MEMBERS));
@@ -301,6 +309,25 @@ export default function App() {
   const handleImportHistoryChange = async (newHistory) => {
     setImportHistory(newHistory);
     try { await saveImportHistory(shareId, newHistory); } catch {}
+  };
+
+  // ① 過去取引へのcsvFormatId一括補完（設定画面から実行）
+  const handleReapplyCsvFormatId = async () => {
+    const updated = transactions.map(tx => inferCsvFormatId(tx, pointAccounts));
+    const changed = updated.filter((tx, i) => tx.csvFormatId !== transactions[i].csvFormatId);
+    if (changed.length === 0) { alert("補完対象がありませんでした"); return; }
+    setTransactions(updated);
+    // Supabaseにも保存
+    try {
+      const { saveTransactions } = await import("./utils/supabase");
+      await saveTransactions(shareId, updated);
+    } catch {}
+    // localStorageにも
+    try { localStorage.setItem(
+      (await import("./constants/storage")).STORAGE_KEYS.TRANSACTIONS,
+      JSON.stringify(updated)
+    ); } catch {}
+    alert(`${changed.length}件のcsvFormatIdを補完しました`);
   };
 
   // ② 過去取引への一括カテゴリ再適用
@@ -479,6 +506,7 @@ export default function App() {
           budgets={budgets}
           onBudgetsChange={handleBudgetsChange}
           onReapplyCategories={handleReapplyCategories}
+              onReapplyCsvFormatId={handleReapplyCsvFormatId}
           // 共有設定
           shareId={shareId}
           inviteUrl={inviteUrl}
