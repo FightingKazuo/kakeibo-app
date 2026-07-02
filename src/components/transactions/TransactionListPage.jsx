@@ -69,6 +69,10 @@ export function TransactionListPage({ transactions, categories, members, pointAc
   const [sortBy,        setSortBy]        = useState("date");
   const [sortAsc,       setSortAsc]       = useState(true); // true=古い順
 
+  // カレンダービュー
+  const [calView,    setCalView]    = useState(false);
+  const [calSelDay,  setCalSelDay]  = useState(null);
+
   // 選択モード
   const [selectMode,  setSelectMode]  = useState(false);
   const [selectedIds, setSelectedIds] = useState(new Set());
@@ -207,12 +211,22 @@ export function TransactionListPage({ transactions, categories, members, pointAc
           <>
             <div className="flex items-center justify-between">
               <h1 className="text-xl font-bold text-gray-900">取引一覧</h1>
-              <button onClick={() => setSelectMode(true)}
-                className="text-xs text-gray-500 font-semibold px-3 py-1.5 bg-gray-100 rounded-lg">
-                選択
-              </button>
+              <div className="flex items-center gap-2">
+                {!calView && (
+                  <button onClick={() => setSelectMode(true)}
+                    className="text-xs text-gray-500 font-semibold px-3 py-1.5 bg-gray-100 rounded-lg">
+                    選択
+                  </button>
+                )}
+                <button onClick={() => { setCalView(p => !p); setSelectMode(false); }}
+                  className={`text-sm font-bold px-2.5 py-1.5 rounded-lg transition-all ${
+                    calView ? "bg-indigo-500 text-white" : "bg-gray-100 text-gray-500"
+                  }`}>
+                  📅
+                </button>
+              </div>
             </div>
-            <MonthSelector months={months} selected={selMonth} onChange={setSelMonth} />
+            <MonthSelector months={months} selected={selMonth} onChange={(m) => { setSelMonth(m); setCalSelDay(null); }} />
             {/* ソース・エラーフィルター */}
             <div className="flex gap-2 overflow-x-auto scrollbar-none">
               {[["all","すべて"],["manual","✏️手動"],["csv","📊CSV"],["ocr","📷OCR"]].map(([id, lb]) => (
@@ -456,8 +470,113 @@ export function TransactionListPage({ transactions, categories, members, pointAc
         </div>
       )}
 
+      {/* ── カレンダービュー ── */}
+      {calView && (() => {
+        // フィルター済みの取引を月×日でマップ化
+        const fmt = (n) => {
+          const a = Math.abs(n);
+          if (a >= 100000) return `${(a/10000).toFixed(0)}万`;
+          if (a >= 10000)  return `${(a/10000).toFixed(1)}万`;
+          if (a >= 1000)   return `${(a/1000).toFixed(1)}k`;
+          return String(a);
+        };
+        // calViewではselMonthが"all"の場合は現在月を使う
+        const now = new Date();
+        const calYM = (selMonth && selMonth !== "all") ? selMonth
+          : `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
+        const [calY, calM] = calYM.split("-").map(Number);
+
+        // その月のフィルター済み取引
+        const calTxs = displayRows.filter(t => (t.date || "").startsWith(calYM));
+
+        // 日→{inc,exp,txs}のマップ
+        const dayMap = {};
+        calTxs.forEach(t => {
+          const d = parseInt((t.date || "").slice(8, 10), 10);
+          if (!dayMap[d]) dayMap[d] = { inc: 0, exp: 0, txs: [] };
+          if (t.type === "income") dayMap[d].inc += t.amount;
+          else dayMap[d].exp += Math.abs(t._splitAmt ?? t.amount);
+          dayMap[d].txs.push(t);
+        });
+
+        const firstDow  = new Date(calY, calM - 1, 1).getDay();
+        const daysInMon = new Date(calY, calM, 0).getDate();
+        const cells = [...Array(firstDow).fill(null), ...Array.from({length: daysInMon}, (_, i) => i + 1)];
+        const DOW = ["日","月","火","水","木","金","土"];
+
+        // 選択日はコンポーネント外stateでもよいが、ローカルstateは使えないので
+        // 簡易実装として選択日をURLハッシュで管理する代わりに、
+        // 同じレベルで管理できるよう、stateを上に移動済み（calSelDay）
+        return (
+          <div className="bg-white">
+            {/* 曜日ヘッダー */}
+            <div className="grid grid-cols-7 border-b border-gray-100">
+              {DOW.map((d, i) => (
+                <div key={d} className={`text-center py-2 text-xs font-bold ${i===0?"text-rose-400":i===6?"text-indigo-400":"text-gray-400"}`}>{d}</div>
+              ))}
+            </div>
+            {/* グリッド */}
+            <div className="grid grid-cols-7">
+              {cells.map((day, idx) => {
+                if (!day) return <div key={`e-${idx}`} className="h-16 border-b border-r border-gray-50 bg-gray-50/30" />;
+                const data = dayMap[day];
+                const isSelected = calSelDay === day;
+                const dow = idx % 7;
+                return (
+                  <button key={day} onClick={() => setCalSelDay(isSelected ? null : day)}
+                    className={`h-16 flex flex-col items-center pt-1 border-b border-r border-gray-50 transition-all active:bg-indigo-50 ${isSelected ? "bg-indigo-50" : ""}`}>
+                    <span className={`text-xs font-bold w-5 h-5 rounded-full flex items-center justify-center ${dow===0?"text-rose-400":dow===6?"text-indigo-400":"text-gray-700"}`}>{day}</span>
+                    {data && (
+                      <div className="flex flex-col items-center mt-0.5 gap-0.5">
+                        {data.inc > 0 && <span className="text-emerald-500 font-bold leading-none" style={{fontSize:"8px"}}>+{fmt(data.inc)}</span>}
+                        {data.exp > 0 && <span className="text-rose-500 font-bold leading-none" style={{fontSize:"8px"}}>-{fmt(data.exp)}</span>}
+                      </div>
+                    )}
+                    {isSelected && <div className="mt-auto w-3 h-0.5 bg-indigo-400 rounded-full mb-0.5" />}
+                  </button>
+                );
+              })}
+            </div>
+            {/* 選択日の取引詳細パネル */}
+            {calSelDay && (() => {
+              const dayTxs = (dayMap[calSelDay]?.txs || []);
+              return (
+                <div className="border-t-2 border-indigo-100">
+                  <div className="flex items-center justify-between px-4 py-2 bg-indigo-50">
+                    <span className="text-xs font-bold text-indigo-600">
+                      {calM}/{calSelDay}（{DOW[new Date(calY, calM-1, calSelDay).getDay()]}）· {dayTxs.length}件
+                    </span>
+                    <button onClick={() => setCalSelDay(null)} className="text-gray-400 text-sm w-6 h-6">✕</button>
+                  </div>
+                  {dayTxs.length === 0
+                    ? <p className="text-xs text-gray-400 text-center py-6">取引なし</p>
+                    : dayTxs.map((t, i) => (
+                      <TransactionItem
+                        key={`cal-${t.id}_${i}`}
+                        transaction={t}
+                        categories={categories}
+                        members={members}
+                        pointAccounts={pointAccounts}
+                        learnedRules={learnedRules}
+                        onEdit={onEdit}
+                        onDelete={onDelete}
+                        onUpdateSharing={handleUpdateSharing}
+                        onUpdateTransfer={handleUpdateTransfer}
+                        onCatFilter={(cat) => setCatFilters(p => { const n = new Set(p); n.has(cat) ? n.delete(cat) : n.add(cat); return n; })}
+                        catFilters={catFilters}
+                        csvSourceLabels={csvSourceLabels}
+                      />
+                    ))
+                  }
+                </div>
+              );
+            })()}
+          </div>
+        );
+      })()}
+
       {/* ── リスト ── */}
-      <div className="bg-white">
+      {!calView && <div className="bg-white">
         {displayRows.length === 0 && transactions.length === 0 ? (
           <EmptyState emoji="🗂️" title="まだ取引がありません" desc="「追加」から最初の取引を登録しましょう"
             actionLabel="➕ 取引を追加する" onAction={() => onNavigate?.("add")} />
@@ -485,7 +604,7 @@ export function TransactionListPage({ transactions, categories, members, pointAc
             />
           ))
         )}
-      </div>
+      </div>}
     </div>
   );
 }
