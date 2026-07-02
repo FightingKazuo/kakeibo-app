@@ -354,14 +354,28 @@ export default function App() {
     const badgeChanged = updatedTxs.filter((tx, i) => tx.csvFormatId !== transactions[i].csvFormatId).length;
 
     // Step2: 補完済みtransactionsからimportHistoryを再構築
-    const now = new Date().toISOString(); // 今日の日付で記録
-    const rebuilt = { ...(importHistory || {}) };
+    const now = new Date().toISOString();
+    // 既存のimportHistoryは引き継がず完全に作り直す（誤ったエントリをクリア）
+    const rebuilt = {};
+
+    // カードごとにDBに存在する最新取引日付を取得
+    // → その月以降には✅を付けない（7月のデータがないのに7月✅になるのを防ぐ）
+    const latestDateByFmt = {};
+    updatedTxs
+      .filter(t => t.source === "csv" && t.csvFormatId && t.date)
+      .forEach(t => {
+        const prev = latestDateByFmt[t.csvFormatId];
+        if (!prev || t.date > prev) latestDateByFmt[t.csvFormatId] = t.date;
+      });
+
     updatedTxs
       .filter(t => t.source === "csv" && t.csvFormatId && t.date)
       .forEach(t => {
         const ym  = t.date.slice(0, 7);
         const key = `${t.csvFormatId}_${ym}`;
-        if (!rebuilt[key]) rebuilt[key] = now;
+        // その月がDBの最新取引日付と同月以前のみ記録
+        const latestYM = (latestDateByFmt[t.csvFormatId] || "").slice(0, 7);
+        if (!rebuilt[key] && ym <= latestYM) rebuilt[key] = now;
       });
 
     // Step3: 状態を更新して保存
