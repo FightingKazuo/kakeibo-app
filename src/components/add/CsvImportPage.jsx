@@ -339,14 +339,14 @@ export function CsvImportPage({ categories, existingTransactions, ocrCorrections
     const isPayPay  = csvDetected?.includes("PayPay") || csvDetected?.includes("paypay");
 
     toImport.forEach(r => {
-      const enriched  = isPayPay && payPayAccount ? { ...r, pointAccountId: payPayAccount.id, paymentMethod: payPayAccount.id } : r;
+      const enriched  = isPayPay && payPayAccount ? { ...r, pointAccountId: payPayAccount.id, paymentMethod: payPayAccount.id, csvFormatId: "paypay" } : r;
       const cleaned   = r.isCardWarning ? { ...enriched, isTransfer: false, isCardWithdrawal: false, isCardWarning: false } : enriched;
       const withPayer = cleaned.type === "expense"
         ? { ...cleaned, paidBy: selfId, shareType: cleaned.shareType || defaultShareType }
         : cleaned;
 
       if (r.isPointCharge && payPayAccount) {
-        onAdd(createTransaction({ ...r, type: "expense", amount: -Math.abs(r.amount), pointAccountId: payPayAccount.id, paymentMethod: payPayAccount.id, shareType: "personal", paidBy: selfId, isTransfer: false, source: "csv" }));
+        onAdd(createTransaction({ ...r, type: "expense", amount: -Math.abs(r.amount), pointAccountId: payPayAccount.id, paymentMethod: payPayAccount.id, shareType: "personal", paidBy: selfId, isTransfer: false, source: "csv", csvFormatId: "paypay" }));
       } else if (r.ocrDuplicates?.length > 0) {
         const action = ocrActions[r._csvIdx] || "skip";
         if (action === "skip") {
