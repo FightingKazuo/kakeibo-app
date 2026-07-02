@@ -19,4 +19,5 @@ export const CSV_SOURCES_ALL = [
   { id: "recruit", label: "リクルートカード", short: "RC",   icon: "💳" },
   { id: "mufg",    label: "三菱UFJ銀行",      short: "UFJ",  icon: "🏦" },
   { id: "amazon",  label: "Amazon",           short: "AMZ",  icon: "📦" },
+  { id: "rakuten", label: "楽天カード",       short: "楽天", icon: "💳" },
 ];
