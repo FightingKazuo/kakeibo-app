@@ -347,19 +347,34 @@ export default function App() {
   };
 
   // 既存のtransactionsからimportHistoryを再構築（過去取り込み済みデータの履歴補完）
+  // ① csvFormatIdを先に補完 → ② importHistoryを再構築 を1ステップで実行
   const handleRebuildImportHistory = async () => {
+    // Step1: csvFormatIdを補完したtransactionsを作成
+    const updatedTxs = transactions.map(tx => inferCsvFormatId(tx, pointAccounts));
+    const badgeChanged = updatedTxs.filter((tx, i) => tx.csvFormatId !== transactions[i].csvFormatId).length;
+
+    // Step2: 補完済みtransactionsからimportHistoryを再構築
+    const now = new Date().toISOString(); // 今日の日付で記録
     const rebuilt = { ...(importHistory || {}) };
-    transactions
+    updatedTxs
       .filter(t => t.source === "csv" && t.csvFormatId && t.date)
       .forEach(t => {
         const ym  = t.date.slice(0, 7);
         const key = `${t.csvFormatId}_${ym}`;
-        if (!rebuilt[key]) rebuilt[key] = t.date + "T00:00:00.000Z"; // 取込日は取引日で代替
+        if (!rebuilt[key]) rebuilt[key] = now;
       });
+
+    // Step3: 状態を更新して保存
+    setTransactions(updatedTxs);
     setImportHistory(rebuilt);
+    try {
+      const { saveTransactions } = await import("./utils/supabase");
+      await saveTransactions(shareId, updatedTxs);
+    } catch {}
     try { await saveImportHistory(shareId, rebuilt); } catch {}
-    const newKeys = Object.keys(rebuilt).length - Object.keys(importHistory || {}).length;
-    alert(`${newKeys}件の取込履歴を補完しました`);
+
+    const histKeys = Object.keys(rebuilt).length - Object.keys(importHistory || {}).length;
+    alert(`バッジ補完: ${badgeChanged}件\n取込履歴補完: ${histKeys}件\n完了しました`);
   };
 
   // ① 過去取引へのcsvFormatId一括補完（設定画面から実行）
