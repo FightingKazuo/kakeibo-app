@@ -7,10 +7,30 @@ import { normalizeTransaction } from "./services/transaction";
 
 // ── 既存データのcsvFormatId補完（csvParser.js修正前に取り込んだデータ対応） ──
 // source="csv"でcsvFormatIdがない取引をlabelから推測して補完する
+// zen2han: 全角英数を半角に変換してからパターン比較（PDF由来の半角ラベル対応）
+const zen2han = s => String(s || "").replace(/[Ａ-Ｚａ-ｚ０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
+
 const CSV_FORMAT_HINTS = [
-  { id: "smbc",    patterns: ["ＥＴＣ", "イデミツ", "ラクテンモバイル", "アポロステーション", "ＹＯＵＴＵＢＥ", "ＮＥＴＦＬＩＸ", "ダイソー／ＮＦＣ", "ＳＢＩ証券投信積立", "ＧＯＯＧＬＥ", "Google", "セブン－", "ローソン", "ウエルシア", "ミニストップ", "ＥＮＥＯＳ", "藍屋", "ドン・キホーテ", "ハウマッチ", "プレミアム付き"] },
-  { id: "epos",    patterns: ["ＡＰ／", "ＱＰ／", "ＮＩＮＴＥＮＤＯ　ＣＣ"] },
-  { id: "sbi",     patterns: ["口座振替　", "給与＊", "賞与＊", "振込＊", "利息", "ＳＢＩハイブリッド"] },
+  { id: "smbc", patterns: [
+    // ETCはほぼ三井住友のみ
+    "ETC", "iD",
+    // ガソリン
+    "イデミツ", "アポロステーション", "出光興産SS",
+    // サブスク・通信
+    "YOUTUBE", "NETFLIX", "GOOGLE", "ラクテンモバイル", "Rakuten",
+    // コンビニ・スーパー
+    "セブン", "ローソン", "ウエルシア", "ミニストップ", "エブリィ",
+    // その他三井住友でよく出る
+    "ENEOS", "ダイソー", "SBI証券投信積立", "ハウマッチ", "ドン・キホーテ",
+    "藍屋", "プレミアム付き", "快活CLUB", "バロー",
+  ]},
+  { id: "epos", patterns: [
+    "AP/", "QP/",           // zen2han後のAP/ QP/
+    "ＡＰ／", "ＱＰ／",     // 念のため全角も
+    "NINTENDO CC",           // zen2han後
+    "ＮＩＮＴＥＮＤＯ　ＣＣ",
+  ]},
+  { id: "sbi",     patterns: ["口座振替　", "給与＊", "賞与＊", "振込＊", "利息", "SBIハイブリッド", "ＳＢＩハイブリッド"] },
   { id: "amazon",  patterns: ["Amazon -", "Amazon　-"] },
   { id: "recruit", patterns: ["コジマ", "ニトリ"] },
   { id: "rakuten", patterns: ["楽天スーパー", "楽天市場", "ランプショップ"] },
@@ -22,9 +42,10 @@ const inferCsvFormatId = (tx, pointAccounts = []) => {
   if (payPayId && (tx.paymentMethod === payPayId || tx.pointAccountId === payPayId)) {
     return { ...tx, csvFormatId: "paypay" };
   }
-  // ラベルパターンで判定
+  // ラベルをzen2han変換してからパターン比較（PDF由来の半角ラベルも全角ラベルも統一）
+  const label = zen2han(tx.label || "");
   for (const { id, patterns } of CSV_FORMAT_HINTS) {
-    if (patterns.some(p => (tx.label || "").includes(p))) return { ...tx, csvFormatId: id };
+    if (patterns.some(p => label.includes(zen2han(p)))) return { ...tx, csvFormatId: id };
   }
   return tx;
 };
@@ -311,6 +332,22 @@ export default function App() {
     try { await saveImportHistory(shareId, newHistory); } catch {}
   };
 
+  // 既存のtransactionsからimportHistoryを再構築（過去取り込み済みデータの履歴補完）
+  const handleRebuildImportHistory = async () => {
+    const rebuilt = { ...(importHistory || {}) };
+    transactions
+      .filter(t => t.source === "csv" && t.csvFormatId && t.date)
+      .forEach(t => {
+        const ym  = t.date.slice(0, 7);
+        const key = `${t.csvFormatId}_${ym}`;
+        if (!rebuilt[key]) rebuilt[key] = t.date + "T00:00:00.000Z"; // 取込日は取引日で代替
+      });
+    setImportHistory(rebuilt);
+    try { await saveImportHistory(shareId, rebuilt); } catch {}
+    const newKeys = Object.keys(rebuilt).length - Object.keys(importHistory || {}).length;
+    alert(`${newKeys}件の取込履歴を補完しました`);
+  };
+
   // ① 過去取引へのcsvFormatId一括補完（設定画面から実行）
   const handleReapplyCsvFormatId = async () => {
     const updated = transactions.map(tx => inferCsvFormatId(tx, pointAccounts));
@@ -507,6 +544,7 @@ export default function App() {
           onBudgetsChange={handleBudgetsChange}
           onReapplyCategories={handleReapplyCategories}
               onReapplyCsvFormatId={handleReapplyCsvFormatId}
+              onRebuildImportHistory={handleRebuildImportHistory}
           // 共有設定
           shareId={shareId}
           inviteUrl={inviteUrl}
