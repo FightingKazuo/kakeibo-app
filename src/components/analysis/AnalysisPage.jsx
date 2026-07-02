@@ -139,7 +139,37 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
       if (receiversClone[ri].remaining < 1) ri++;
     }
 
-    return { balances, totalShared, perPerson, settlements, txCount: target.length, target };
+    // ── 立替集計 ──────────────────────────────────────────────
+    // ① 相手費用・自分払い  → 全額、相手への請求
+    // ② 個人費用・相手払い  → 全額、自分が返す
+    const selfId    = members[0]?.id;
+    const partnerId = members[1]?.id;
+    const baseTxFilter = t =>
+      t.type === "expense" &&
+      t.date >= settleDateFrom &&
+      t.date <= settleDateTo;
+
+    // ① 相手費用を自分が立替（shareType=partner & paidBy=self）
+    const advanceBySelf = transactions.filter(t =>
+      baseTxFilter(t) &&
+      t.shareType === "partner" &&
+      (t.paidBy === selfId || !t.paidBy)
+    );
+    const advanceTotalSelf = advanceBySelf.reduce((s, t) => s + Math.abs(t.shareAmount ?? t.amount), 0);
+
+    // ② 個人費用を相手が立替（shareType=personal & paidBy=partner）
+    const advanceByPartner = transactions.filter(t =>
+      baseTxFilter(t) &&
+      t.shareType === "personal" &&
+      t.paidBy === partnerId
+    );
+    const advanceTotalPartner = advanceByPartner.reduce((s, t) => s + Math.abs(t.shareAmount ?? t.amount), 0);
+
+    // 純立替差額（正=相手から受け取り、負=自分が返す）
+    const advanceNet = advanceTotalSelf - advanceTotalPartner;
+
+    return { balances, totalShared, perPerson, settlements, txCount: target.length, target,
+      advanceTxs, advanceBySelf, advanceTotalSelf, advanceByPartner, advanceTotalPartner, advanceNet };
   }, [transactions, members, settleDateFrom, settleDateTo]);
 
   // ── 精算対象取引（ソート済み）──
@@ -627,26 +657,100 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
               </div>
 
               {/* 精算内容 */}
-              {settlementData.settlements.length > 0 ? (
-                <div className="bg-indigo-50 rounded-2xl p-4 border border-indigo-200 space-y-3">
-                  <p className="text-xs font-semibold text-indigo-600 uppercase tracking-wide">💸 精算内容</p>
-                  {settlementData.settlements.map((s, i) => (
-                    <div key={i} className="bg-white rounded-xl p-3 flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-bold text-gray-800">{s.from} → {s.to}</p>
-                        <p className="text-xs text-gray-400 mt-0.5">が支払う</p>
+              {(() => {
+                const hasSettle = settlementData.settlements.length > 0;
+                const hasAdvance = (settlementData.advanceTotalSelf + settlementData.advanceTotalPartner) > 0;
+                const selfName = members[0]?.name || "自分";
+                const partnerName = members[1]?.name || "相手";
+                // 精算額 + 立替額の合計
+                const settleAmt = hasSettle ? settlementData.settlements.find(s => s.from === partnerName)?.amount || 0 : 0;
+                const advanceNet = settlementData.advanceNet || 0;
+                const totalClaim = settleAmt + advanceNet;
+                return (
+                  <>
+                    {hasSettle ? (
+                      <div className="bg-indigo-50 rounded-2xl p-4 border border-indigo-200 space-y-3">
+                        <p className="text-xs font-semibold text-indigo-600 uppercase tracking-wide">💸 精算内容</p>
+                        {settlementData.settlements.map((s, i) => (
+                          <div key={i} className="bg-white rounded-xl p-3 flex items-center justify-between">
+                            <div>
+                              <p className="text-sm font-bold text-gray-800">{s.from} → {s.to}</p>
+                              <p className="text-xs text-gray-400 mt-0.5">が支払う</p>
+                            </div>
+                            <p className="text-lg font-bold text-indigo-600">{fmtCurrency(s.amount)}</p>
+                          </div>
+                        ))}
                       </div>
-                      <p className="text-lg font-bold text-indigo-600">{fmtCurrency(s.amount)}</p>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="bg-emerald-50 rounded-2xl p-4 border border-emerald-200 text-center">
-                  <p className="text-2xl mb-2">✅</p>
-                  <p className="text-sm font-bold text-emerald-700">精算不要です！</p>
-                  <p className="text-xs text-emerald-500 mt-1">支払いが均等になっています</p>
-                </div>
-              )}
+                    ) : (
+                      <div className="bg-emerald-50 rounded-2xl p-4 border border-emerald-200 text-center">
+                        <p className="text-2xl mb-2">✅</p>
+                        <p className="text-sm font-bold text-emerald-700">共有支出の精算不要！</p>
+                        <p className="text-xs text-emerald-500 mt-1">支払いが均等になっています</p>
+                      </div>
+                    )}
+
+                    {/* 立替分（双方向） */}
+                    {(settlementData.advanceTotalSelf > 0 || settlementData.advanceTotalPartner > 0) && (
+                      <div className="bg-amber-50 rounded-2xl p-4 border border-amber-200 space-y-3">
+                        <p className="text-xs font-semibold text-amber-600 uppercase tracking-wide">🔄 立替分</p>
+
+                        {/* ① 相手費用・自分払い（相手への請求） */}
+                        {settlementData.advanceBySelf.length > 0 && (
+                          <div className="space-y-1.5">
+                            <p className="text-xs font-bold text-gray-500">① {partnerName}費用・{selfName}払い → {partnerName}への請求</p>
+                            {settlementData.advanceBySelf.map((t, i) => (
+                              <div key={i} className="bg-white rounded-xl px-3 py-2 flex items-center justify-between">
+                                <div>
+                                  <p className="text-sm font-medium text-gray-800">{t.label}</p>
+                                  <p className="text-xs text-gray-400">{t.date}</p>
+                                </div>
+                                <p className="text-sm font-bold text-amber-600">+{fmtCurrency(Math.abs(t.shareAmount ?? t.amount))}</p>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* ② 個人費用・相手払い（自分が返す） */}
+                        {settlementData.advanceByPartner.length > 0 && (
+                          <div className="space-y-1.5">
+                            <p className="text-xs font-bold text-gray-500">② {selfName}費用・{partnerName}払い → {selfName}が返す</p>
+                            {settlementData.advanceByPartner.map((t, i) => (
+                              <div key={i} className="bg-white rounded-xl px-3 py-2 flex items-center justify-between">
+                                <div>
+                                  <p className="text-sm font-medium text-gray-800">{t.label}</p>
+                                  <p className="text-xs text-gray-400">{t.date}</p>
+                                </div>
+                                <p className="text-sm font-bold text-blue-500">-{fmtCurrency(Math.abs(t.shareAmount ?? t.amount))}</p>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* 立替の純差額 */}
+                        <div className="flex items-center justify-between pt-1 border-t border-amber-200">
+                          <p className="text-xs font-bold text-amber-700">立替差引</p>
+                          <p className={`text-sm font-bold ${settlementData.advanceNet >= 0 ? "text-amber-700" : "text-blue-600"}`}>
+                            {settlementData.advanceNet >= 0 ? `${partnerName}から` : `${selfName}から`} {fmtCurrency(Math.abs(Math.round(settlementData.advanceNet)))}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 総請求額（精算 + 立替差引） */}
+                    {(settlementData.advanceTotalSelf > 0 || settlementData.advanceTotalPartner > 0) && (
+                      <div className="bg-rose-50 rounded-2xl p-4 border border-rose-200 flex items-center justify-between">
+                        <div>
+                          <p className="text-xs font-semibold text-rose-600">💰 立替込み最終精算</p>
+                          <p className="text-xs text-rose-400 mt-0.5">
+                            共有精算 {fmtCurrency(settleAmt)} ＋ 立替差引 {fmtCurrency(Math.abs(Math.round(settlementData.advanceNet)))}
+                          </p>
+                        </div>
+                        <p className="text-xl font-bold text-rose-600">{fmtCurrency(Math.round(totalClaim))}</p>
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
 
               {/* 精算対象取引一覧（選択・並び替え対応） */}
               {sortedSettleTarget.length > 0 && (
