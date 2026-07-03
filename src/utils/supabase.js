@@ -134,6 +134,8 @@ export const fetchImportHistory    = (shareId) => fetchSetting("import_history",
 export const fetchActiveCsvSources = (shareId) => fetchSetting("active_csv_sources", shareId);
 export const fetchCsvSourceLabels  = (shareId) => fetchSetting("csv_source_labels",  shareId);
 export const fetchBudgets          = (shareId) => fetchSetting("budgets",             shareId);
+export const saveBalanceAdjustments = (shareId, data) => upsertSetting("balance_adjustments", shareId, data);
+export const fetchBalanceAdjustments = (shareId) => fetchSetting("balance_adjustments", shareId);
 
 // ─── 接続テスト ───────────────────────────────────────────
 export const testConnection = async () => {
