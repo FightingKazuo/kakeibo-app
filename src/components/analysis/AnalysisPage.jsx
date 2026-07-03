@@ -860,11 +860,16 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
                                 ].map(({ type, label }) => (
                                   <button
                                     key={type}
-                                    onClick={() => onUpdate?.({ ...t, shareType: type, updatedAt: new Date().toISOString() })}
+                                    onClick={() => {
+                                      if (t.shareType === type) return; // 同じなら何もしない
+                                      const labels = { shared:"共有", personal:"個人", partner:"相手" };
+                                      if (!window.confirm(`「${t.label}」の種別を「${labels[t.shareType] || t.shareType}」→「${labels[type]}」に変更しますか？`)) return;
+                                      onUpdate?.({ ...t, shareType: type, updatedAt: new Date().toISOString() });
+                                    }}
                                     className={"w-7 h-7 rounded-full text-sm flex items-center justify-center transition-all " + (
                                       t.shareType === type
                                         ? "bg-indigo-100 ring-2 ring-indigo-400"
-                                        : "bg-gray-100 opacity-50"
+                                        : "bg-gray-100 opacity-50 hover:opacity-80"
                                     )}>
                                     {label}
                                   </button>
