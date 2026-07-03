@@ -231,6 +231,7 @@ export function AssetsPage({ transactions, pointAccounts, balanceAdjustments: pr
     { id: "securities", label: "証券"   },
     { id: "tsumitate",  label: "積立"   },
     { id: "ideco",      label: "iDeCo"  },
+    { id: "points",     label: "ポイント" },
   ];
 
   return (
@@ -317,66 +318,7 @@ export function AssetsPage({ transactions, pointAccounts, balanceAdjustments: pr
                 証券を更新
               </button>
             </div>
-            {/* ポイント口座残高調整 */}
-            {(pointAccountsAdj || []).length > 0 && (
-              <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
-                <button onClick={() => setShowAdjHistory(p => ({...p, _panel: !p._panel}))}
-                  className="w-full flex items-center justify-between px-4 py-3 text-left">
-                  <p className="text-xs font-bold text-gray-700">🔧 ポイント口座 残高調整</p>
-                  <span className="text-gray-400 text-xs">{showAdjHistory._panel ? "▲" : "▼"}</span>
-                </button>
-                {showAdjHistory._panel && (
-                  <div className="px-4 pb-4 space-y-4 border-t border-gray-50">
-                    <p className="text-xs text-gray-400 pt-2">
-                      実際の残高を入力すると差分を自動補正します。取引一覧には表示されません。
-                    </p>
-                    {pointAccountsAdj.map(a => (
-                      <div key={a.id} className="space-y-2">
-                        <div className="flex items-center justify-between">
-                          <p className="text-sm font-bold text-gray-700">{a.icon} {a.name}</p>
-                          <p className="text-sm font-semibold text-gray-500">現在: {fmtCurrency(a.balance)}</p>
-                        </div>
-                        <div className="flex gap-2">
-                          <span className="text-xs text-gray-400 self-center whitespace-nowrap">実際：¥</span>
-                          <input type="number"
-                            value={adjInput[a.id] || ""}
-                            onChange={e => setAdjInput(p => ({...p, [a.id]: e.target.value}))}
-                            placeholder={String(Math.abs(a.balance))}
-                            className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-sm"
-                          />
-                          <button onClick={() => {
-                            const bal = parseInt(adjInput[a.id]);
-                            if (isNaN(bal)) { alert("残高を入力してください"); return; }
-                            const today = new Date().toISOString().slice(0, 10);
-                            const newAdj = { accountId: a.id, date: today, balance: bal, note: "手動調整" };
-                            const updated = [...adjustments.filter(x => !(x.accountId === a.id && x.date === today)), newAdj];
-                            setAdjustments(updated); onBalanceAdjustmentsChange?.(updated);
-                            setAdjInput(p => ({...p, [a.id]: ""}));
-                            alert(`✅ ${a.name}残高を¥${bal.toLocaleString()}に調整しました`);
-                          }} className="px-3 py-1.5 bg-amber-500 text-white rounded-lg text-xs font-bold whitespace-nowrap">
-                            調整
-                          </button>
-                        </div>
-                        {/* 調整履歴 */}
-                        {adjustments.filter(x => x.accountId === a.id).length > 0 && (
-                          <div className="bg-gray-50 rounded-lg px-3 py-2">
-                            <p className="text-xs text-gray-400 font-semibold mb-1">📅 履歴</p>
-                            {adjustments.filter(x => x.accountId === a.id)
-                              .sort((x,y) => y.date.localeCompare(x.date)).slice(0,3)
-                              .map((x,i) => (
-                                <div key={i} className="flex justify-between text-xs text-gray-500 py-0.5">
-                                  <span>{x.date}</span>
-                                  <span className="font-semibold">¥{x.balance.toLocaleString()}</span>
-                                </div>
-                              ))}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
+
           </>
         )}
 
@@ -556,6 +498,75 @@ export function AssetsPage({ transactions, pointAccounts, balanceAdjustments: pr
           </div>
         )}
 
+        {/* ── ポイントタブ ── */}
+        {activeTab === "points" && (
+          <div className="space-y-4">
+            <div className="bg-white rounded-2xl p-4 border border-gray-100">
+              <p className="text-xs font-bold text-gray-700 mb-1">残高の見方</p>
+              <p className="text-xs text-gray-400 leading-relaxed">
+                初回は「調整」ボタンで実際の残高を設定してください。<br/>
+                以降は取引の増減が自動反映されます。ズレが生じた場合のみ再調整してください。
+              </p>
+            </div>
+            {(pointAccountsAdj || []).map(a => (
+              <div key={a.id} className="bg-white rounded-2xl p-4 border border-gray-100 space-y-3">
+                {/* 残高表示 */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xl">{a.icon}</span>
+                    <p className="text-sm font-bold text-gray-800">{a.name}</p>
+                  </div>
+                  <p className={`text-lg font-bold ${a.balance >= 0 ? "text-gray-800" : "text-rose-500"}`}>
+                    {fmtCurrency(a.balance)}
+                  </p>
+                </div>
+                {/* 調整入力 */}
+                <div className="flex gap-2 items-center">
+                  <span className="text-xs text-gray-400 whitespace-nowrap">実際の残高：¥</span>
+                  <input type="number"
+                    value={adjInput[a.id] || ""}
+                    onChange={e => setAdjInput(p => ({...p, [a.id]: e.target.value}))}
+                    placeholder="実際の残高を入力"
+                    className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm"
+                  />
+                  <button onClick={() => {
+                    const bal = parseInt(adjInput[a.id]);
+                    if (isNaN(bal)) { alert("残高を入力してください"); return; }
+                    const today = new Date().toISOString().slice(0, 10);
+                    const newAdj = { accountId: a.id, date: today, balance: bal, note: "手動調整" };
+                    const updated = [...adjustments.filter(x => !(x.accountId === a.id && x.date === today)), newAdj];
+                    setAdjustments(updated); onBalanceAdjustmentsChange?.(updated);
+                    setAdjInput(p => ({...p, [a.id]: ""}));
+                    alert(`✅ ${a.name}残高を¥${bal.toLocaleString()}に設定しました`);
+                  }} className="px-4 py-2 bg-amber-500 text-white rounded-lg text-xs font-bold whitespace-nowrap">
+                    調整
+                  </button>
+                </div>
+                {/* 調整履歴 */}
+                {adjustments.filter(x => x.accountId === a.id).length > 0 && (
+                  <div className="bg-gray-50 rounded-xl px-3 py-2">
+                    <p className="text-xs text-gray-400 font-semibold mb-1">📅 調整履歴</p>
+                    {adjustments.filter(x => x.accountId === a.id)
+                      .sort((x,y) => y.date.localeCompare(x.date)).slice(0, 5)
+                      .map((x, i) => (
+                        <div key={i} className="flex justify-between text-xs text-gray-500 py-0.5">
+                          <span>{x.date}</span>
+                          <span className="font-semibold">¥{x.balance.toLocaleString()}</span>
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </div>
+            ))}
+            {(pointAccountsAdj || []).length === 0 && (
+              <div className="bg-gray-50 rounded-2xl p-5 text-center">
+                <p className="text-sm text-gray-400">ポイント口座が未設定です</p>
+                <p className="text-xs text-gray-300 mt-1">設定 → ポイント口座 から追加してください</p>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* ── 積立タブ ── */}
         {activeTab === "tsumitate" && (
           <TsumitateTab
@@ -578,17 +589,77 @@ export function AssetsPage({ transactions, pointAccounts, balanceAdjustments: pr
         )}
 
         {/* ── iDeCoタブ ── */}
-        {activeTab === "ideco" && (
-          <div className="space-y-4">
-            <div className="bg-purple-50 rounded-2xl p-5 border border-purple-100 text-center">
-              <p className="text-3xl mb-2">🏛️</p>
-              <p className="text-sm font-semibold text-purple-700">iDeCo設定待ち</p>
-              <p className="text-xs text-purple-400 mt-1 leading-relaxed">
-                iDeCoのCSVファイルを確認後に対応します
-              </p>
+        {activeTab === "ideco" && (() => {
+          const ideco = assets.ideco || {};
+          return (
+            <div className="space-y-4">
+              {/* 現在の残高表示 */}
+              <div className="bg-purple-50 rounded-2xl p-4 border border-purple-100">
+                <p className="text-xs text-purple-500 font-semibold">iDeCo 年金資産評価額</p>
+                <p className="text-3xl font-bold text-purple-700 mt-1">{fmtCurrency(idecoBalance)}</p>
+                {ideco.date && <p className="text-xs text-purple-400 mt-1">更新日: {ideco.date}</p>}
+                {ideco.cost > 0 && (
+                  <div className="flex gap-4 mt-3">
+                    <div className="flex-1 bg-white rounded-xl p-2 text-center">
+                      <p className="text-xs text-gray-400">拠出総額</p>
+                      <p className="text-sm font-bold text-gray-700">{fmtCurrency(ideco.cost)}</p>
+                    </div>
+                    <div className="flex-1 bg-white rounded-xl p-2 text-center">
+                      <p className="text-xs text-gray-400">評価損益</p>
+                      <p className={`text-sm font-bold ${(idecoBalance - ideco.cost) >= 0 ? "text-emerald-600" : "text-rose-600"}`}>
+                        {(idecoBalance - ideco.cost) >= 0 ? "+" : ""}{fmtCurrency(idecoBalance - ideco.cost)}
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* 手動入力フォーム */}
+              <div className="bg-white rounded-2xl p-4 border border-gray-100 space-y-3">
+                <p className="text-xs font-bold text-gray-700">✏️ 手動で更新</p>
+                <p className="text-xs text-gray-400">JIS&Tのサイトで確認した値を入力してください。</p>
+                {[
+                  { key: "balance", label: "年金資産評価額", placeholder: "1327225" },
+                  { key: "cost",    label: "拠出総額（運用金額）", placeholder: "720000" },
+                ].map(({ key, label, placeholder }) => (
+                  <div key={key} className="flex gap-2 items-center">
+                    <label className="text-xs text-gray-500 w-28 flex-shrink-0">{label}：¥</label>
+                    <input type="number"
+                      id={`ideco-${key}`}
+                      placeholder={placeholder}
+                      defaultValue={ideco[key] || ""}
+                      className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm"
+                    />
+                  </div>
+                ))}
+                <input type="date" id="ideco-date"
+                  defaultValue={ideco.date || new Date().toISOString().slice(0,10)}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-600"
+                />
+                <button onClick={() => {
+                  const balance = parseInt(document.getElementById("ideco-balance")?.value || "0");
+                  const cost    = parseInt(document.getElementById("ideco-cost")?.value || "0");
+                  const date    = document.getElementById("ideco-date")?.value || new Date().toISOString().slice(0,10);
+                  if (!balance) { alert("年金資産評価額を入力してください"); return; }
+                  const newAssets = { ...assets, ideco: { balance, cost, date } };
+                  setAssets(newAssets); saveStorage(ASSETS_KEY, newAssets);
+                  alert(`✅ iDeCo残高を¥${balance.toLocaleString()}に更新しました`);
+                }} className="w-full py-2.5 bg-purple-500 text-white rounded-xl text-sm font-bold">
+                  💾 更新する
+                </button>
+              </div>
+
+              {/* 取得方法ガイド */}
+              <div className="bg-amber-50 rounded-2xl p-4 border border-amber-100">
+                <p className="text-xs font-bold text-amber-700 mb-2">📌 確認方法</p>
+                <p className="text-xs text-amber-600 leading-relaxed">
+                  JIS&T（jis-t.ne.jp）→ ログイン → 評価損益照会<br/>
+                  「年金資産評価額」と「運用金額（拠出総額）」を確認して入力してください。
+                </p>
+              </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
       </div>
     </div>
