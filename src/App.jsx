@@ -72,6 +72,7 @@ import {
   fetchActiveCsvSources, saveActiveCsvSources,
   fetchCsvSourceLabels, saveCsvSourceLabels,
   fetchBudgets, saveBudgets,
+  fetchBalanceAdjustments, saveBalanceAdjustments,
   testConnection,
 } from "./utils/supabase";
 import { learnTransferKeyword } from "./services/csvParser";
@@ -140,7 +141,8 @@ export default function App() {
   const [members,       setMembers]       = useState(DEFAULT_MEMBERS);
   const [pointAccounts, setPointAccounts] = useState(DEFAULT_POINT_ACCOUNTS);
   const [editingTx,     setEditingTx]     = useState(null);
-  const [importHistory,    setImportHistory]    = useState({});
+  const [importHistory,       setImportHistory]       = useState({});
+  const [balanceAdjustments,  setBalanceAdjustments]  = useState([]);
   const [activeCsvSources,  setActiveCsvSources]  = useState(["sbi","epos","smbc","paypay"]);
   const [csvSourceLabels, setCsvSourceLabels] = useState({});
   const [budgets,         setBudgets]         = useState(() => {
@@ -163,6 +165,9 @@ export default function App() {
         // import_history / active_csv_sourcesはオプション
         let importHist = {};
         try { importHist = await fetchImportHistory(shareId) || {}; } catch {}
+        let balAdj = [];
+        try { balAdj = await fetchBalanceAdjustments(shareId) || []; } catch {}
+        setBalanceAdjustments(balAdj);
         let activeSources = null;
         try { activeSources = await fetchActiveCsvSources(shareId); } catch {}
         if (activeSources) setActiveCsvSources(activeSources);
@@ -449,11 +454,25 @@ export default function App() {
 
   const handleReset = () => { clearAllStorage(); window.location.reload(); };
 
-  // ── ポイント残高計算 ──────────────────────────────────────
-  const calcPointBalance = (accountId) =>
-    transactions
-      .filter(t => t.pointAccountId === accountId)
+  // ── ポイント残高計算（B案: 最新調整以降の取引のみ積み上げ） ──
+  const calcPointBalance = (accountId) => {
+    const adjs = (balanceAdjustments || [])
+      .filter(a => a.accountId === accountId)
+      .sort((a, b) => b.date.localeCompare(a.date));
+
+    if (adjs.length === 0) {
+      // 調整なし → 全取引の積み上げ
+      return transactions
+        .filter(t => t.pointAccountId === accountId)
+        .reduce((sum, t) => sum + t.amount, 0);
+    }
+    const latest = adjs[0];
+    // 調整日以降の取引だけ積み上げ
+    const txAfter = transactions
+      .filter(t => t.pointAccountId === accountId && t.date >= latest.date)
       .reduce((sum, t) => sum + t.amount, 0);
+    return latest.balance + txAfter;
+  };
 
   const pointAccountsWithBalance = pointAccounts.map(a => ({
     ...a,
@@ -562,7 +581,15 @@ export default function App() {
       case "analysis":
         return <AnalysisPage transactions={transactions} categories={categories} members={members} pointAccounts={pointAccountsWithBalance} onUpdate={handleUpdate} />;
       case "assets":
-        return <AssetsPage transactions={transactions} pointAccounts={pointAccountsWithBalance} />;
+        return <AssetsPage
+          transactions={transactions}
+          pointAccounts={pointAccountsWithBalance}
+          balanceAdjustments={balanceAdjustments}
+          onBalanceAdjustmentsChange={async (updated) => {
+            setBalanceAdjustments(updated);
+            try { await saveBalanceAdjustments(shareId, updated); } catch {}
+          }}
+        />;
       case "settings":
         return <SettingsPage
           categories={categories}
