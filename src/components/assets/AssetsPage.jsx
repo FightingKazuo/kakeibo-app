@@ -1,9 +1,32 @@
-import { useState, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import { fmtCurrency } from "../../utils/format";
 import { readCSVFile } from "../../services/csvParser";
 import { loadStorage, saveStorage } from "../../utils/storage";
 
-const ASSETS_KEY = "kakeibo_assets";
+const ASSETS_KEY       = "kakeibo_assets";
+// 残高調整はApp.jsx経由でSupabaseに保存（propsで受け取る）
+
+// B案: 残高 = 最新の調整残高 + その調整日以降の取引積み上げ
+const calcBalanceWithAdjustment = (accountId, transactions, adjustments) => {
+  const adjs = (adjustments || [])
+    .filter(a => a.accountId === accountId)
+    .sort((a, b) => b.date.localeCompare(a.date)); // 新しい順
+
+  if (adjs.length === 0) {
+    // 調整なし → 全取引の積み上げ
+    return transactions
+      .filter(t => t.pointAccountId === accountId)
+      .reduce((s, t) => s + t.amount, 0);
+  }
+
+  const latest = adjs[0]; // 最新の調整
+  // 調整日以降（調整日を含む）の通常取引だけ積み上げ
+  const txAfter = transactions
+    .filter(t => t.pointAccountId === accountId && t.date >= latest.date)
+    .reduce((s, t) => s + t.amount, 0);
+
+  return latest.balance + txAfter;
+};
 
 // ─── 積立設定 ────────────────────────────────────────────────
 const TSUMITATE_KEY = "kakeibo_tsumitate_settings";
@@ -81,14 +104,23 @@ const parseSBISecuritiesCSV = (text) => {
 
 // ─── 住信SBI残高パーサー ─────────────────────────────────
 const parseSBIBankBalance = (text) => {
+  // PapaParseを使えないためクォート対応の簡易CSVパーサーを使用
+  const parseCSVLine = (line) => {
+    const cols = []; let cur = "", inQ = false;
+    for (const c of line) {
+      if (c === '"') { inQ = !inQ; continue; }
+      if (c === "," && !inQ) { cols.push(cur.trim()); cur = ""; continue; }
+      cur += c;
+    }
+    cols.push(cur.trim());
+    return cols;
+  };
   const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
-  // ヘッダー行をスキップして1行目のデータ行を読む
-  // 形式: 日付,内容,出金,入金,残高(円),メモ
   for (const line of lines) {
-    const cols = line.split(",").map(c => c.replace(/^"|"$/g, "").trim());
-    if (cols[0].match(/^\d{4}\/\d{2}\/\d{2}$/)) {
-      // 最初のデータ行 = 最新残高
-      const balance = parseInt(String(cols[4] || "0").replace(/[,，]/g, "")) || 0;
+    const cols = parseCSVLine(line);
+    if (cols[0]?.match(/^\d{4}\/\d{1,2}\/\d{1,2}$/)) {
+      // 最初のデータ行 = 最新残高（残高列のカンマを除去して整数化）
+      const balance = parseInt((cols[4] || "0").replace(/[,，]/g, "")) || 0;
       const date    = cols[0].replace(/\//g, "-");
       if (balance > 0) return { balance, date };
     }
@@ -96,12 +128,21 @@ const parseSBIBankBalance = (text) => {
   return null;
 };
 
-export function AssetsPage({ transactions, pointAccounts }) {
+export function AssetsPage({ transactions, pointAccounts, balanceAdjustments: propAdj, onBalanceAdjustmentsChange }) {
   const [assets,          setAssets]         = useState(() => loadStorage(ASSETS_KEY, {
     bankBalance:  null,
     securities:   null,
     ideco:        null,
   }));
+  // adjustmentsはpropsから受け取り（Supabase管理）、localStorageはフォールバック
+  const [adjustments,     setAdjustments]    = useState(() =>
+    propAdj || (() => { try { return JSON.parse(localStorage.getItem("kakeibo_balance_adjustments") || "[]"); } catch { return []; } })()
+  );
+  // propsが更新されたらstateも同期（Supabaseから読み込み後）
+  useEffect(() => { if (propAdj) setAdjustments(propAdj); }, [propAdj]);
+  const [adjInput,        setAdjInput]       = useState({}); // { [accountId]: string }
+  const [showAdjHistory,  setShowAdjHistory] = useState({}); // { [accountId]: bool }
+  const [bankAdjInput,    setBankAdjInput]   = useState("");
   const [loading,         setLoading]        = useState(false);
   const [activeTab,       setActiveTab]      = useState("overview");
   const [tsumitateList,   setTsumitateList]  = useState(() => loadTsumitateSettings());
@@ -165,7 +206,12 @@ export function AssetsPage({ transactions, pointAccounts }) {
   const secTotal     = assets.securities?.totalEval || 0;
   const secGain      = assets.securities?.totalGain || 0;
   const idecoBalance = assets.ideco?.balance        || 0;
-  const pointTotal   = (pointAccounts || []).reduce((s, a) => s + Math.max(0, a.balance), 0);
+  // 調整ベースの残高計算（B案: 最新調整以降の取引だけ積み上げ）
+  const pointAccountsAdj = (pointAccounts || []).map(a => ({
+    ...a,
+    balance: calcBalanceWithAdjustment(a.id, transactions, adjustments),
+  }));
+  const pointTotal = pointAccountsAdj.reduce((s, a) => s + Math.max(0, a.balance), 0);
   const totalAssets  = bankBalance + secTotal + idecoBalance;
 
   // ── 今月の銀行増減 ────────────────────────────────────
@@ -271,6 +317,66 @@ export function AssetsPage({ transactions, pointAccounts }) {
                 証券を更新
               </button>
             </div>
+            {/* ポイント口座残高調整 */}
+            {(pointAccountsAdj || []).length > 0 && (
+              <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+                <button onClick={() => setShowAdjHistory(p => ({...p, _panel: !p._panel}))}
+                  className="w-full flex items-center justify-between px-4 py-3 text-left">
+                  <p className="text-xs font-bold text-gray-700">🔧 ポイント口座 残高調整</p>
+                  <span className="text-gray-400 text-xs">{showAdjHistory._panel ? "▲" : "▼"}</span>
+                </button>
+                {showAdjHistory._panel && (
+                  <div className="px-4 pb-4 space-y-4 border-t border-gray-50">
+                    <p className="text-xs text-gray-400 pt-2">
+                      実際の残高を入力すると差分を自動補正します。取引一覧には表示されません。
+                    </p>
+                    {pointAccountsAdj.map(a => (
+                      <div key={a.id} className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <p className="text-sm font-bold text-gray-700">{a.icon} {a.name}</p>
+                          <p className="text-sm font-semibold text-gray-500">現在: {fmtCurrency(a.balance)}</p>
+                        </div>
+                        <div className="flex gap-2">
+                          <span className="text-xs text-gray-400 self-center whitespace-nowrap">実際：¥</span>
+                          <input type="number"
+                            value={adjInput[a.id] || ""}
+                            onChange={e => setAdjInput(p => ({...p, [a.id]: e.target.value}))}
+                            placeholder={String(Math.abs(a.balance))}
+                            className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-sm"
+                          />
+                          <button onClick={() => {
+                            const bal = parseInt(adjInput[a.id]);
+                            if (isNaN(bal)) { alert("残高を入力してください"); return; }
+                            const today = new Date().toISOString().slice(0, 10);
+                            const newAdj = { accountId: a.id, date: today, balance: bal, note: "手動調整" };
+                            const updated = [...adjustments.filter(x => !(x.accountId === a.id && x.date === today)), newAdj];
+                            setAdjustments(updated); onBalanceAdjustmentsChange?.(updated);
+                            setAdjInput(p => ({...p, [a.id]: ""}));
+                            alert(`✅ ${a.name}残高を¥${bal.toLocaleString()}に調整しました`);
+                          }} className="px-3 py-1.5 bg-amber-500 text-white rounded-lg text-xs font-bold whitespace-nowrap">
+                            調整
+                          </button>
+                        </div>
+                        {/* 調整履歴 */}
+                        {adjustments.filter(x => x.accountId === a.id).length > 0 && (
+                          <div className="bg-gray-50 rounded-lg px-3 py-2">
+                            <p className="text-xs text-gray-400 font-semibold mb-1">📅 履歴</p>
+                            {adjustments.filter(x => x.accountId === a.id)
+                              .sort((x,y) => y.date.localeCompare(x.date)).slice(0,3)
+                              .map((x,i) => (
+                                <div key={i} className="flex justify-between text-xs text-gray-500 py-0.5">
+                                  <span>{x.date}</span>
+                                  <span className="font-semibold">¥{x.balance.toLocaleString()}</span>
+                                </div>
+                              ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </>
         )}
 
@@ -302,6 +408,42 @@ export function AssetsPage({ transactions, pointAccounts }) {
                   <p className="text-lg font-bold text-rose-600 mt-0.5">{fmtCurrency(Math.abs(monthlyExpense))}</p>
                 </div>
               </div>
+            </div>
+
+            {/* 残高調整（差異補正） */}
+            <div className="bg-amber-50 rounded-2xl p-4 border border-amber-100 space-y-2">
+              <p className="text-xs font-bold text-amber-700">🔧 残高調整（最終手段）</p>
+              <p className="text-xs text-amber-600">実際の残高と合わない場合に使用。取引一覧には表示されません。</p>
+              <div className="flex gap-2 items-center">
+                <span className="text-xs text-gray-500 whitespace-nowrap">実際の残高：¥</span>
+                <input type="number" value={bankAdjInput} onChange={e => setBankAdjInput(e.target.value)}
+                  placeholder="213305"
+                  className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white" />
+              </div>
+              <button onClick={() => {
+                const bal = parseInt(bankAdjInput);
+                if (!bal || bal <= 0) { alert("正しい残高を入力してください"); return; }
+                const today = new Date().toISOString().slice(0, 10);
+                const newAdj = { accountId: "sbi_bank", date: today, balance: bal, note: "手動調整" };
+                const updated = [...adjustments.filter(a => !(a.accountId === "sbi_bank" && a.date === today)), newAdj];
+                setAdjustments(updated); onBalanceAdjustmentsChange?.(updated);
+                const na = { ...assets, bankBalance: { balance: bal, date: today } };
+                setAssets(na); saveStorage(ASSETS_KEY, na);
+                setBankAdjInput("");
+                alert(`✅ SBI銀行残高を¥${bal.toLocaleString()}に調整しました`);
+              }} className="w-full py-2 text-xs font-bold bg-amber-500 text-white rounded-lg">
+                🔧 残高を調整する
+              </button>
+              {adjustments.filter(a => a.accountId === "sbi_bank").length > 0 && (
+                <div className="pt-2 border-t border-amber-200">
+                  <p className="text-xs font-bold text-amber-700 mb-1">📅 調整履歴</p>
+                  {adjustments.filter(a => a.accountId === "sbi_bank").sort((a,b) => b.date.localeCompare(a.date)).slice(0,5).map((a,i) => (
+                    <div key={i} className="flex justify-between text-xs text-gray-500 py-0.5">
+                      <span>{a.date}</span><span className="font-semibold">¥{a.balance.toLocaleString()}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* 手動入力 */}
