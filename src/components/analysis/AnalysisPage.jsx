@@ -9,6 +9,7 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
   const [tab,          setTab]          = useState("analysis");
   const [showSettleTxs, setShowSettleTxs] = useState(false);
   const [selMonth, setSelMonth] = useState("all");
+  const [selectedCat,  setSelectedCat]  = useState(null); // タップで明細表示するカテゴリ
 
   // ── 精算用 期間指定 ──
   const today = new Date().toISOString().split("T")[0];
@@ -49,6 +50,21 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
       .sort((a, b) => b[1] - a[1])
       .map(([name, value]) => ({ name, value, emoji: categories.find(c => c.name === name)?.emoji || "📦" }));
   }, [filtered, categories]);
+
+  // ③ 資産残高の月次推移（localStorageからassetsを読む）
+  const assetChartData = useMemo(() => {
+    try {
+      const assets = JSON.parse(localStorage.getItem("kakeibo_assets") || "{}");
+      const adjs   = JSON.parse(localStorage.getItem("kakeibo_balance_adjustments") || "[]");
+      const bankBal = assets.bankBalance?.balance || 0;
+      const secBal  = assets.securities?.totalEval || 0;
+      const idecoBal = assets.ideco?.balance || 0;
+      // ポイント残高（pointAccounts の balance を使う）
+      const pointBal = (pointAccounts || []).reduce((s, a) => s + Math.max(0, a.balance), 0);
+      const total = bankBal + secBal + idecoBal + pointBal;
+      return total > 0 ? total : null;
+    } catch { return null; }
+  }, [pointAccounts]);
 
   const chartData = useMemo(() => {
     const ms = [...new Set(transactions.map(t => toYM(t.date)))].sort();
@@ -359,31 +375,93 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
             </ResponsiveContainer>
           </div>
 
-          {catData.length > 0 && (
-            <div className="bg-white rounded-2xl p-4 border border-gray-100">
-              <p className="text-xs font-semibold text-gray-500 mb-3 uppercase tracking-wide">カテゴリ別支出</p>
-              <ResponsiveContainer width="100%" height={160}>
-                <PieChart>
-                  <Pie data={catData} cx="50%" cy="50%" innerRadius={40} outerRadius={70} dataKey="value"
-                    label={({ name, percent }) => `${name} ${Math.round(percent * 100)}%`} labelLine={false}>
-                    {catData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
-                  </Pie>
-                  <Tooltip formatter={v => `¥${v.toLocaleString()}`} />
-                </PieChart>
-              </ResponsiveContainer>
-              <div className="mt-3 space-y-1">
-                {catData.map((d, i) => (
-                  <div key={d.name} className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: PIE_COLORS[i % PIE_COLORS.length] }} />
-                      <span className="text-xs text-gray-600">{d.emoji} {d.name}</span>
-                    </div>
-                    <span className="text-xs font-semibold text-gray-700">{fmtCurrency(d.value)}</span>
-                  </div>
-                ))}
-              </div>
+          {/* ③ 資産残高サマリー */}
+          {assetChartData && (
+            <div className="bg-gradient-to-r from-indigo-50 to-blue-50 rounded-2xl p-4 border border-indigo-100">
+              <p className="text-xs font-semibold text-indigo-500 mb-1">💰 現在の資産残高</p>
+              <p className="text-2xl font-bold text-indigo-700">{fmtCurrency(assetChartData)}</p>
+              <p className="text-xs text-indigo-400 mt-1">銀行・証券・iDeCo・ポイントの合計</p>
             </div>
           )}
+
+          {catData.length > 0 && (() => {
+            // 上位6件 + それ以外を「その他」にまとめる
+            const TOP_N = 6;
+            const topCats  = catData.slice(0, TOP_N);
+            const restSum  = catData.slice(TOP_N).reduce((s, d) => s + d.value, 0);
+            const pieData  = restSum > 0 ? [...topCats, { name:"その他", value: restSum, emoji:"📦" }] : topCats;
+            const totalExp = catData.reduce((s, d) => s + d.value, 0);
+            // 選択中カテゴリの取引
+            const catTxs = selectedCat
+              ? filtered.filter(t => t.type === "expense" && t.category === selectedCat).sort((a,b) => b.date.localeCompare(a.date))
+              : [];
+            return (
+              <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+                <p className="text-xs font-semibold text-gray-500 px-4 pt-4 pb-2 uppercase tracking-wide">カテゴリ別支出</p>
+                {/* ② シンプルなドーナツグラフ（上位6件のみ表示） */}
+                <ResponsiveContainer width="100%" height={180}>
+                  <PieChart>
+                    <Pie data={pieData} cx="50%" cy="50%" innerRadius={55} outerRadius={80} dataKey="value" paddingAngle={1}>
+                      {pieData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
+                    </Pie>
+                    <Tooltip formatter={v => `¥${v.toLocaleString()}`} />
+                  </PieChart>
+                </ResponsiveContainer>
+
+                {/* ① カテゴリリスト（タップで明細展開） */}
+                <div className="divide-y divide-gray-50">
+                  {catData.map((d, i) => {
+                    const pct  = totalExp > 0 ? Math.round(d.value / totalExp * 100) : 0;
+                    const color = PIE_COLORS[i % PIE_COLORS.length];
+                    const isSelected = selectedCat === d.name;
+                    return (
+                      <div key={d.name}>
+                        <button
+                          onClick={() => setSelectedCat(isSelected ? null : d.name)}
+                          className="w-full flex items-center gap-3 px-4 py-3 text-left active:bg-gray-50">
+                          <div className="w-3.5 h-3.5 rounded-full flex-shrink-0" style={{ background: color }} />
+                          <span className="text-base flex-shrink-0">{d.emoji}</span>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-sm font-semibold text-gray-800">{d.name}</span>
+                              <span className="text-sm font-bold text-gray-700">{fmtCurrency(d.value)}</span>
+                            </div>
+                            {/* 進捗バー */}
+                            <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                              <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: color }} />
+                            </div>
+                          </div>
+                          <span className="text-xs text-gray-400 flex-shrink-0 w-8 text-right">{pct}%</span>
+                          <span className="text-gray-300 text-xs">{isSelected ? "▲" : "▼"}</span>
+                        </button>
+                        {/* ① 明細展開パネル */}
+                        {isSelected && (
+                          <div className="bg-gray-50 border-t border-gray-100">
+                            {catTxs.length === 0
+                              ? <p className="text-xs text-gray-400 text-center py-3">取引なし</p>
+                              : catTxs.map(t => (
+                                <div key={t.id} className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-100 last:border-b-0">
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-medium text-gray-800 truncate">{t.label}</p>
+                                    <p className="text-xs text-gray-400">{t.date}</p>
+                                  </div>
+                                  <p className="text-sm font-bold text-rose-500 flex-shrink-0">-{fmtCurrency(Math.abs(t.amount))}</p>
+                                </div>
+                              ))
+                            }
+                            <div className="flex justify-between items-center px-4 py-2 border-t border-gray-200">
+                              <p className="text-xs font-bold text-gray-500">{catTxs.length}件合計</p>
+                              <p className="text-sm font-bold text-rose-600">{fmtCurrency(d.value)}</p>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
         </div>
       )}
 
