@@ -51,21 +51,6 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
       .map(([name, value]) => ({ name, value, emoji: categories.find(c => c.name === name)?.emoji || "📦" }));
   }, [filtered, categories]);
 
-  // ③ 資産残高の月次推移（localStorageからassetsを読む）
-  const assetChartData = useMemo(() => {
-    try {
-      const assets = JSON.parse(localStorage.getItem("kakeibo_assets") || "{}");
-      const adjs   = JSON.parse(localStorage.getItem("kakeibo_balance_adjustments") || "[]");
-      const bankBal = assets.bankBalance?.balance || 0;
-      const secBal  = assets.securities?.totalEval || 0;
-      const idecoBal = assets.ideco?.balance || 0;
-      // ポイント残高（pointAccounts の balance を使う）
-      const pointBal = (pointAccounts || []).reduce((s, a) => s + Math.max(0, a.balance), 0);
-      const total = bankBal + secBal + idecoBal + pointBal;
-      return total > 0 ? total : null;
-    } catch { return null; }
-  }, [pointAccounts]);
-
   const chartData = useMemo(() => {
     const ms = [...new Set(transactions.map(t => toYM(t.date)))].sort();
     return ms.map(m => {
@@ -375,16 +360,8 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
             </ResponsiveContainer>
           </div>
 
-          {/* ③ 資産残高サマリー */}
-          {assetChartData && (
-            <div className="bg-gradient-to-r from-indigo-50 to-blue-50 rounded-2xl p-4 border border-indigo-100">
-              <p className="text-xs font-semibold text-indigo-500 mb-1">💰 現在の資産残高</p>
-              <p className="text-2xl font-bold text-indigo-700">{fmtCurrency(assetChartData)}</p>
-              <p className="text-xs text-indigo-400 mt-1">銀行・証券・iDeCo・ポイントの合計</p>
-            </div>
-          )}
 
-          {catData.length > 0 && (() => {
+                    {catData.length > 0 && (() => {
             // 上位6件 + それ以外を「その他」にまとめる
             const TOP_N = 6;
             const topCats  = catData.slice(0, TOP_N);
