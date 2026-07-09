@@ -188,32 +188,40 @@ export function AssetsPage({ transactions, pointAccounts, balanceAdjustments: pr
   }));
   const pointTotal = pointAccountsAdj.reduce((s, a) => s + Math.max(0, a.balance), 0);
 
-  // 資産推移グラフ用データ（adjustmentsの履歴から月次集計）
+  // 資産推移グラフ用データ
+  // 調整履歴の月別スナップショット ＋ 今月の現在値を末尾に追加
   const assetHistory = useMemo(() => {
-    if (!adjustments || adjustments.length === 0) return [];
-    // 全調整履歴から月→{口座:残高}マップを作成
-    const monthMap = {};
-    adjustments.forEach(a => {
-      const ym = a.date.slice(0, 7);
-      if (!monthMap[ym]) monthMap[ym] = {};
-      // 同月に複数回調整があれば最新を使う
-      if (!monthMap[ym][a.accountId] || a.date > monthMap[ym][a.accountId].date) {
-        monthMap[ym][a.accountId] = { balance: a.balance, date: a.date };
-      }
-    });
-    // 直近12ヶ月を生成
-    const months = Object.keys(monthMap).sort();
-    if (months.length === 0) return [];
-    // 最後の月以前の最新残高を累積（前月の残高を引き継ぐ）
-    const latestByAccount = {};
     const result = [];
-    months.forEach(ym => {
-      Object.entries(monthMap[ym]).forEach(([id, v]) => { latestByAccount[id] = v.balance; });
-      const total = Object.values(latestByAccount).reduce((s, v) => s + v, 0);
-      result.push({ month: ym.slice(5) + "月", total });
-    });
+    const nowYM = new Date().toISOString().slice(0, 7);
+
+    // ポイント調整履歴から月別の調整合計を集計
+    if (adjustments && adjustments.length > 0) {
+      const monthMap = {};
+      adjustments.forEach(a => {
+        const ym = a.date.slice(0, 7);
+        if (!monthMap[ym]) monthMap[ym] = {};
+        if (!monthMap[ym][a.accountId] || a.date > monthMap[ym][a.accountId].date) {
+          monthMap[ym][a.accountId] = { balance: a.balance };
+        }
+      });
+      const latestByAccount = {};
+      Object.keys(monthMap).sort().forEach(ym => {
+        Object.entries(monthMap[ym]).forEach(([id, v]) => { latestByAccount[id] = v.balance; });
+        const adjTotal = Object.values(latestByAccount).reduce((s, v) => s + v, 0);
+        // 過去月: 調整合計 + その時点の証券・銀行（現在値で代替）
+        const total = adjTotal + bankBalance + secTotal + idecoBalance;
+        if (ym !== nowYM) result.push({ month: ym.slice(5) + "月", total });
+      });
+    }
+
+    // 今月の現在値を末尾に追加（常に最新を反映）
+    const currentTotal = bankBalance + secTotal + idecoBalance + pointTotal;
+    if (currentTotal > 0) {
+      result.push({ month: nowYM.slice(5) + "月（現在）", total: currentTotal });
+    }
+
     return result;
-  }, [adjustments]);
+  }, [adjustments, bankBalance, secTotal, idecoBalance, pointTotal]);
   const totalAssets  = bankBalance + secTotal + idecoBalance;
 
   // ── 今月の銀行増減 ────────────────────────────────────
@@ -321,7 +329,7 @@ export function AssetsPage({ transactions, pointAccounts, balanceAdjustments: pr
             </div>
 
             {/* 資産推移グラフ */}
-            {assetHistory.length >= 2 && (
+            {assetHistory.length >= 1 && (
               <div className="bg-white rounded-2xl p-4 border border-gray-100">
                 <p className="text-xs font-semibold text-gray-500 mb-3">📈 資産残高の推移</p>
                 <ResponsiveContainer width="100%" height={160}>
@@ -661,3 +669,4 @@ export function AssetsPage({ transactions, pointAccounts, balanceAdjustments: pr
     </div>
   );
 }
+
