@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from "react";
+import { Eye, EyeOff } from "lucide-react";
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
 import { fmtCurrency } from "../../utils/format";
 import { readCSVFile } from "../../services/csvParser";
@@ -279,8 +280,12 @@ export function AssetsPage({ transactions, pointAccounts, balanceAdjustments: pr
             <div className="bg-gradient-to-br from-indigo-500 to-purple-600 rounded-2xl p-5 text-white">
               <div className="flex items-center justify-between mb-1">
                 <p className="text-xs font-semibold opacity-80">合計資産</p>
-                <button onClick={toggleHide} className="opacity-70 hover:opacity-100 transition-opacity p-1">
-                  <span className="text-base">{hideAmounts ? "🙈" : "👁️"}</span>
+                <button
+                  onClick={toggleHide}
+                  className="p-1.5 rounded-full bg-white/10 hover:bg-white/20 active:bg-white/30 transition-all">
+                  {hideAmounts
+                    ? <EyeOff size={16} className="text-white/80" />
+                    : <Eye    size={16} className="text-white/80" />}
                 </button>
               </div>
               <p className="text-4xl font-bold tracking-tight">
