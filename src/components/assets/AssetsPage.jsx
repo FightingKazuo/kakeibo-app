@@ -125,8 +125,6 @@ export function AssetsPage({ transactions, pointAccounts, balanceAdjustments: pr
   const [bankAdjInput,    setBankAdjInput]   = useState("");
   const [loading,         setLoading]        = useState(false);
   const [activeTab,       setActiveTab]      = useState("overview");
-  const [manualBankBalance, setManualBankBalance] = useState("");
-  const [manualBankDate,    setManualBankDate]    = useState(() => new Date().toISOString().slice(0, 10));
 
   const bankFileRef  = useRef(null);
   const secFileRef   = useRef(null);
@@ -412,56 +410,6 @@ export function AssetsPage({ transactions, pointAccounts, balanceAdjustments: pr
               )}
             </div>
 
-            {/* 手動入力 */}
-            <div className="bg-white rounded-2xl p-4 border border-gray-100 space-y-3">
-              <p className="text-xs font-bold text-gray-600">✏️ 残高を手動入力</p>
-              <div className="flex gap-2 items-center">
-                <label className="text-xs text-gray-500 whitespace-nowrap">日付：</label>
-                <input type="date"
-                  value={manualBankDate}
-                  onChange={e => setManualBankDate(e.target.value)}
-                  className="flex-1 text-xs px-2 py-1.5 bg-gray-50 border border-gray-200 rounded-lg outline-none" />
-              </div>
-              <div className="flex gap-2 items-center">
-                <label className="text-xs text-gray-500 whitespace-nowrap">残高：</label>
-                <div className="flex-1 flex items-center gap-1">
-                  <span className="text-xs text-gray-400">¥</span>
-                  <input type="number"
-                    value={manualBankBalance}
-                    onChange={e => setManualBankBalance(e.target.value)}
-                    placeholder="例: 190000"
-                    className="flex-1 text-sm font-bold px-2 py-1.5 bg-gray-50 border border-gray-200 rounded-lg outline-none" />
-                </div>
-              </div>
-              <button
-                onClick={() => {
-                  if (!manualBankBalance) return;
-                  const newAssets = {
-                    ...assets,
-                    bankBalance: {
-                      balance:   parseInt(manualBankBalance),
-                      date:      manualBankDate,
-                      updatedAt: new Date().toISOString(),
-                      source:    "manual",
-                    }
-                  };
-                  setAssets(newAssets);
-                  saveStorage(ASSETS_KEY, newAssets);
-                  setManualBankBalance("");
-                  alert(`✅ ${manualBankDate}時点の残高を¥${parseInt(manualBankBalance).toLocaleString()}で記録しました`);
-                }}
-                className="w-full py-2.5 bg-blue-500 text-white rounded-xl text-sm font-semibold">
-                記録する
-              </button>
-            </div>
-
-            <div className="bg-amber-50 rounded-xl p-3 border border-amber-100">
-              <p className="text-xs font-semibold text-amber-600 mb-1">📌 取得方法</p>
-              <p className="text-xs text-amber-500 leading-relaxed">
-                CSV更新：住信SBIネット銀行 → 入出金明細 → CSVダウンロード<br/>
-                手動入力：ネットバンキングで残高照会して直接入力
-              </p>
-            </div>
           </div>
         )}
 
