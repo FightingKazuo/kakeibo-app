@@ -123,6 +123,14 @@ export function AssetsPage({ transactions, pointAccounts, balanceAdjustments: pr
   const [adjInput,        setAdjInput]       = useState({}); // { [accountId]: string }
   const [showAdjHistory,  setShowAdjHistory] = useState({}); // { [accountId]: bool }
   const [bankAdjInput,    setBankAdjInput]   = useState("");
+  const [hideAmounts,     setHideAmounts]    = useState(() => {
+    try { return localStorage.getItem("kakeibo_hide_amounts") === "true"; } catch { return false; }
+  });
+  const toggleHide = () => {
+    const next = !hideAmounts;
+    setHideAmounts(next);
+    try { localStorage.setItem("kakeibo_hide_amounts", String(next)); } catch {}
+  };
   const [loading,         setLoading]        = useState(false);
   const [activeTab,       setActiveTab]      = useState("overview");
 
@@ -269,21 +277,26 @@ export function AssetsPage({ transactions, pointAccounts, balanceAdjustments: pr
           <>
             {/* 合計資産カード */}
             <div className="bg-gradient-to-br from-indigo-500 to-purple-600 rounded-2xl p-5 text-white">
-              <p className="text-xs font-semibold opacity-80 mb-1">合計資産</p>
+              <div className="flex items-center justify-between mb-1">
+                <p className="text-xs font-semibold opacity-80">合計資産</p>
+                <button onClick={toggleHide} className="opacity-70 hover:opacity-100 transition-opacity p-1">
+                  <span className="text-base">{hideAmounts ? "🙈" : "👁️"}</span>
+                </button>
+              </div>
               <p className="text-4xl font-bold tracking-tight">
-                {fmtCurrency(totalAssets)}
+                {hideAmounts ? "¥ ———" : fmtCurrency(totalAssets)}
               </p>
               <div className="flex gap-4 mt-3">
                 <div>
                   <p className="text-xs opacity-70">証券含み益</p>
                   <p className={`text-sm font-bold ${secGain >= 0 ? "text-emerald-300" : "text-rose-300"}`}>
-                    {secGain >= 0 ? "+" : ""}{fmtCurrency(secGain)}
+                    {hideAmounts ? "———" : `${secGain >= 0 ? "+" : ""}${fmtCurrency(secGain)}`}
                   </p>
                 </div>
                 <div>
                   <p className="text-xs opacity-70">今月収支</p>
                   <p className={`text-sm font-bold ${monthlyNet >= 0 ? "text-emerald-300" : "text-rose-300"}`}>
-                    {monthlyNet >= 0 ? "+" : ""}{fmtCurrency(monthlyNet)}
+                    {hideAmounts ? "———" : `${monthlyNet >= 0 ? "+" : ""}${fmtCurrency(monthlyNet)}`}
                   </p>
                 </div>
               </div>
@@ -305,7 +318,7 @@ export function AssetsPage({ transactions, pointAccounts, balanceAdjustments: pr
                       <p className="text-xs text-gray-400">{item.sub}</p>
                     </div>
                   </div>
-                  <p className={`text-sm font-bold ${item.color}`}>{fmtCurrency(item.value)}</p>
+                  <p className={`text-sm font-bold ${item.color}`}>{hideAmounts ? "———" : fmtCurrency(item.value)}</p>
                 </div>
               ))}
             </div>
