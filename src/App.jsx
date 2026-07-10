@@ -454,6 +454,33 @@ export default function App() {
 
   const handleReset = () => { clearAllStorage(); window.location.reload(); };
 
+  // ── 起動時にimportHistoryを自動補完 ──────────────────────────
+  useEffect(() => {
+    if (transactions.length < 5) return;
+    const latestByFmt = {};
+    transactions
+      .filter(t => t.source === "csv" && t.csvFormatId && t.date)
+      .forEach(t => {
+        const prev = latestByFmt[t.csvFormatId];
+        if (!prev || t.date > prev) latestByFmt[t.csvFormatId] = t.date;
+      });
+    const expectedKeys = new Set();
+    transactions
+      .filter(t => t.source === "csv" && t.csvFormatId && t.date)
+      .forEach(t => {
+        const ym = t.date.slice(0, 7);
+        const latestYM = (latestByFmt[t.csvFormatId] || "").slice(0, 7);
+        if (ym <= latestYM) expectedKeys.add(`${t.csvFormatId}_${ym}`);
+      });
+    const missing = [...expectedKeys].filter(k => !importHistory[k]);
+    if (missing.length === 0) return;
+    const now = new Date().toISOString();
+    const rebuilt = { ...importHistory };
+    missing.forEach(k => { rebuilt[k] = now; });
+    setImportHistory(rebuilt);
+    saveImportHistory(shareId, rebuilt).catch(() => {});
+  }, [transactions.length]);
+
   // ── ポイント残高計算（B案: 最新調整以降の取引のみ積み上げ） ──
   const calcPointBalance = (accountId) => {
     const adjs = (balanceAdjustments || [])
