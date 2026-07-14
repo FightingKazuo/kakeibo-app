@@ -83,6 +83,7 @@ import { AddPage }             from "./components/add/AddPage";
 import { EditPage }            from "./components/add/EditPage";
 import { AnalysisPage }        from "./components/analysis/AnalysisPage";
 import { AssetsPage }          from "./components/assets/AssetsPage";
+import { PartnerView }         from "./components/analysis/PartnerView";
 import { SettingsPage }        from "./components/settings/SettingsPage";
 import { BottomNav }           from "./components/layout/BottomNav";
 
@@ -129,6 +130,7 @@ function SideNav({ currentPage, onNavigate, syncStatus }) {
 
 export default function App() {
   const [currentPage,   setCurrentPage]   = useState("home");
+  const [partnerMode,   setPartnerMode]   = useState(false);
   const [syncStatus,    setSyncStatus]    = useState("synced");
   const [shareId,       setShareIdState]  = useState(() => getShareId());
   const [isLoading,     setIsLoading]     = useState(true);
@@ -552,6 +554,11 @@ export default function App() {
     </div>
   );
 
+  // パートナー精算ビュー
+  if (partnerMode) return (
+    <PartnerView onBack={() => setPartnerMode(false)} />
+  );
+
   if (editingTx) return (
     <div className="min-h-screen bg-gray-50">
       <SideNav currentPage={currentPage} onNavigate={navigate} syncStatus={syncStatus} />
@@ -606,7 +613,7 @@ export default function App() {
           onActiveCsvSourcesChange={handleActiveCsvSourcesChange}
         />;
       case "analysis":
-        return <AnalysisPage transactions={transactions} categories={categories} members={members} pointAccounts={pointAccountsWithBalance} onUpdate={handleUpdate} />;
+        return <AnalysisPage transactions={transactions} categories={categories} members={members} pointAccounts={pointAccountsWithBalance} onUpdate={handleUpdate} onPartnerView={() => setPartnerMode(true)} />;
       case "assets":
         return <AssetsPage
           transactions={transactions}
