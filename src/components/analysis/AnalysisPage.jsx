@@ -539,6 +539,21 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
       {tab === "settlement" && (
         <div className="px-4 py-5 space-y-4">
 
+          {/* パートナー視点ボタン */}
+          {onPartnerView && (
+            <button onClick={onPartnerView}
+              className="w-full flex items-center justify-between px-4 py-3 bg-indigo-50 rounded-2xl border border-indigo-100 active:bg-indigo-100">
+              <div className="flex items-center gap-2">
+                <span className="text-lg">🤝</span>
+                <div className="text-left">
+                  <p className="text-sm font-bold text-indigo-700">パートナー視点で確認</p>
+                  <p className="text-xs text-indigo-400">相手のアプリに表示される内容をプレビュー</p>
+                </div>
+              </div>
+              <span className="text-indigo-400 text-lg">›</span>
+            </button>
+          )}
+
           {/* 期間選択 */}
           <div className="bg-white rounded-2xl p-4 border border-gray-100 space-y-3">
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">📅 精算期間</p>
