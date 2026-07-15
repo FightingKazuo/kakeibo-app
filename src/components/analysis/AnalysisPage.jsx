@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, PieChart, Pie, Cell, BarChart, Bar } from "recharts";
 import { toYM, fmtCurrency } from "../../utils/format";
+import { fetchTransactions, fetchMembers } from "../../utils/supabase";
 import { PIE_COLORS } from "../../constants";
 import { MonthSelector } from "../common/MonthSelector";
 import { EmptyState } from "../ui/EmptyState";
@@ -10,6 +11,15 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
   const [showSettleTxs, setShowSettleTxs] = useState(false);
   const [selMonth, setSelMonth] = useState("all");
   const [selectedCat,  setSelectedCat]  = useState(null); // タップで明細表示するカテゴリ
+  // 🤝 共有確認タブ
+  const [partnerShareId,   setPartnerShareId]   = useState(() => localStorage.getItem("kakeibo_partner_share_id") || "");
+  const [partnerInputId,   setPartnerInputId]   = useState(() => localStorage.getItem("kakeibo_partner_share_id") || "");
+  const [partnerTxs,       setPartnerTxs]       = useState([]);
+  const [partnerMembers,   setPartnerMembers]   = useState([]);
+  const [partnerLoading,   setPartnerLoading]   = useState(false);
+  const [partnerError,     setPartnerError]     = useState("");
+  const [partnerSelMonth,  setPartnerSelMonth]  = useState("all");
+  const [partnerShowTxs,   setPartnerShowTxs]  = useState(false);
 
   // ── 精算用 期間指定 ──
   const today = new Date().toISOString().split("T")[0];
@@ -80,6 +90,28 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
     const diffPct = prevExp > 0 ? Math.round((diff / prevExp) * 100) : null;
     return { prevExp, diff, diffPct };
   }, [transactions, selMonth, totalExpense]);
+
+  // 🤝 共有確認: shareIdが設定されたら自動ロード
+  useEffect(() => {
+    if (!partnerShareId) return;
+    const load = async () => {
+      setPartnerLoading(true); setPartnerError("");
+      try {
+        const [txs, mems] = await Promise.all([
+          fetchTransactions(partnerShareId),
+          fetchMembers(partnerShareId),
+        ]);
+        setPartnerTxs(txs || []);
+        setPartnerMembers(mems || []);
+        localStorage.setItem("kakeibo_partner_share_id", partnerShareId);
+      } catch {
+        setPartnerError("取得に失敗しました。IDを確認してください。");
+      } finally {
+        setPartnerLoading(false);
+      }
+    };
+    load();
+  }, [partnerShareId]);
 
   // ── 精算計算 ──────────────────────────────────────────────
   const settlementData = useMemo(() => {
@@ -267,14 +299,15 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
     <div className="pb-20">
       <div className="bg-white px-4 pt-12 pb-3 border-b border-gray-100">
         <h1 className="text-xl font-bold text-gray-900 mb-3">分析</h1>
-        <div className="flex gap-2 mb-3">
+        <div className="flex gap-2 mb-3 overflow-x-auto scrollbar-none">
           {[
             { id: "analysis",   label: "📊 分析"   },
             { id: "report",     label: "📈 月次"   },
             { id: "settlement", label: "💸 精算"   },
+            { id: "partner",    label: "🤝 共有確認" },
           ].map(t => (
             <button key={t.id} onClick={() => setTab(t.id)}
-              className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-all ${
+              className={`flex-shrink-0 px-4 py-1.5 rounded-full text-xs font-semibold transition-all ${
                 tab === t.id ? "bg-indigo-500 text-white" : "bg-gray-100 text-gray-500"
               }`}>
               {t.label}
@@ -536,23 +569,200 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
       )}
 
 
+      {/* 🤝 共有確認タブ */}
+      {tab === "partner" && (() => {
+        const fmtC = (n) => `¥${Math.abs(Math.round(n)).toLocaleString()}`;
+
+        // 月一覧
+        const pMonths = ["all", ...[...new Set(partnerTxs.map(t => toYM(t.date)).filter(Boolean))].sort().reverse()];
+
+        // フィルター済み取引
+        const pFiltered = partnerSelMonth === "all" ? partnerTxs
+          : partnerTxs.filter(t => toYM(t.date) === partnerSelMonth);
+
+        // 精算計算
+        const pData = (() => {
+          if (partnerMembers.length < 2) return null;
+          const selfId    = partnerMembers[0]?.id;
+          const partnerId = partnerMembers[1]?.id;
+
+          const sharedTxs = pFiltered.filter(t => t.type === "expense" && t.shareType === "shared");
+          const paidMap = { [selfId]: 0, [partnerId]: 0 };
+          sharedTxs.forEach(t => {
+            const amt = Math.abs(t.shareAmount ?? t.amount);
+            if (paidMap[t.paidBy] !== undefined) paidMap[t.paidBy] += amt;
+            else paidMap[selfId] += amt;
+          });
+          const totalShared = Object.values(paidMap).reduce((s,v)=>s+v,0);
+          const perPerson = totalShared / 2;
+          const settleAmt = Math.round(paidMap[selfId] - perPerson);
+
+          const baseTx = t => t.type === "expense";
+          const advBySelf = pFiltered.filter(t => baseTx(t) && t.shareType === "partner" && (t.paidBy === selfId || !t.paidBy));
+          const advTotalSelf = advBySelf.reduce((s,t)=>s+Math.abs(t.shareAmount??t.amount),0);
+          const advByPartner = pFiltered.filter(t => baseTx(t) && t.shareType === "personal" && t.paidBy === partnerId);
+          const advTotalPartner = advByPartner.reduce((s,t)=>s+Math.abs(t.shareAmount??t.amount),0);
+          const advNet = advTotalSelf - advTotalPartner;
+
+          // パートナー（彼女）が払うべき金額（正=支払い、負=受け取り）
+          const finalAmt = -settleAmt + advNet;
+
+          return {
+            selfName: partnerMembers[0]?.name || "かずお",
+            partnerName: partnerMembers[1]?.name || "パートナー",
+            totalShared, perPerson, settleAmt,
+            advBySelf, advTotalSelf, advByPartner, advTotalPartner, advNet,
+            finalAmt, sharedTxs,
+          };
+        })();
+
+        // 未接続
+        if (!partnerShareId) return (
+          <div className="px-4 py-5 space-y-4">
+            <div className="bg-white rounded-2xl p-6 border border-gray-100 text-center space-y-4">
+              <p className="text-4xl">🤝</p>
+              <div>
+                <p className="text-sm font-bold text-gray-800">共有IDを入力</p>
+                <p className="text-xs text-gray-400 mt-1">かずおさんから共有IDを受け取って入力</p>
+              </div>
+              <input type="text" value={partnerInputId} onChange={e => setPartnerInputId(e.target.value)}
+                placeholder="共有ID" className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-indigo-400" />
+              {partnerError && <p className="text-xs text-rose-500">{partnerError}</p>}
+              <button onClick={() => setPartnerShareId(partnerInputId.trim())} disabled={!partnerInputId.trim()}
+                className="w-full py-2.5 bg-indigo-500 text-white rounded-xl font-bold text-sm disabled:opacity-40">
+                接続する
+              </button>
+            </div>
+          </div>
+        );
+
+        return (
+          <div className="px-4 py-4 space-y-4 pb-24">
+            {/* 月フィルター */}
+            <div className="flex gap-2 overflow-x-auto scrollbar-none">
+              {pMonths.map(m => (
+                <button key={m} onClick={() => setPartnerSelMonth(m)}
+                  className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${
+                    partnerSelMonth === m ? "bg-indigo-500 text-white border-indigo-500" : "bg-white text-gray-500 border-gray-200"
+                  }`}>
+                  {m === "all" ? "全期間" : m.replace("-","年") + "月"}
+                </button>
+              ))}
+              <button onClick={() => { setPartnerShareId(""); setPartnerInputId(""); setPartnerTxs([]); localStorage.removeItem("kakeibo_partner_share_id"); }}
+                className="flex-shrink-0 px-3 py-1.5 rounded-full text-xs border border-gray-200 text-gray-400">
+                切替
+              </button>
+            </div>
+
+            {partnerLoading ? (
+              <div className="flex justify-center py-10">
+                <div className="w-8 h-8 border-4 border-indigo-200 border-t-indigo-500 rounded-full animate-spin" />
+              </div>
+            ) : !pData ? (
+              <p className="text-center text-sm text-gray-400 py-10">メンバー情報がありません</p>
+            ) : (
+              <>
+                {/* 最終精算サマリー */}
+                <div className={`rounded-2xl p-5 text-white ${pData.finalAmt > 0 ? "bg-gradient-to-br from-rose-400 to-rose-600" : pData.finalAmt < 0 ? "bg-gradient-to-br from-emerald-400 to-emerald-600" : "bg-gradient-to-br from-gray-400 to-gray-600"}`}>
+                  <p className="text-xs opacity-80 mb-1">
+                    {pData.finalAmt > 0 ? `${pData.selfName}さんへ支払う` : pData.finalAmt < 0 ? `${pData.selfName}さんから受け取る` : "精算なし"}
+                  </p>
+                  <p className="text-4xl font-bold">{fmtC(Math.abs(pData.finalAmt))}</p>
+                  <p className="text-xs opacity-70 mt-1">{partnerSelMonth === "all" ? "全期間" : partnerSelMonth.replace("-","年") + "月"}</p>
+                </div>
+
+                {/* 内訳 */}
+                <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+                  <div className="px-4 py-3 border-b border-gray-50">
+                    <p className="text-xs font-bold text-gray-500">内訳</p>
+                  </div>
+                  <div className="px-4 py-3 border-b border-gray-50 flex justify-between items-center">
+                    <div>
+                      <p className="text-sm font-semibold text-gray-700">🤝 共有支出の割り勘</p>
+                      <p className="text-xs text-gray-400">合計{fmtC(pData.totalShared)} ÷ 2 = 1人{fmtC(pData.perPerson)}</p>
+                    </div>
+                    <p className={`text-sm font-bold ${-pData.settleAmt > 0 ? "text-rose-500" : "text-emerald-500"}`}>
+                      {-pData.settleAmt >= 0 ? "+" : ""}{fmtC(-pData.settleAmt)}
+                    </p>
+                  </div>
+                  {pData.advTotalSelf > 0 && (
+                    <div className="px-4 py-3 border-b border-gray-50 flex justify-between items-center">
+                      <div>
+                        <p className="text-sm font-semibold text-gray-700">🔄 {pData.selfName}さんの立替</p>
+                        <p className="text-xs text-gray-400">{pData.advBySelf.length}件</p>
+                      </div>
+                      <p className="text-sm font-bold text-rose-500">+{fmtC(pData.advTotalSelf)}</p>
+                    </div>
+                  )}
+                  {pData.advTotalPartner > 0 && (
+                    <div className="px-4 py-3 flex justify-between items-center">
+                      <div>
+                        <p className="text-sm font-semibold text-gray-700">🔄 あなたの立替</p>
+                        <p className="text-xs text-gray-400">{pData.advByPartner.length}件</p>
+                      </div>
+                      <p className="text-sm font-bold text-emerald-500">-{fmtC(pData.advTotalPartner)}</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* 対象取引一覧 */}
+                <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+                  <button onClick={() => setPartnerShowTxs(p => !p)}
+                    className="w-full flex items-center justify-between px-4 py-3 text-left">
+                    <div>
+                      <p className="text-xs font-bold text-gray-700">📋 対象取引一覧</p>
+                      <p className="text-xs text-gray-400">共有{pData.sharedTxs.length}件・立替{pData.advBySelf.length + pData.advByPartner.length}件</p>
+                    </div>
+                    <span className="text-gray-400 text-xs">{partnerShowTxs ? "▲" : "▼"}</span>
+                  </button>
+                  {partnerShowTxs && (
+                    <div className="border-t border-gray-50">
+                      {pData.sharedTxs.length > 0 && (
+                        <>
+                          <div className="px-4 py-2 bg-gray-50">
+                            <p className="text-xs font-bold text-gray-500">🤝 共有支出</p>
+                          </div>
+                          {pData.sharedTxs.map((t, i) => (
+                            <div key={i} className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-50">
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium text-gray-800 truncate">{t.label}</p>
+                                <p className="text-xs text-gray-400">{t.date} · {t.paidBy === partnerMembers[0]?.id ? partnerMembers[0]?.name : partnerMembers[1]?.name}払い</p>
+                              </div>
+                              <p className="text-sm font-bold text-rose-500 flex-shrink-0">-{fmtC(t.shareAmount ?? t.amount)}</p>
+                            </div>
+                          ))}
+                        </>
+                      )}
+                      {pData.advBySelf.length > 0 && (
+                        <>
+                          <div className="px-4 py-2 bg-amber-50">
+                            <p className="text-xs font-bold text-amber-600">🔄 {pData.selfName}さんの立替</p>
+                          </div>
+                          {pData.advBySelf.map((t, i) => (
+                            <div key={i} className="flex items-center gap-3 px-4 py-2.5 border-b border-amber-50">
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium text-gray-800 truncate">{t.label}</p>
+                                <p className="text-xs text-gray-400">{t.date}</p>
+                              </div>
+                              <p className="text-sm font-bold text-amber-600 flex-shrink-0">-{fmtC(t.shareAmount ?? t.amount)}</p>
+                            </div>
+                          ))}
+                        </>
+                      )}
+                      {pData.sharedTxs.length === 0 && pData.advBySelf.length === 0 && (
+                        <p className="text-sm text-gray-400 text-center py-6">対象取引なし</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        );
+      })()}
+
       {tab === "settlement" && (
         <div className="px-4 py-5 space-y-4">
-
-          {/* パートナー視点ボタン */}
-          {onPartnerView && (
-            <button onClick={onPartnerView}
-              className="w-full flex items-center justify-between px-4 py-3 bg-indigo-50 rounded-2xl border border-indigo-100 active:bg-indigo-100">
-              <div className="flex items-center gap-2">
-                <span className="text-lg">🤝</span>
-                <div className="text-left">
-                  <p className="text-sm font-bold text-indigo-700">パートナー視点で確認</p>
-                  <p className="text-xs text-indigo-400">相手のアプリに表示される内容をプレビュー</p>
-                </div>
-              </div>
-              <span className="text-indigo-400 text-lg">›</span>
-            </button>
-          )}
 
           {/* 期間選択 */}
           <div className="bg-white rounded-2xl p-4 border border-gray-100 space-y-3">
