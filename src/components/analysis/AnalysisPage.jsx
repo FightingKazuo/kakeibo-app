@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, PieChart, Pie, Cell, BarChart, Bar } from "recharts";
 import { toYM, fmtCurrency } from "../../utils/format";
 import { fetchTransactions, fetchMembers } from "../../utils/supabase";
