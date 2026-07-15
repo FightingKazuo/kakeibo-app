@@ -570,7 +570,7 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
 
 
       {/* 🤝 共有確認タブ */}
-      {tab === "partner" && (() => {
+      {tab === "partner" && (() => { try {
         const fmtC = (n) => `¥${Math.abs(Math.round(n)).toLocaleString()}`;
 
         // 月一覧
@@ -759,7 +759,7 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
             )}
           </div>
         );
-      })()}
+      } catch(e) { return <div className="px-4 py-10 text-center text-sm text-red-400">エラー: {String(e)}</div>; } })()}
 
       {tab === "settlement" && (
         <div className="px-4 py-5 space-y-4">
