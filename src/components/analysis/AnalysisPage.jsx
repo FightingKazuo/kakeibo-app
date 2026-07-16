@@ -102,7 +102,11 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
           fetchMembers(partnerShareId),
         ]);
         setPartnerTxs(txs || []);
-        setPartnerMembers(mems || []);
+        // membersがnullの場合はデフォルト値を使う
+        setPartnerMembers(mems || [
+          { id: "m1", name: "かずお" },
+          { id: "m2", name: "パートナー" },
+        ]);
         localStorage.setItem("kakeibo_partner_share_id", partnerShareId);
       } catch {
         setPartnerError("取得に失敗しました。IDを確認してください。");
