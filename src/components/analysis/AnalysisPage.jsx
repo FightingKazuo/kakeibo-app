@@ -20,6 +20,7 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
   const [partnerError,     setPartnerError]     = useState("");
   const [partnerSelMonth,  setPartnerSelMonth]  = useState("all");
   const [partnerShowTxs,   setPartnerShowTxs]  = useState(false);
+  const [partnerExpandedTx, setPartnerExpandedTx] = useState(null); // 展開中の取引ID
 
   // ── 精算用 期間指定 ──
   const today = new Date().toISOString().split("T")[0];
@@ -667,9 +668,9 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
             ) : (
               <>
                 {/* 最終精算サマリー */}
-                <div className={`rounded-2xl p-5 text-white ${pData.finalAmt > 0 ? "bg-gradient-to-br from-rose-400 to-rose-600" : pData.finalAmt < 0 ? "bg-gradient-to-br from-emerald-400 to-emerald-600" : "bg-gradient-to-br from-gray-400 to-gray-600"}`}>
+                <div className={`rounded-2xl p-5 text-white ${pData.finalAmt < 0 ? "bg-gradient-to-br from-rose-400 to-rose-600" : pData.finalAmt > 0 ? "bg-gradient-to-br from-emerald-400 to-emerald-600" : "bg-gradient-to-br from-gray-400 to-gray-600"}`}>
                   <p className="text-xs opacity-80 mb-1">
-                    {pData.finalAmt > 0 ? `${pData.selfName}さんへ支払う` : pData.finalAmt < 0 ? `${pData.selfName}さんから受け取る` : "精算なし"}
+                    {pData.finalAmt < 0 ? `${pData.selfName}さんへ支払う` : pData.finalAmt > 0 ? `${pData.selfName}さんから受け取る` : "精算なし"}
                   </p>
                   <p className="text-4xl font-bold">{fmtC(Math.abs(pData.finalAmt))}</p>
                   <p className="text-xs opacity-70 mt-1">{partnerSelMonth === "all" ? "全期間" : partnerSelMonth.replace("-","年") + "月"}</p>
@@ -726,15 +727,40 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
                           <div className="px-4 py-2 bg-gray-50">
                             <p className="text-xs font-bold text-gray-500">🤝 共有支出</p>
                           </div>
-                          {pData.sharedTxs.map((t, i) => (
-                            <div key={i} className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-50">
-                              <div className="flex-1 min-w-0">
-                                <p className="text-sm font-medium text-gray-800 truncate">{t.label}</p>
-                                <p className="text-xs text-gray-400">{t.date} · {t.paidBy === partnerMembers[0]?.id ? partnerMembers[0]?.name : partnerMembers[1]?.name}払い</p>
+                          {pData.sharedTxs.map((t, i) => {
+                            const txKey = `shared-${i}`;
+                            const isExpanded = partnerExpandedTx === txKey;
+                            const hasItems = t.items && t.items.length > 0;
+                            return (
+                              <div key={i} className="border-b border-gray-50">
+                                <button
+                                  onClick={() => hasItems && setPartnerExpandedTx(isExpanded ? null : txKey)}
+                                  className="w-full flex items-center gap-3 px-4 py-2.5 text-left">
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-medium text-gray-800 truncate">{t.label}</p>
+                                    <p className="text-xs text-gray-400">
+                                      {t.date} · {t.paidBy === partnerMembers[0]?.id ? partnerMembers[0]?.name : partnerMembers[1]?.name}払い
+                                      {hasItems && <span className="ml-1 text-indigo-400">品目{t.items.length}件</span>}
+                                    </p>
+                                  </div>
+                                  <div className="flex items-center gap-1 flex-shrink-0">
+                                    <p className="text-sm font-bold text-rose-500">-{fmtC(t.shareAmount ?? t.amount)}</p>
+                                    {hasItems && <span className="text-gray-300 text-xs">{isExpanded ? "▲" : "▼"}</span>}
+                                  </div>
+                                </button>
+                                {isExpanded && hasItems && (
+                                  <div className="bg-gray-50 px-4 pb-2">
+                                    {t.items.map((item, j) => (
+                                      <div key={j} className="flex justify-between items-center py-1.5 border-b border-gray-100 last:border-b-0">
+                                        <p className="text-xs text-gray-600 flex-1 truncate">{item.name}</p>
+                                        <p className="text-xs font-semibold text-gray-700 ml-2">¥{Math.abs(item.price ?? item.amount ?? 0).toLocaleString()}</p>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
                               </div>
-                              <p className="text-sm font-bold text-rose-500 flex-shrink-0">-{fmtC(t.shareAmount ?? t.amount)}</p>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </>
                       )}
                       {pData.advBySelf.length > 0 && (
