@@ -6,8 +6,8 @@ import { PIE_COLORS } from "../../constants";
 import { MonthSelector } from "../common/MonthSelector";
 import { EmptyState } from "../ui/EmptyState";
 
-export function AnalysisPage({ transactions, categories, members, pointAccounts, onUpdate, csvSourceLabels, pendingTxs, onApprovePending, onRejectPending }) {
-  const [tab,          setTab]          = useState("analysis");
+export function AnalysisPage({ transactions, categories, members, pointAccounts, onUpdate, csvSourceLabels, pendingTxs, onApprovePending, onRejectPending, initialTab }) {
+  const [tab,          setTab]          = useState(initialTab || "analysis");
   const [showSettleTxs, setShowSettleTxs] = useState(false);
   const [selMonth, setSelMonth] = useState("all");
   const [selectedCat,  setSelectedCat]  = useState(null); // タップで明細表示するカテゴリ
