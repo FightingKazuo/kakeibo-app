@@ -15,6 +15,7 @@ export function ManualAddForm({ categories, allRules, learnedRules, members, poi
   const [category,       setCategory]      = useState("");
   const [paidBy,         setPaidBy]        = useState("");
   const [payMethod,      setPayMethod]     = useState("cash");
+  const [shareType,      setShareType]     = useState("shared");
   const [pendingTx,      setPendingTx]     = useState(null);
   const [dupCandidates,  setDupCandidates] = useState([]);
   const [done,           setDone]          = useState(false);
@@ -38,6 +39,7 @@ export function ManualAddForm({ categories, allRules, learnedRules, members, poi
       date, label, category, memo,
       amount:        type === "expense" ? -Number(amount) : Number(amount),
       type,          source: "manual",
+      shareType:     type === "expense" ? shareType : null,
       paidBy:        paidBy || null,
       paymentMethod: payMethod,
       pointAccountId: payMethod !== "cash" ? payMethod : null,
@@ -69,7 +71,28 @@ export function ManualAddForm({ categories, allRules, learnedRules, members, poi
         />
         {members && members.length > 0 && (
           <div className="mt-4">
-            <label className="block text-xs font-semibold text-gray-500 mb-2">支払者</label>
+            {/* shareType選択（支出のみ） */}
+      {type === "expense" && (
+        <div>
+          <label className="block text-xs font-semibold text-gray-500 mb-2">種別</label>
+          <div className="flex gap-2">
+            {[
+              { v: "shared",   label: "🤝 共有",  active: "bg-indigo-500" },
+              { v: "personal", label: "👤 個人",  active: "bg-gray-600"   },
+              { v: "partner",  label: "👥 相手",  active: "bg-purple-500" },
+            ].map(({ v, label, active }) => (
+              <button key={v} onClick={() => setShareType(v)}
+                className={`flex-1 py-2 rounded-xl text-xs font-bold border transition-all ${
+                  shareType === v ? `${active} text-white border-transparent` : "bg-white text-gray-500 border-gray-200"
+                }`}>
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <label className="block text-xs font-semibold text-gray-500 mb-2">支払者</label>
             <div className="flex gap-2">
               {members.map(m => (
                 <button key={m.id} onClick={() => setPaidBy(paidBy === m.id ? "" : m.id)}
