@@ -360,7 +360,7 @@ function CsvImportStatusImpl({ importHistory, activeCsvSources, onNavigate }) {
   );
 }
 
-export function HomePage({ transactions, categories, pointAccounts, learnedRules, importHistory, activeCsvSources, budgets, onNavigate }) {
+export function HomePage({ transactions, categories, pointAccounts, learnedRules, importHistory, activeCsvSources, budgets, onNavigate, pendingCount }) {
   const now       = new Date();
   const currentYM = now.toISOString().slice(0, 7);
   const prevDate  = new Date(now.getFullYear(), now.getMonth() - 1, 1);
@@ -433,6 +433,19 @@ export function HomePage({ transactions, categories, pointAccounts, learnedRules
           />
           <BudgetProgress categories={categories} currentMonthTxs={currentMonthTxs} />
           <BudgetAlert transactions={transactions} budgets={budgets} />
+          {/* 承認待ちバッジ */}
+          {pendingCount > 0 && (
+            <button onClick={() => onNavigate("analysis")}
+              className="w-full flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3 text-left">
+              <span className="text-xl">📬</span>
+              <div className="flex-1">
+                <p className="text-sm font-bold text-amber-700">承認待ちの申請があります</p>
+                <p className="text-xs text-amber-500">パートナーから {pendingCount}件 の共有支出申請</p>
+              </div>
+              <span className="bg-amber-500 text-white text-xs font-bold px-2 py-1 rounded-full">{pendingCount}</span>
+            </button>
+          )}
+
           <CsvImportStatusImpl importHistory={importHistory} activeCsvSources={activeCsvSources} onNavigate={onNavigate} />
           <RecentExpenseCard amount={last7DaysExpense} />
           {pointAccounts && pointAccounts.length > 0 && (
