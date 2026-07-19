@@ -1,12 +1,12 @@
 import { useState, useMemo, useEffect } from "react";
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, PieChart, Pie, Cell, BarChart, Bar } from "recharts";
 import { toYM, fmtCurrency } from "../../utils/format";
-import { fetchTransactions, fetchMembers } from "../../utils/supabase";
+import { fetchTransactions, fetchMembers, submitPendingTransaction } from "../../utils/supabase";
 import { PIE_COLORS } from "../../constants";
 import { MonthSelector } from "../common/MonthSelector";
 import { EmptyState } from "../ui/EmptyState";
 
-export function AnalysisPage({ transactions, categories, members, pointAccounts, onUpdate , csvSourceLabels}) {
+export function AnalysisPage({ transactions, categories, members, pointAccounts, onUpdate, csvSourceLabels, pendingTxs, onApprovePending, onRejectPending }) {
   const [tab,          setTab]          = useState("analysis");
   const [showSettleTxs, setShowSettleTxs] = useState(false);
   const [selMonth, setSelMonth] = useState("all");
@@ -21,6 +21,9 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
   const [partnerSelMonth,  setPartnerSelMonth]  = useState("all");
   const [partnerShowTxs,   setPartnerShowTxs]  = useState(false);
   const [partnerExpandedTx, setPartnerExpandedTx] = useState(null); // 展開中の取引ID
+  const [showSubmitForm,   setShowSubmitForm]   = useState(false); // 申請フォーム表示
+  const [submitForm,       setSubmitForm]       = useState({ label: "", amount: "", date: new Date().toISOString().slice(0,10), category: "食費" });
+  const [submitting,       setSubmitting]       = useState(false);
 
   // ── 精算用 期間指定 ──
   const today = new Date().toISOString().split("T")[0];
@@ -643,7 +646,7 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
 
         return (
           <div className="px-4 py-4 space-y-4 pb-24">
-            {/* 月フィルター */}
+            {/* 月フィルター＋申請ボタン */}
             <div className="flex gap-2 overflow-x-auto scrollbar-none">
               {pMonths.map(m => (
                 <button key={m} onClick={() => setPartnerSelMonth(m)}
@@ -658,6 +661,81 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
                 切替
               </button>
             </div>
+
+            {/* 申請ボタン */}
+            <button onClick={() => setShowSubmitForm(p => !p)}
+              className="w-full py-2.5 bg-indigo-500 text-white rounded-xl text-sm font-bold flex items-center justify-center gap-2">
+              <span>＋</span> 共有支出を申請する
+            </button>
+
+            {/* 申請フォーム */}
+            {showSubmitForm && (
+              <div className="bg-white rounded-2xl border border-indigo-100 p-4 space-y-3">
+                <p className="text-xs font-bold text-indigo-700">📤 共有支出として申請</p>
+                <p className="text-xs text-gray-400">かずおさんに申請を送ります。承認されると家計簿に反映されます。</p>
+                <div className="space-y-2">
+                  <input type="text" placeholder="内容（例: スーパー田子重）"
+                    value={submitForm.label}
+                    onChange={e => setSubmitForm(p => ({...p, label: e.target.value}))}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-400" />
+                  <div className="flex gap-2">
+                    <div className="flex-1 flex items-center border border-gray-200 rounded-lg px-3 py-2">
+                      <span className="text-xs text-gray-400 mr-1">¥</span>
+                      <input type="number" placeholder="金額"
+                        value={submitForm.amount}
+                        onChange={e => setSubmitForm(p => ({...p, amount: e.target.value}))}
+                        className="flex-1 text-sm outline-none" />
+                    </div>
+                    <input type="date" value={submitForm.date}
+                      onChange={e => setSubmitForm(p => ({...p, date: e.target.value}))}
+                      className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none" />
+                  </div>
+                  <select value={submitForm.category}
+                    onChange={e => setSubmitForm(p => ({...p, category: e.target.value}))}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none bg-white">
+                    {["食費","日用品","外食","交通費","娯楽","医療","その他"].map(c => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => setShowSubmitForm(false)}
+                    className="flex-1 py-2 bg-gray-100 text-gray-500 rounded-lg text-sm font-semibold">
+                    キャンセル
+                  </button>
+                  <button
+                    disabled={!submitForm.label || !submitForm.amount || submitting}
+                    onClick={async () => {
+                      if (!submitForm.label || !submitForm.amount) return;
+                      setSubmitting(true);
+                      try {
+                        const tx = {
+                          id:        crypto.randomUUID(),
+                          label:     submitForm.label,
+                          amount:    -Math.abs(Number(submitForm.amount)),
+                          date:      submitForm.date,
+                          category:  submitForm.category,
+                          type:      "expense",
+                          shareType: "shared",
+                          source:    "manual",
+                          paidBy:    partnerMembers[1]?.id || "m2",
+                        };
+                        await submitPendingTransaction(partnerShareId, tx, partnerMembers[1]?.name || "パートナー");
+                        setSubmitForm({ label: "", amount: "", date: new Date().toISOString().slice(0,10), category: "食費" });
+                        setShowSubmitForm(false);
+                        alert("✅ 申請しました！かずおさんが確認後に反映されます。");
+                      } catch(e) {
+                        alert("申請に失敗しました: " + e.message);
+                      } finally {
+                        setSubmitting(false);
+                      }
+                    }}
+                    className="flex-1 py-2 bg-indigo-500 text-white rounded-lg text-sm font-bold disabled:opacity-40">
+                    {submitting ? "送信中..." : "申請する"}
+                  </button>
+                </div>
+              </div>
+            )}
 
             {partnerLoading ? (
               <div className="flex justify-center py-10">
@@ -793,6 +871,39 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
 
       {tab === "settlement" && (
         <div className="px-4 py-5 space-y-4">
+
+          {/* 承認待ち取引 */}
+          {pendingTxs && pendingTxs.length > 0 && (
+            <div className="bg-amber-50 rounded-2xl border border-amber-200 overflow-hidden">
+              <div className="px-4 py-3 flex items-center gap-2 border-b border-amber-100">
+                <span className="text-base">📬</span>
+                <p className="text-sm font-bold text-amber-700">承認待ちの申請</p>
+                <span className="ml-auto bg-amber-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">{pendingTxs.length}件</span>
+              </div>
+              {pendingTxs.map((t, i) => (
+                <div key={i} className="px-4 py-3 border-b border-amber-50 last:border-b-0">
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-bold text-gray-800 truncate">{t.label}</p>
+                      <p className="text-xs text-gray-400">{t.date} · {t._submittedBy}が申請</p>
+                      {t.category && <p className="text-xs text-indigo-400">{t.category}</p>}
+                    </div>
+                    <p className="text-sm font-bold text-rose-500 flex-shrink-0">-{fmtCurrency(Math.abs(t.amount))}</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={() => onApprovePending?.(t)}
+                      className="flex-1 py-1.5 bg-emerald-500 text-white rounded-lg text-xs font-bold">
+                      ✅ 承認
+                    </button>
+                    <button onClick={() => { if (window.confirm(`「${t.label}」を却下しますか？`)) onRejectPending?.(t); }}
+                      className="flex-1 py-1.5 bg-gray-100 text-gray-500 rounded-lg text-xs font-bold">
+                      ✕ 却下
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
 
           {/* 期間選択 */}
           <div className="bg-white rounded-2xl p-4 border border-gray-100 space-y-3">
