@@ -1261,6 +1261,7 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
                           const payer = members.find(m => m.id === t.paidBy);
                           const isSelected = selectedSettle.has(t.id);
                           return (
+                            <>
                             <div
                               key={t.id}
                               onClick={() => toggleSettleSelect(t.id)}
@@ -1344,6 +1345,7 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
                                 ))}
                               </div>
                             )}
+                            </>
                           );
                         })}
                       </div>
