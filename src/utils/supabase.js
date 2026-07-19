@@ -137,6 +137,37 @@ export const fetchBudgets          = (shareId) => fetchSetting("budgets",       
 export const saveBalanceAdjustments = (shareId, data) => upsertSetting("balance_adjustments", shareId, data);
 export const fetchBalanceAdjustments = (shareId) => fetchSetting("balance_adjustments", shareId);
 
+// ── 申請中取引 ────────────────────────────────────────────
+export const submitPendingTransaction = async (shareId, tx, submittedBy) => {
+  await sbFetch("pending_transactions", {
+    method: "POST",
+    headers: { "Prefer": "resolution=merge-duplicates,return=minimal" },
+    body: JSON.stringify({
+      id:           tx.id || crypto.randomUUID(),
+      share_id:     shareId,
+      data:         tx,
+      submitted_by: submittedBy || "パートナー",
+      status:       "pending",
+      updated_at:   new Date().toISOString(),
+    }),
+  });
+};
+
+export const fetchPendingTransactions = async (shareId) => {
+  const rows = await sbFetch(`pending_transactions?share_id=eq.${shareId}&status=eq.pending&order=created_at.desc`, {
+    headers: { "Prefer": "return=representation" },
+  });
+  return (rows || []).map(r => ({ ...r.data, _pendingId: r.id, _submittedBy: r.submitted_by, _createdAt: r.created_at }));
+};
+
+export const updatePendingStatus = async (pendingId, status) => {
+  await sbFetch(`pending_transactions?id=eq.${pendingId}`, {
+    method: "PATCH",
+    headers: { "Prefer": "return=minimal" },
+    body: JSON.stringify({ status, updated_at: new Date().toISOString() }),
+  });
+};
+
 // ─── 接続テスト ───────────────────────────────────────────
 export const testConnection = async () => {
   await sbFetch("transactions?limit=1", {
