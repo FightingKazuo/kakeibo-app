@@ -467,6 +467,22 @@ export default function App() {
 
   const handleReset = () => { clearAllStorage(); window.location.reload(); };
 
+  // ── 承認待ち申請の定期自動チェック（30秒ごと） ──────────────
+  useEffect(() => {
+    if (!shareId) return;
+    const check = async () => {
+      try {
+        const pending = await fetchPendingTransactions(shareId);
+        setPendingTxs(pending || []);
+      } catch {}
+    };
+    // ホームを開いたとき即チェック
+    if (currentPage === "home") check();
+    // 30秒ごとにポーリング
+    const timer = setInterval(check, 30000);
+    return () => clearInterval(timer);
+  }, [shareId, currentPage]);
+
   // ── 申請取引の承認/却下 ────────────────────────────────────
   const handleApprovePending = async (pendingTx) => {
     const { _pendingId, _submittedBy, _createdAt, ...tx } = pendingTx;
