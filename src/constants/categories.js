@@ -37,7 +37,8 @@ export const PIE_COLORS = [
 ];
 
 export const SOURCE_CFG = {
-  ocr:    { label: "📷 OCR", cls: "bg-purple-100 text-purple-700"  },
-  csv:    { label: "📊 CSV", cls: "bg-emerald-100 text-emerald-700" },
-  manual: { label: "✏️ 手動", cls: "bg-gray-100 text-gray-600"      },
+  ocr:     { label: "📷 OCR",    cls: "bg-purple-100 text-purple-700"  },
+  csv:     { label: "📊 CSV",    cls: "bg-emerald-100 text-emerald-700" },
+  manual:  { label: "✏️ 手動",   cls: "bg-gray-100 text-gray-600"      },
+  partner: { label: "👤 M申請",  cls: "bg-pink-100 text-pink-700"      },
 };
