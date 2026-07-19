@@ -483,9 +483,9 @@ export function OcrScanPage({ categories, allRules, learnedRules, members, point
                   { type: "partner",  label: "👥 相手",  cls: "bg-purple-500" },
                 ].map(({ type, label, cls }) => (
                   <button key={type} onClick={() => setOcrShareType(type)}
-                    className={\`flex-1 py-2 rounded-xl text-xs font-bold border transition-all \${
-                      ocrShareType === type ? \`\${cls} text-white border-transparent\` : "bg-white text-gray-500 border-gray-200"
-                    }\`}>
+                    className={`flex-1 py-2 rounded-xl text-xs font-bold border transition-all ${
+                      ocrShareType === type ? `${cls} text-white border-transparent` : "bg-white text-gray-500 border-gray-200"
+                    }`}>
                     {label}
                   </button>
                 ))}
