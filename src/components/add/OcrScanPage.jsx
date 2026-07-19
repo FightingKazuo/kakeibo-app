@@ -29,6 +29,7 @@ export function OcrScanPage({ categories, allRules, learnedRules, members, point
   const [ocrQueueIdx,   setOcrQueueIdx]   = useState(0);
   const [ocrPaidBy,     setOcrPaidBy]     = useState("");
   const [ocrPayMethod,  setOcrPayMethod]  = useState("cash");
+  const [ocrShareType,  setOcrShareType]  = useState("shared"); // デフォルト: 共有
   const [ocrMemo,       setOcrMemo]       = useState("");
   const [ocrShareAmount, setOcrShareAmount] = useState(null); // ウエルシア20日用精算金額
 
@@ -167,6 +168,7 @@ export function OcrScanPage({ categories, allRules, learnedRules, members, point
         date, label, category: cat, type: "expense", source: "ocr",
         memo: ocrMemo || "",
         paidBy: ocrPaidBy || null,
+        shareType: ocrShareType || "shared",
         paymentMethod: ocrPayMethod,
         pointAccountId: ocrPayMethod !== "cash" ? ocrPayMethod : null,
         shareAmount: ocrShareAmount || null,
@@ -178,7 +180,7 @@ export function OcrScanPage({ categories, allRules, learnedRules, members, point
     }
 
     if (txsToAdd.length === 0) {
-      txsToAdd.push(createTransaction({ date, label, category: cat, amount: -receiptTotal, type: "expense", source: "ocr", paidBy: ocrPaidBy || null, paymentMethod: ocrPayMethod, pointAccountId: ocrPayMethod !== "cash" ? ocrPayMethod : null }));
+      txsToAdd.push(createTransaction({ date, label, category: cat, amount: -receiptTotal, type: "expense", source: "ocr", shareType: ocrShareType || "shared", paidBy: ocrPaidBy || null, paymentMethod: ocrPayMethod, pointAccountId: ocrPayMethod !== "cash" ? ocrPayMethod : null }));
     }
 
     const csvDups = findCsvDuplicates(date, amount);
@@ -471,6 +473,25 @@ export function OcrScanPage({ categories, allRules, learnedRules, members, point
                 />
               </div>
             )}
+            {/* shareType選択 */}
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 mb-2">種別</label>
+              <div className="flex gap-2">
+                {[
+                  { type: "shared",   label: "🤝 共有",  cls: "bg-indigo-500" },
+                  { type: "personal", label: "👤 個人",  cls: "bg-gray-500"   },
+                  { type: "partner",  label: "👥 相手",  cls: "bg-purple-500" },
+                ].map(({ type, label, cls }) => (
+                  <button key={type} onClick={() => setOcrShareType(type)}
+                    className={\`flex-1 py-2 rounded-xl text-xs font-bold border transition-all \${
+                      ocrShareType === type ? \`\${cls} text-white border-transparent\` : "bg-white text-gray-500 border-gray-200"
+                    }\`}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             {members && members.length > 0 && (
               <div>
                 <label className="block text-xs font-semibold text-gray-500 mb-2">支払者</label>
