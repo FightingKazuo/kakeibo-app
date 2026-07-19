@@ -145,6 +145,9 @@ export default function App() {
   const [importHistory,       setImportHistory]       = useState({});
   const [balanceAdjustments,  setBalanceAdjustments]  = useState([]);
   const [pendingTxs,          setPendingTxs]          = useState([]);
+  const [isPartnerMode,       setIsPartnerMode]       = useState(() => {
+    try { return localStorage.getItem("kakeibo_is_partner_mode") === "true"; } catch { return false; }
+  });
   const [activeCsvSources,  setActiveCsvSources]  = useState(["sbi","epos","smbc","paypay"]);
   const [csvSourceLabels, setCsvSourceLabels] = useState({});
   const [budgets,         setBudgets]         = useState(() => {
@@ -577,6 +580,36 @@ export default function App() {
   const inviteUrl = `${window.location.origin}?share=${shareId}`;
 
   // ── ローディング画面 ──────────────────────────────────────
+  // パートナーモード: 初回起動時にモード未選択なら選択画面を表示
+  const modeSelected = localStorage.getItem("kakeibo_is_partner_mode");
+  if (!modeSelected) return (
+    <div className="min-h-screen bg-gradient-to-br from-indigo-50 to-purple-50 flex flex-col items-center justify-center px-8">
+      <p className="text-5xl mb-6">💰</p>
+      <h1 className="text-2xl font-bold text-gray-800 mb-2">家計簿</h1>
+      <p className="text-sm text-gray-400 mb-10">どちらとして使いますか？</p>
+      <div className="w-full space-y-4 max-w-sm">
+        <button onClick={() => {
+          localStorage.setItem("kakeibo_is_partner_mode", "false");
+          setIsPartnerMode(false);
+        }} className="w-full py-4 bg-indigo-500 text-white rounded-2xl font-bold text-base shadow-lg">
+          🏠 自分用（かずお）
+          <p className="text-xs font-normal opacity-80 mt-1">収支の管理・CSV取り込み・分析</p>
+        </button>
+        <button onClick={() => {
+          localStorage.setItem("kakeibo_is_partner_mode", "true");
+          setIsPartnerMode(true);
+        }} className="w-full py-4 bg-pink-500 text-white rounded-2xl font-bold text-base shadow-lg">
+          🤝 パートナー用（M）
+          <p className="text-xs font-normal opacity-80 mt-1">共有支出の確認・申請</p>
+        </button>
+      </div>
+      <button onClick={() => {
+        localStorage.setItem("kakeibo_is_partner_mode", "false");
+        setIsPartnerMode(false);
+      }} className="mt-6 text-xs text-gray-400">通常モードで続ける</button>
+    </div>
+  );
+
   if (isLoading) return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center">
       <div className="text-center space-y-4">
@@ -640,7 +673,7 @@ export default function App() {
           onActiveCsvSourcesChange={handleActiveCsvSourcesChange}
         />;
       case "analysis":
-        return <AnalysisPage transactions={transactions} categories={categories} members={members} pointAccounts={pointAccountsWithBalance} onUpdate={handleUpdate} pendingTxs={pendingTxs} onApprovePending={handleApprovePending} onRejectPending={handleRejectPending} />;
+        return <AnalysisPage transactions={transactions} categories={categories} members={members} pointAccounts={pointAccountsWithBalance} onUpdate={handleUpdate} pendingTxs={pendingTxs} onApprovePending={handleApprovePending} onRejectPending={handleRejectPending} initialTab={isPartnerMode ? "partner" : "analysis"} />;
       case "assets":
         return <AssetsPage
           transactions={transactions}
