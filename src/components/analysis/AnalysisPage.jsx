@@ -20,7 +20,8 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
   const [partnerError,     setPartnerError]     = useState("");
   const [partnerSelMonth,  setPartnerSelMonth]  = useState("all");
   const [partnerShowTxs,   setPartnerShowTxs]  = useState(false);
-  const [partnerExpandedTx, setPartnerExpandedTx] = useState(null); // 展開中の取引ID
+  const [partnerExpandedTx, setPartnerExpandedTx] = useState(null);
+  const [settleExpandedTx,  setSettleExpandedTx]  = useState(null); // 展開中の取引ID
   const [showSubmitForm,   setShowSubmitForm]   = useState(false); // 申請フォーム表示
   const [submitForm,       setSubmitForm]       = useState({ label: "", amount: "", date: new Date().toISOString().slice(0,10), category: "食費" });
   const [submitting,       setSubmitting]       = useState(false);
@@ -664,8 +665,10 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
 
             {/* 申請ボタン */}
             <button onClick={() => setShowSubmitForm(p => !p)}
-              className="w-full py-2.5 bg-indigo-500 text-white rounded-xl text-sm font-bold flex items-center justify-center gap-2">
-              <span>＋</span> 共有支出を申請する
+              className={`w-full py-2.5 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all ${
+                showSubmitForm ? "bg-gray-100 text-gray-500" : "bg-indigo-500 text-white"
+              }`}>
+              <span>{showSubmitForm ? "✕ キャンセル" : "＋ 自分の共有支出を申請する"}</span>
             </button>
 
             {/* 申請フォーム */}
@@ -1268,8 +1271,25 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
                               </div>
                               {/* 内容 */}
                               <div className="flex-1 min-w-0">
-                                <p className="text-xs font-medium text-gray-800 truncate">{t.label}</p>
-                                <p className="text-xs text-gray-400">{t.date} · {payer?.name || "支払者不明"}</p>
+                                <div className="flex items-center gap-1.5 mb-0.5">
+                                  <p className="text-xs font-medium text-gray-800 truncate">{t.label}</p>
+                                  {t.source === "partner" && (
+                                    <span className="flex-shrink-0 text-xs px-1.5 py-0.5 rounded-full bg-pink-100 text-pink-700 font-semibold">👤M</span>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <p className="text-xs text-gray-400">{t.date}</p>
+                                  <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${
+                                    payer?.id === members[0]?.id
+                                      ? "bg-blue-50 text-blue-600"
+                                      : "bg-rose-50 text-rose-500"
+                                  }`}>
+                                    {payer?.name || "不明"}払い
+                                  </span>
+                                </div>
+                                {t.items && t.items.length > 0 && (
+                                  <p className="text-xs text-indigo-400 mt-0.5">品目{t.items.length}件</p>
+                                )}
                                 {t.memo && <p className="text-xs text-indigo-500 mt-0.5">📝 {t.memo}</p>}
                               </div>
                               {/* 個別shareType変更ボタン */}
@@ -1296,16 +1316,34 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
                                   </button>
                                 ))}
                               </div>
-                              {/* 金額 */}
-                              <p className="text-xs font-bold text-rose-500 flex-shrink-0 text-right">
-                                -{fmtCurrency(settleAmt)}
-                                {t.shareAmount != null && t.shareAmount !== Math.abs(t.amount) && (
-                                  <span className="block text-gray-400 font-normal line-through text-xs">
-                                    {fmtCurrency(Math.abs(t.amount))}
-                                  </span>
+                              {/* 金額＋品目展開 */}
+                              <div className="text-right flex-shrink-0" onClick={e => {
+                                if (t.items?.length > 0) { e.stopPropagation(); setSettleExpandedTx(settleExpandedTx === t.id ? null : t.id); }
+                              }}>
+                                <p className="text-xs font-bold text-rose-500">
+                                  -{fmtCurrency(settleAmt)}
+                                  {t.shareAmount != null && t.shareAmount !== Math.abs(t.amount) && (
+                                    <span className="block text-gray-400 font-normal line-through text-xs">
+                                      {fmtCurrency(Math.abs(t.amount))}
+                                    </span>
+                                  )}
+                                </p>
+                                {t.items?.length > 0 && (
+                                  <p className="text-xs text-indigo-400">{settleExpandedTx === t.id ? "▲閉じる" : `▼${t.items.length}品目`}</p>
                                 )}
-                              </p>
+                              </div>
                             </div>
+                            {/* 品目詳細 */}
+                            {settleExpandedTx === t.id && t.items?.length > 0 && (
+                              <div className="bg-gray-50 border-t border-gray-100 px-4 py-2 ml-8">
+                                {t.items.map((item, j) => (
+                                  <div key={j} className="flex justify-between items-center py-1 border-b border-gray-100 last:border-b-0">
+                                    <p className="text-xs text-gray-600 flex-1 truncate">{item.name}</p>
+                                    <p className="text-xs font-semibold text-gray-700">¥{Math.abs(item.price ?? item.amount ?? 0).toLocaleString()}</p>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
                           );
                         })}
                       </div>
