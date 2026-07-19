@@ -692,6 +692,9 @@ export default function App() {
           onImportHistoryChange={handleImportHistoryChange}
           activeCsvSources={activeCsvSources}
           onActiveCsvSourcesChange={handleActiveCsvSourcesChange}
+          isPartnerMode={isPartnerMode}
+          partnerShareId={localStorage.getItem("kakeibo_partner_share_id") || ""}
+          partnerName={members[1]?.name || "パートナー"}
         />;
       case "analysis":
         return <AnalysisPage transactions={transactions} categories={categories} members={members} pointAccounts={pointAccountsWithBalance} onUpdate={handleUpdate} pendingTxs={pendingTxs} onApprovePending={handleApprovePending} onRejectPending={handleRejectPending} initialTab={isPartnerMode ? "partner" : "analysis"} />;
