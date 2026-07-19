@@ -463,17 +463,21 @@ export default function App() {
 
   // ── 申請取引の承認/却下 ────────────────────────────────────
   const handleApprovePending = async (pendingTx) => {
-    // 取引をtransactionsに追加
     const { _pendingId, _submittedBy, _createdAt, ...tx } = pendingTx;
-    const normalized = normalizeTransaction({ ...tx, shareType: "shared", id: tx.id || crypto.randomUUID() });
+    // source="partner" で彼女申請の取引として区別する
+    const normalized = normalizeTransaction({
+      ...tx,
+      id:        tx.id || crypto.randomUUID(),
+      shareType: "shared",
+      source:    "partner",          // 👤 M申請バッジ
+      paidBy:    members[1]?.id,     // パートナー払い
+    });
     if (!normalized) return;
     setTransactions(p => [normalized, ...p]);
-    // Supabaseに保存
     try {
       const { upsertTransaction } = await import("./utils/supabase");
       await upsertTransaction(shareId, normalized);
     } catch {}
-    // ステータスをapprovedに更新
     await updatePendingStatus(_pendingId, "approved");
     setPendingTxs(p => p.filter(t => t._pendingId !== _pendingId));
     alert(`✅ 「${pendingTx.label}」を承認しました`);
