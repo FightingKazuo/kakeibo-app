@@ -73,6 +73,7 @@ import {
   fetchCsvSourceLabels, saveCsvSourceLabels,
   fetchBudgets, saveBudgets,
   fetchBalanceAdjustments, saveBalanceAdjustments,
+  fetchPendingTransactions, updatePendingStatus,
   testConnection,
 } from "./utils/supabase";
 import { learnTransferKeyword } from "./services/csvParser";
@@ -143,6 +144,7 @@ export default function App() {
   const [editingTx,     setEditingTx]     = useState(null);
   const [importHistory,       setImportHistory]       = useState({});
   const [balanceAdjustments,  setBalanceAdjustments]  = useState([]);
+  const [pendingTxs,          setPendingTxs]          = useState([]);
   const [activeCsvSources,  setActiveCsvSources]  = useState(["sbi","epos","smbc","paypay"]);
   const [csvSourceLabels, setCsvSourceLabels] = useState({});
   const [budgets,         setBudgets]         = useState(() => {
@@ -168,6 +170,11 @@ export default function App() {
         let balAdj = [];
         try { balAdj = await fetchBalanceAdjustments(shareId) || []; } catch {}
         setBalanceAdjustments(balAdj);
+        // 承認待ち取引をロード
+        try {
+          const pending = await fetchPendingTransactions(shareId);
+          setPendingTxs(pending || []);
+        } catch {}
         let activeSources = null;
         try { activeSources = await fetchActiveCsvSources(shareId); } catch {}
         if (activeSources) setActiveCsvSources(activeSources);
@@ -454,6 +461,29 @@ export default function App() {
 
   const handleReset = () => { clearAllStorage(); window.location.reload(); };
 
+  // ── 申請取引の承認/却下 ────────────────────────────────────
+  const handleApprovePending = async (pendingTx) => {
+    // 取引をtransactionsに追加
+    const { _pendingId, _submittedBy, _createdAt, ...tx } = pendingTx;
+    const normalized = normalizeTransaction({ ...tx, shareType: "shared", id: tx.id || crypto.randomUUID() });
+    if (!normalized) return;
+    setTransactions(p => [normalized, ...p]);
+    // Supabaseに保存
+    try {
+      const { upsertTransaction } = await import("./utils/supabase");
+      await upsertTransaction(shareId, normalized);
+    } catch {}
+    // ステータスをapprovedに更新
+    await updatePendingStatus(_pendingId, "approved");
+    setPendingTxs(p => p.filter(t => t._pendingId !== _pendingId));
+    alert(`✅ 「${pendingTx.label}」を承認しました`);
+  };
+
+  const handleRejectPending = async (pendingTx) => {
+    await updatePendingStatus(pendingTx._pendingId, "rejected");
+    setPendingTxs(p => p.filter(t => t._pendingId !== pendingTx._pendingId));
+  };
+
   // ── 起動時にimportHistoryを自動補完 ──────────────────────────
   useEffect(() => {
     if (transactions.length < 5) return;
@@ -575,7 +605,7 @@ export default function App() {
   const renderPage = () => {
     switch (currentPage) {
       case "home":
-        return <HomePage transactions={transactions} categories={categories} pointAccounts={pointAccountsWithBalance} learnedRules={learnedRules} importHistory={importHistory} activeCsvSources={activeCsvSources} budgets={budgets} onNavigate={navigate} />;
+        return <HomePage transactions={transactions} categories={categories} pointAccounts={pointAccountsWithBalance} learnedRules={learnedRules} importHistory={importHistory} activeCsvSources={activeCsvSources} budgets={budgets} onNavigate={navigate} pendingCount={pendingTxs.length} />;
       case "list":
         return <TransactionListPage
           transactions={transactions}
@@ -606,7 +636,7 @@ export default function App() {
           onActiveCsvSourcesChange={handleActiveCsvSourcesChange}
         />;
       case "analysis":
-        return <AnalysisPage transactions={transactions} categories={categories} members={members} pointAccounts={pointAccountsWithBalance} onUpdate={handleUpdate} />;
+        return <AnalysisPage transactions={transactions} categories={categories} members={members} pointAccounts={pointAccountsWithBalance} onUpdate={handleUpdate} pendingTxs={pendingTxs} onApprovePending={handleApprovePending} onRejectPending={handleRejectPending} />;
       case "assets":
         return <AssetsPage
           transactions={transactions}
@@ -654,7 +684,7 @@ export default function App() {
           syncStatus={syncStatus}
         />;
       default:
-        return <HomePage transactions={transactions} categories={categories} pointAccounts={pointAccountsWithBalance} learnedRules={learnedRules} importHistory={importHistory} activeCsvSources={activeCsvSources} budgets={budgets} onNavigate={navigate} />;
+        return <HomePage transactions={transactions} categories={categories} pointAccounts={pointAccountsWithBalance} learnedRules={learnedRules} importHistory={importHistory} activeCsvSources={activeCsvSources} budgets={budgets} onNavigate={navigate} pendingCount={pendingTxs.length} />;
     }
   };
 
