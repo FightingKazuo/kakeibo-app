@@ -1,5 +1,90 @@
 import { useState } from "react";
 import { ManualAddForm }  from "./ManualAddForm";
+import { submitPendingTransaction } from "../../utils/supabase";
+
+// パートナーモード用申請フォーム
+function PartnerSubmitForm({ categories, members, partnerShareId, partnerName, onBack }) {
+  const [label,     setLabel]     = useState("");
+  const [amount,    setAmount]    = useState("");
+  const [date,      setDate]      = useState(new Date().toISOString().slice(0,10));
+  const [category,  setCategory]  = useState("食費");
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleSubmit = async () => {
+    if (!label || !amount) { alert("内容と金額を入力してください"); return; }
+    if (!partnerShareId) { alert("共有確認タブでかずおさんのIDを入力してから申請してください"); return; }
+    setSubmitting(true);
+    try {
+      const tx = {
+        id:        crypto.randomUUID(),
+        label, category,
+        amount:    -Math.abs(Number(amount)),
+        date,
+        type:      "expense",
+        shareType: "shared",
+        source:    "manual",
+        paidBy:    members[1]?.id || "m2",
+      };
+      await submitPendingTransaction(partnerShareId, tx, partnerName);
+      alert("✅ 申請しました！承認されると反映されます。");
+      setLabel(""); setAmount(""); setCategory("食費");
+      onBack();
+    } catch(e) {
+      alert("申請に失敗しました: " + e.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="pb-20 px-4 pt-6 space-y-4 max-w-lg mx-auto">
+      <div className="flex items-center gap-3 mb-2">
+        <button onClick={onBack} className="text-gray-400 text-xl">←</button>
+        <h2 className="text-lg font-bold text-gray-800">共有支出を申請</h2>
+      </div>
+      <div className="bg-pink-50 rounded-xl p-3 border border-pink-100">
+        <p className="text-xs text-pink-600">📤 かずおさんに申請します。承認されると家計簿に反映されます。</p>
+      </div>
+      <div className="bg-white rounded-2xl p-4 border border-gray-100 space-y-4">
+        <div>
+          <label className="block text-xs font-semibold text-gray-500 mb-1">内容</label>
+          <input type="text" value={label} onChange={e => setLabel(e.target.value)}
+            placeholder="例: スーパー田子重"
+            className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-pink-400" />
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-gray-500 mb-1">金額</label>
+          <div className="flex items-center border border-gray-200 rounded-xl px-3 py-2.5">
+            <span className="text-gray-400 mr-2">¥</span>
+            <input type="number" value={amount} onChange={e => setAmount(e.target.value)}
+              placeholder="3000"
+              className="flex-1 text-sm outline-none font-bold" />
+          </div>
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-gray-500 mb-1">日付</label>
+          <input type="date" value={date} onChange={e => setDate(e.target.value)}
+            className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none" />
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-gray-500 mb-2">カテゴリ</label>
+          <div className="grid grid-cols-3 gap-2">
+            {(categories || []).filter(c => c.type === "expense").map(cat => (
+              <button key={cat.id} onClick={() => setCategory(cat.name)}
+                className={`py-2 rounded-xl text-xs border transition-all ${category === cat.name ? "bg-pink-500 text-white border-pink-500 font-semibold" : "bg-white text-gray-600 border-gray-200"}`}>
+                {cat.emoji} {cat.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+      <button onClick={handleSubmit} disabled={!label || !amount || submitting}
+        className="w-full py-3.5 bg-pink-500 text-white rounded-2xl font-bold text-sm disabled:opacity-40">
+        {submitting ? "送信中..." : "📤 申請する"}
+      </button>
+    </div>
+  );
+}
 import { OcrScanPage }    from "./OcrScanPage";
 import { CsvImportPage }  from "./CsvImportPage";
 import { STORAGE_KEYS }   from "../../constants/storage";
@@ -8,8 +93,21 @@ export function AddPage({
   categories, existingTransactions, allRules, learnedRules,
   members, pointAccounts, importHistory,
   onAdd, onDelete, onLearnRule, onImportHistoryChange,
+  activeCsvSources, onActiveCsvSourcesChange,
+  isPartnerMode, partnerShareId, partnerName,
 }) {
   const [mode, setMode] = useState("select");
+
+  // パートナーモード: ManualAddFormを申請フォームとして使用
+  if (isPartnerMode && mode === "manual") return (
+    <PartnerSubmitForm
+      categories={categories}
+      members={members}
+      partnerShareId={partnerShareId}
+      partnerName={partnerName}
+      onBack={() => setMode("select")}
+    />
+  );
 
   if (mode === "manual") return (
     <ManualAddForm
@@ -52,6 +150,27 @@ export function AddPage({
   }
 
   // ─── select 画面 ──────────────────────────────────────────
+  // パートナーモード: 申請専用UI
+  if (isPartnerMode) return (
+    <div className="pb-20">
+      <div className="bg-white px-4 pt-12 pb-4 border-b border-gray-100">
+        <h1 className="text-xl font-bold text-gray-900">共有支出を申請</h1>
+        <p className="text-xs text-gray-400 mt-1">承認されると家計簿に反映されます</p>
+      </div>
+      <div className="px-4 py-6">
+        <button onClick={() => setMode("manual")}
+          className="w-full flex items-center gap-4 p-5 bg-white rounded-2xl border border-pink-100 shadow-sm active:bg-pink-50">
+          <span className="text-4xl">📤</span>
+          <div className="text-left">
+            <p className="text-sm font-bold text-gray-800">支出を申請する</p>
+            <p className="text-xs text-gray-400 mt-0.5">金額・カテゴリを入力してかずおさんに送る</p>
+          </div>
+          <span className="ml-auto text-gray-300 text-xl">›</span>
+        </button>
+      </div>
+    </div>
+  );
+
   return (
     <div className="pb-20">
       <div className="bg-white px-4 pt-12 pb-4 border-b border-gray-100">
