@@ -512,7 +512,9 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
             <p className="text-xs font-semibold text-gray-500 mb-3 uppercase tracking-wide">直近6ヶ月</p>
             <div className="space-y-3">
               {monthlyReport.map((r, i) => (
-                <div key={r.ym} className={`rounded-xl p-3 ${i === 0 ? "bg-indigo-50 border border-indigo-100" : "bg-gray-50"}`}>
+                <div key={r.ym}
+                  onClick={() => { setSelMonth(r.ym); setTab("analysis"); }}
+                  className={`rounded-xl p-3 cursor-pointer active:opacity-70 transition-opacity ${i === 0 ? "bg-indigo-50 border border-indigo-100" : "bg-gray-50"}`}>
                   <div className="flex items-center justify-between mb-2">
                     <span className={`text-sm font-bold ${i === 0 ? "text-indigo-700" : "text-gray-700"}`}>{r.label}</span>
                     {i > 0 && monthlyReport[i-1] && (
