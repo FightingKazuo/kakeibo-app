@@ -697,7 +697,7 @@ export default function App() {
           partnerName={members[1]?.name || "パートナー"}
         />;
       case "analysis":
-        return <AnalysisPage transactions={transactions} categories={categories} members={members} pointAccounts={pointAccountsWithBalance} onUpdate={handleUpdate} pendingTxs={pendingTxs} onApprovePending={handleApprovePending} onRejectPending={handleRejectPending} initialTab={isPartnerMode ? "partner" : "analysis"} />;
+        return <AnalysisPage transactions={transactions} categories={categories} members={members} pointAccounts={pointAccountsWithBalance} onUpdate={handleUpdate} pendingTxs={pendingTxs} onApprovePending={handleApprovePending} onRejectPending={handleRejectPending} initialTab={isPartnerMode ? "partner" : "analysis"} budgets={budgets} />;
       case "assets":
         return <AssetsPage
           transactions={transactions}
