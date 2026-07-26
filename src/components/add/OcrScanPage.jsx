@@ -1,6 +1,6 @@
 import { useState, useRef } from "react";
 import { todayStr } from "../../utils/format";
-import { createTransaction, findDuplicateCandidates } from "../../services/transaction";
+import { createTransaction, findDuplicateCandidates, normalizeStoreName } from "../../services/transaction";
 import { predictCategory } from "../../services/categoryPredictor";
 import { DEFAULT_CATEGORY_RULES, STORAGE_KEYS } from "../../constants";
 import { loadStorage, saveStorage } from "../../utils/storage";
@@ -102,7 +102,27 @@ export function OcrScanPage({ categories, allRules, learnedRules, members, point
   const editOcrItemQuantity  = (idx, quantity, amount) => setOcrItems(p => p.map((item, i) => i === idx ? { ...item, quantity, amount } : item));
   const toggleMultiItemType  = (ri, ii, type) => setOcrResults(p => p.map((r, i) => i !== ri ? r : { ...r, items: r.items.map((item, j) => j === ii ? { ...item, type } : item) }));
 
-  const findCsvDuplicates = (date, amount) => {
+  // 店舗名の類似判定（正規化した店名の完全一致 or 前方一致 or 部分一致）
+  // ※ 金額が完全一致していない場合に「本当に同じ店の支出か」を確認するために使う
+  const labelsLikelyMatch = (a, b) => {
+    const na = normalizeStoreName(a), nb = normalizeStoreName(b);
+    if (!na || !nb) return false;
+    if (na === nb) return true;
+    const minLen = Math.min(na.length, nb.length, 4);
+    if (minLen >= 3 && na.slice(0, minLen) === nb.slice(0, minLen)) return true;
+    const shorter = na.length <= nb.length ? na : nb;
+    const longer  = na.length <= nb.length ? nb : na;
+    return shorter.length >= 3 && longer.includes(shorter);
+  };
+
+  // ── CSV重複候補の検索条件 ──────────────────────────────────
+  // ① 日付差が3日以内
+  // ② 金額が完全一致 → 店舗名を問わず候補にする（表記ゆれ対応）
+  // ③ 金額差が10%以内（完全一致ではない）→ 店舗名が類似している場合のみ候補にする
+  //    （店舗名を見ずに金額の近さだけで判定すると、全く別の店の支出まで
+  //      「重複かも」と誤検出してしまうため。例: ドラッグストアとETC料金が
+  //      たまたま金額が近いだけで重複候補に出てしまう問題を防ぐ）
+  const findCsvDuplicates = (date, amount, label) => {
     const amt = Math.abs(Number(amount));
     const dateObj = new Date(date);
     return existingTransactions.filter(tx => {
@@ -111,7 +131,10 @@ export function OcrScanPage({ categories, allRules, learnedRules, members, point
       if (diffDays > 3) return false;
       const txAmt = Math.abs(tx.amount);
       if (txAmt === 0 || amt === 0) return false;
-      return Math.abs(txAmt - amt) / Math.max(txAmt, amt) <= 0.10;
+      const amountDiffRatio = Math.abs(txAmt - amt) / Math.max(txAmt, amt);
+      if (amountDiffRatio > 0.10) return false;
+      if (txAmt === amt) return true; // 金額完全一致は店名問わず候補
+      return labelsLikelyMatch(label, tx.label);
     });
   };
 
@@ -174,16 +197,20 @@ export function OcrScanPage({ categories, allRules, learnedRules, members, point
         shareAmount: ocrShareAmount || null,
         ...(waonConsumeAmount ? { pointConsumeAmount: waonConsumeAmount } : {}),
       };
-      if (finalSharedAmt > 0) txsToAdd.push(createTransaction({ ...base, amount: -finalSharedAmt, items: sharedItems.map(({ name, amount: a, quantity, taxRate, category }) => ({ name, amount: a, quantity, type: "shared",   taxRate, category })) }));
-      if (personAmt  > 0) txsToAdd.push(createTransaction({ ...base, label: `${label}（個人）`,            amount: -personAmt,  items: personalItems.map(({ name, amount: a, quantity, taxRate, category }) => ({ name, amount: a, quantity, type: "personal", taxRate, category })) }));
-      if (partnerAmt > 0) txsToAdd.push(createTransaction({ ...base, label: `${label}（パートナー負担）`, amount: -partnerAmt, items: partnerItems.map(({ name, amount: a, quantity, taxRate, category }) => ({ name, amount: a, quantity, type: "partner",  taxRate, category })) }));
+      // ★修正: 品目を共有/個人/相手に分割して別取引にする際は、
+      // 各取引のshareTypeを分割元のitem.typeに合わせて明示的に上書きする。
+      // これをしないと3件ともbaseのshareType（画面上部の「種別」選択値、初期値は「共有」）を
+      // 引き継いでしまい、個人品目だけを分けたはずの取引が「共有」表示になってしまう。
+      if (finalSharedAmt > 0) txsToAdd.push(createTransaction({ ...base, shareType: "shared", amount: -finalSharedAmt, items: sharedItems.map(({ name, amount: a, quantity, taxRate, category }) => ({ name, amount: a, quantity, type: "shared",   taxRate, category })) }));
+      if (personAmt  > 0) txsToAdd.push(createTransaction({ ...base, shareType: "personal", label: `${label}（個人）`,            amount: -personAmt,  items: personalItems.map(({ name, amount: a, quantity, taxRate, category }) => ({ name, amount: a, quantity, type: "personal", taxRate, category })) }));
+      if (partnerAmt > 0) txsToAdd.push(createTransaction({ ...base, shareType: "partner", label: `${label}（パートナー負担）`, amount: -partnerAmt, items: partnerItems.map(({ name, amount: a, quantity, taxRate, category }) => ({ name, amount: a, quantity, type: "partner",  taxRate, category })) }));
     }
 
     if (txsToAdd.length === 0) {
       txsToAdd.push(createTransaction({ date, label, category: cat, amount: -receiptTotal, type: "expense", source: "ocr", shareType: ocrShareType || "shared", paidBy: ocrPaidBy || null, paymentMethod: ocrPayMethod, pointAccountId: ocrPayMethod !== "cash" ? ocrPayMethod : null }));
     }
 
-    const csvDups = findCsvDuplicates(date, amount);
+    const csvDups = findCsvDuplicates(date, amount, label);
     if (csvDups.length > 0) { setDupModal({ txs: txsToAdd, candidates: csvDups, type: "csv-ocr" }); return; }
 
     const cands = findDuplicateCandidates(txsToAdd[0], existingTransactions);
@@ -191,12 +218,17 @@ export function OcrScanPage({ categories, allRules, learnedRules, members, point
     else { txsToAdd.forEach(tx => onAdd(tx)); setOcrStep("done"); setTimeout(() => { setOcrStep("upload"); onBack(); }, 1500); }
   };
 
-  const handleDupModalDecide = (d) => {
+  // ★修正: 重複候補が複数ある場合、モーダル側で選ばれた候補のインデックス(idx)だけを
+  // 対象にする（以前はocr-win時に見つかった候補を全件削除していたため、
+  // たまたま条件に引っかかった無関係な取引まで消えてしまう恐れがあった）
+  const handleDupModalDecide = (d, idx = 0) => {
     if (d === "merge" && dupModal?.txs && dupModal?.candidates) {
-      const merged = mergeOcrItemsIntoCSV(dupModal.candidates[0], dupModal.txs);
-      onDelete?.(dupModal.candidates[0].id); onAdd(merged);
+      const target = dupModal.candidates[idx] || dupModal.candidates[0];
+      const merged = mergeOcrItemsIntoCSV(target, dupModal.txs);
+      onDelete?.(target.id); onAdd(merged);
     } else if (d === "ocr-win" && dupModal?.txs) {
-      dupModal.candidates.forEach(tx => onDelete?.(tx.id)); dupModal.txs.forEach(tx => onAdd(tx));
+      const target = dupModal.candidates[idx] || dupModal.candidates[0];
+      onDelete?.(target.id); dupModal.txs.forEach(tx => onAdd(tx));
     } else if (d === "both" && dupModal?.txs) {
       dupModal.txs.forEach(tx => onAdd(tx));
     } else if (d !== "skip" && dupModal?.txs && dupModal.type === "exact") {
@@ -608,8 +640,8 @@ export function OcrScanPage({ categories, allRules, learnedRules, members, point
                   const { shared, personal } = calcSplit(r.items);
                   const si = r.items.filter(i => (i.type || "shared") !== "personal");
                   const pi = r.items.filter(i => i.type === "personal");
-                  if (shared   > 0) onAdd(createTransaction({ date: r.date, label: r.label, category: r.cat, amount: -shared, type: "expense", source: "ocr", items: si.map(({ name, amount: a, quantity }) => ({ name, amount: a, quantity, type: "shared" })) }));
-                  if (personal > 0) onAdd(createTransaction({ date: r.date, label: `${r.label}（個人）`, category: r.cat, amount: -personal, type: "expense", source: "ocr", items: pi.map(({ name, amount: a, quantity }) => ({ name, amount: a, quantity, type: "personal" })) }));
+                  if (shared   > 0) onAdd(createTransaction({ date: r.date, label: r.label, category: r.cat, amount: -shared, type: "expense", source: "ocr", shareType: "shared", items: si.map(({ name, amount: a, quantity }) => ({ name, amount: a, quantity, type: "shared" })) }));
+                  if (personal > 0) onAdd(createTransaction({ date: r.date, label: `${r.label}（個人）`, category: r.cat, amount: -personal, type: "expense", source: "ocr", shareType: "personal", items: pi.map(({ name, amount: a, quantity }) => ({ name, amount: a, quantity, type: "personal" })) }));
                 } else {
                   onAdd(createTransaction({ date: r.date, label: r.label, category: r.cat, amount: -Number(r.amount), type: "expense", source: "ocr" }));
                 }
