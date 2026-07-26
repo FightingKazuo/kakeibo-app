@@ -6,7 +6,7 @@ import { PIE_COLORS } from "../../constants";
 import { MonthSelector } from "../common/MonthSelector";
 import { EmptyState } from "../ui/EmptyState";
 
-export function AnalysisPage({ transactions, categories, members, pointAccounts, onUpdate, csvSourceLabels, pendingTxs, onApprovePending, onRejectPending, initialTab }) {
+export function AnalysisPage({ transactions, categories, members, pointAccounts, onUpdate, csvSourceLabels, pendingTxs, onApprovePending, onRejectPending, initialTab, budgets }) {
   const [tab,          setTab]          = useState(initialTab || "analysis");
   const [showSettleTxs, setShowSettleTxs] = useState(false);
   const [selMonth, setSelMonth] = useState("all");
@@ -269,38 +269,6 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
   );
 
   // ── 月次レポート用データ ──────────────────────────────────
-  const monthlyReport = useMemo(() => {
-    const months = [...new Set(transactions.map(t => toYM(t.date)))].sort().reverse().slice(0, 6);
-    return months.map(m => {
-      const mt    = transactions.filter(t => toYM(t.date) === m);
-      const inc   = mt.filter(t => t.type === "income").reduce((s, t) => s + t.amount, 0);
-      const exp   = mt.filter(t => t.type === "expense").reduce((s, t) => s + Math.abs(t.amount), 0);
-      const days  = new Date(parseInt(m.slice(0,4)), parseInt(m.slice(5,7)), 0).getDate();
-      const bycat = mt.filter(t => t.type === "expense")
-        .reduce((acc, t) => { acc[t.category] = (acc[t.category]||0) + Math.abs(t.amount); return acc; }, {});
-      const topCat = Object.entries(bycat).sort((a,b) => b[1]-a[1])[0];
-      return { ym: m, label: m.slice(5)+"月", inc, exp, bal: inc-exp, days, dailyAvg: Math.round(exp/days), topCat };
-    });
-  }, [transactions]);
-
-  const catTrendData = useMemo(() => {
-    const months = [...new Set(transactions.map(t => toYM(t.date)))].sort().slice(-6);
-    const topCats = Object.entries(
-      transactions.filter(t => t.type === "expense")
-        .reduce((acc, t) => { acc[t.category] = (acc[t.category]||0)+Math.abs(t.amount); return acc; }, {})
-    ).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([n])=>n);
-
-    return months.map(m => {
-      const row = { month: m.slice(5)+"月" };
-      const mt  = transactions.filter(t => toYM(t.date) === m && t.type === "expense");
-      topCats.forEach(cat => {
-        row[cat] = mt.filter(t => t.category === cat).reduce((s,t) => s+Math.abs(t.amount), 0);
-      });
-      return { ...row, _cats: topCats };
-    });
-  }, [transactions]);
-
-  const catTrendCats = catTrendData[0]?._cats || [];
   const CAT_COLORS   = ["#6366f1","#f43f5e","#10b981","#f59e0b","#8b5cf6"];
 
 
@@ -311,7 +279,6 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
         <div className="flex gap-2 mb-3 overflow-x-auto scrollbar-none">
           {[
             { id: "analysis",   label: "📊 分析"   },
-            { id: "report",     label: "📈 月次"   },
             { id: "settlement", label: "💸 精算"   },
             { id: "partner",    label: "🤝 共有確認" },
           ].map(t => (
@@ -443,12 +410,35 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center justify-between mb-1">
                               <span className="text-sm font-semibold text-gray-800">{d.name}</span>
-                              <span className="text-sm font-bold text-gray-700">{fmtCurrency(d.value)}</span>
+                              <div className="flex items-center gap-2">
+                                {budgets?.[d.name] > 0 && (() => {
+                                  const budgetPct = Math.round(d.value / budgets[d.name] * 100);
+                                  return (
+                                    <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full ${
+                                      budgetPct >= 100 ? "bg-rose-100 text-rose-600" :
+                                      budgetPct >= 80  ? "bg-amber-100 text-amber-600" :
+                                      "bg-emerald-100 text-emerald-600"
+                                    }`}>
+                                      予算{budgetPct}%
+                                    </span>
+                                  );
+                                })()}
+                                <span className="text-sm font-bold text-gray-700">{fmtCurrency(d.value)}</span>
+                              </div>
                             </div>
-                            {/* 進捗バー */}
+                            {/* 支出進捗バー */}
                             <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
                               <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: color }} />
                             </div>
+                            {/* 予算バー */}
+                            {budgets?.[d.name] > 0 && (
+                              <div className="h-1 bg-gray-50 rounded-full overflow-hidden mt-0.5">
+                                <div className={`h-full rounded-full transition-all ${
+                                  d.value / budgets[d.name] >= 1 ? "bg-rose-400" :
+                                  d.value / budgets[d.name] >= 0.8 ? "bg-amber-400" : "bg-emerald-400"
+                                }`} style={{ width: `${Math.min(100, Math.round(d.value / budgets[d.name] * 100))}%` }} />
+                              </div>
+                            )}
                           </div>
                           <span className="text-xs text-gray-400 flex-shrink-0 w-8 text-right">{pct}%</span>
                           <span className="text-gray-300 text-xs">{isSelected ? "▲" : "▼"}</span>
@@ -481,104 +471,37 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
               </div>
             );
           })()}
-        </div>
-      )}
-
-      {/* ── 月次レポートタブ ── */}
-      {tab === "report" && (
-        <div className="px-4 py-5 space-y-5">
-          {/* テキスト出力ボタン */}
-          {monthlyReport.length > 0 && (() => {
-            const r = monthlyReport[0];
-            const text = [
-              `📊 ${r.label} 家計レポート`,
-              `━━━━━━━━━━━━`,
-              `収入：${fmtCurrency(r.inc)}`,
-              `支出：${fmtCurrency(r.exp)}`,
-              `収支：${r.bal >= 0 ? "+" : ""}${fmtCurrency(r.bal)}`,
-              `1日平均：${fmtCurrency(r.dailyAvg)}`,
-              r.topCat ? `最多支出：${r.topCat[0]} ${fmtCurrency(r.topCat[1])}` : "",
-            ].filter(Boolean).join("\n");
-            return (
-              <button
-                onClick={() => navigator.clipboard?.writeText(text).then(() => alert("コピーしました！"))}
-                className="w-full py-2.5 rounded-xl text-xs font-semibold bg-indigo-50 text-indigo-600 border border-indigo-100">
-                📋 今月のレポートをコピー
-              </button>
-            );
-          })()}
-
-          <div className="bg-white rounded-2xl p-4 border border-gray-100">
-            <p className="text-xs font-semibold text-gray-500 mb-3 uppercase tracking-wide">直近6ヶ月</p>
-            <div className="space-y-3">
-              {monthlyReport.map((r, i) => (
-                <div key={r.ym}
-                  onClick={() => { setSelMonth(r.ym); setTab("analysis"); }}
-                  className={`rounded-xl p-3 cursor-pointer active:opacity-70 transition-opacity ${i === 0 ? "bg-indigo-50 border border-indigo-100" : "bg-gray-50"}`}>
-                  <div className="flex items-center justify-between mb-2">
-                    <span className={`text-sm font-bold ${i === 0 ? "text-indigo-700" : "text-gray-700"}`}>{r.label}</span>
-                    {i > 0 && monthlyReport[i-1] && (
-                      <span className={`text-xs font-semibold ${r.exp > monthlyReport[i-1]?.exp ? "text-rose-500" : "text-emerald-500"}`}>
-                        {r.exp > monthlyReport[i-1]?.exp ? "▲" : "▼"}
-                        {Math.abs(Math.round(((r.exp - monthlyReport[i-1]?.exp) / (monthlyReport[i-1]?.exp||1)) * 100))}%
-                      </span>
-                    )}
-                  </div>
-                  <div className="grid grid-cols-4 gap-1 text-xs">
-                    <div className="text-center">
-                      <p className="text-gray-400">収入</p>
-                      <p className="font-bold text-emerald-600">{fmtCurrency(r.inc)}</p>
+            {/* ⑤ 精算確定ボタン */}
+            {settlementData && settlementData.txCount > 0 && (() => {
+              const key = `kakeibo_settled_${settleDateFrom}_${settleDateTo}`;
+              const isSettled = !!localStorage.getItem(key);
+              return (
+                <div className={`rounded-2xl p-4 border ${isSettled ? "bg-emerald-50 border-emerald-200" : "bg-white border-gray-100"}`}>
+                  {isSettled ? (
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-bold text-emerald-700">✅ 精算完了済み</p>
+                        <p className="text-xs text-emerald-500 mt-0.5">{localStorage.getItem(key)}</p>
+                      </div>
+                      <button onClick={() => { localStorage.removeItem(key); alert("精算完了を取り消しました"); }}
+                        className="text-xs text-gray-400 border border-gray-200 rounded-lg px-2 py-1">取消</button>
                     </div>
-                    <div className="text-center">
-                      <p className="text-gray-400">支出</p>
-                      <p className="font-bold text-rose-600">{fmtCurrency(r.exp)}</p>
-                    </div>
-                    <div className="text-center">
-                      <p className="text-gray-400">収支</p>
-                      <p className={`font-bold ${r.bal >= 0 ? "text-indigo-600" : "text-orange-500"}`}>{r.bal >= 0 ? "+" : ""}{fmtCurrency(r.bal)}</p>
-                    </div>
-                    <div className="text-center">
-                      <p className="text-gray-400">1日均</p>
-                      <p className="font-bold text-gray-600">{fmtCurrency(r.dailyAvg)}</p>
-                    </div>
-                  </div>
-                  {r.topCat && (
-                    <p className="text-xs text-gray-400 mt-1.5">
-                      最多: {categories.find(c=>c.name===r.topCat[0])?.emoji} {r.topCat[0]} {fmtCurrency(r.topCat[1])}
-                    </p>
+                  ) : (
+                    <button onClick={() => {
+                      const lines = settlementData.settlements.map(s => `${s.from}→${s.to} ¥${s.amount.toLocaleString()}`).join(', ');
+                      if (!window.confirm(`この期間の精算を確定しますか？\n\n${lines || '精算なし'}`)) return;
+                      localStorage.setItem(key, `${new Date().toLocaleDateString('ja-JP')} 確定`);
+                      alert("✅ 精算を確定しました");
+                    }}
+                      className="w-full py-3 bg-indigo-500 text-white rounded-xl font-bold text-sm">
+                      💰 この期間の精算を確定する
+                    </button>
                   )}
                 </div>
-              ))}
-            </div>
-          </div>
-
-          {catTrendData.length > 0 && catTrendCats.length > 0 && (
-            <div className="bg-white rounded-2xl p-4 border border-gray-100">
-              <p className="text-xs font-semibold text-gray-500 mb-3 uppercase tracking-wide">カテゴリ別支出推移</p>
-              <ResponsiveContainer width="100%" height={220}>
-                <BarChart data={catTrendData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                  <XAxis dataKey="month" tick={{ fontSize: 10 }} />
-                  <YAxis tick={{ fontSize: 9 }} tickFormatter={v => `${(v/10000).toFixed(0)}万`} width={32} />
-                  <Tooltip formatter={(v, n) => [`¥${v.toLocaleString()}`, n]} />
-                  {catTrendCats.map((cat, i) => (
-                    <Bar key={cat} dataKey={cat} stackId="a" fill={CAT_COLORS[i % CAT_COLORS.length]} />
-                  ))}
-                </BarChart>
-              </ResponsiveContainer>
-              <div className="flex flex-wrap gap-2 mt-3">
-                {catTrendCats.map((cat, i) => (
-                  <div key={cat} className="flex items-center gap-1">
-                    <div className="w-2.5 h-2.5 rounded-full" style={{ background: CAT_COLORS[i] }} />
-                    <span className="text-xs text-gray-500">{categories.find(c=>c.name===cat)?.emoji} {cat}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+              );
+            })()}
         </div>
       )}
-
 
       {/* 🤝 共有確認タブ */}
       {tab === "partner" && (() => { try {
