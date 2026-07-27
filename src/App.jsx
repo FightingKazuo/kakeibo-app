@@ -562,7 +562,10 @@ export default function App() {
     balance: calcPointBalance(a.id),
   }));
 
-  const navigate = (page) => {
+  const [analysisJumpTab, setAnalysisJumpTab] = useState(null); // ホームからの遷移先サブタブ指定（例: 承認待ちバッジ→settlement）
+
+  const navigate = (page, tab = null) => {
+    setAnalysisJumpTab(tab);
     // 同じページなら何もしない
     if (page === currentPage) return;
     // ホーム以外への遷移はhistoryに積む
@@ -697,7 +700,7 @@ export default function App() {
           partnerName={members[1]?.name || "パートナー"}
         />;
       case "analysis":
-        return <AnalysisPage transactions={transactions} categories={categories} members={members} pointAccounts={pointAccountsWithBalance} onUpdate={handleUpdate} pendingTxs={pendingTxs} onApprovePending={handleApprovePending} onRejectPending={handleRejectPending} initialTab={isPartnerMode ? "partner" : "analysis"} budgets={budgets} />;
+        return <AnalysisPage transactions={transactions} categories={categories} members={members} pointAccounts={pointAccountsWithBalance} onUpdate={handleUpdate} pendingTxs={pendingTxs} onApprovePending={handleApprovePending} onRejectPending={handleRejectPending} initialTab={analysisJumpTab || (isPartnerMode ? "partner" : "analysis")} budgets={budgets} />;
       case "assets":
         return <AssetsPage
           transactions={transactions}
