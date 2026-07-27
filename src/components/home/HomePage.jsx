@@ -9,7 +9,7 @@ import { BalanceCard } from "./BalanceCard";
 import { RecentExpenseCard } from "./RecentExpenseCard";
 import { TransactionItem } from "../transactions/TransactionItem";
 
-const APP_VERSION = "v3.8.0";
+const APP_VERSION = "v3.9.1";
 const BAR_COLORS = ["#6366f1","#f43f5e","#10b981","#f59e0b","#3b82f6","#8b5cf6","#ec4899","#14b8a6"];
 
 // ── 今月サマリーカード ────────────────────────────────────────
@@ -417,6 +417,25 @@ export function HomePage({ transactions, categories, pointAccounts, learnedRules
         <span className="text-xs text-gray-300 font-mono">{APP_VERSION}</span>
       </div>
 
+      {/* 承認待ちバッジ（最優先で最上部に表示） */}
+      {pendingCount > 0 && (
+        <div className="px-4 md:px-8 pt-4">
+          <button onClick={() => onNavigate("analysis", "settlement")}
+            className="w-full flex items-center gap-3 bg-amber-50 border-2 border-amber-300 rounded-2xl px-4 py-3.5 text-left shadow-sm active:bg-amber-100">
+            <span className="relative flex-shrink-0">
+              <span className="text-2xl">📬</span>
+              <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-rose-500 rounded-full animate-pulse" />
+            </span>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-bold text-amber-700">承認待ちの申請があります</p>
+              <p className="text-xs text-amber-600 mt-0.5">パートナーから {pendingCount}件 の共有支出申請 · タップして確認</p>
+            </div>
+            <span className="bg-amber-500 text-white text-xs font-bold px-2.5 py-1 rounded-full flex-shrink-0">{pendingCount}</span>
+            <span className="text-amber-400 flex-shrink-0">›</span>
+          </button>
+        </div>
+      )}
+
       <div className="md:grid md:grid-cols-5 md:gap-6 md:px-8 md:py-6">
         <div className="md:col-span-2 md:space-y-4">
           <BalanceCard
@@ -433,18 +452,6 @@ export function HomePage({ transactions, categories, pointAccounts, learnedRules
           />
           <BudgetProgress categories={categories} currentMonthTxs={currentMonthTxs} />
           <BudgetAlert transactions={transactions} budgets={budgets} />
-          {/* 承認待ちバッジ */}
-          {pendingCount > 0 && (
-            <button onClick={() => onNavigate("analysis")}
-              className="w-full flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3 text-left">
-              <span className="text-xl">📬</span>
-              <div className="flex-1">
-                <p className="text-sm font-bold text-amber-700">承認待ちの申請があります</p>
-                <p className="text-xs text-amber-500">パートナーから {pendingCount}件 の共有支出申請</p>
-              </div>
-              <span className="bg-amber-500 text-white text-xs font-bold px-2 py-1 rounded-full">{pendingCount}</span>
-            </button>
-          )}
 
           <CsvImportStatusImpl importHistory={importHistory} activeCsvSources={activeCsvSources} onNavigate={onNavigate} />
           <RecentExpenseCard amount={last7DaysExpense} />
