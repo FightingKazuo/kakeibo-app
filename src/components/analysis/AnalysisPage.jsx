@@ -44,6 +44,7 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
   const [settleSortAsc, setSettleSortAsc] = useState(true); // true=昇順(古い順)
   const [selectedSettle, setSelectedSettle] = useState(new Set());
   const [showSettleEditPanel, setShowSettleEditPanel] = useState(false);
+  const [settleConfirmTick, setSettleConfirmTick] = useState(0); // 確定/取消後の再描画トリガー
 
   const months = useMemo(
     () => [...new Set(transactions.map(t => toYM(t.date)))].sort().reverse(),
@@ -471,35 +472,6 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
               </div>
             );
           })()}
-            {/* ⑤ 精算確定ボタン */}
-            {settlementData && settlementData.txCount > 0 && (() => {
-              const key = `kakeibo_settled_${settleDateFrom}_${settleDateTo}`;
-              const isSettled = !!localStorage.getItem(key);
-              return (
-                <div className={`rounded-2xl p-4 border ${isSettled ? "bg-emerald-50 border-emerald-200" : "bg-white border-gray-100"}`}>
-                  {isSettled ? (
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-bold text-emerald-700">✅ 精算完了済み</p>
-                        <p className="text-xs text-emerald-500 mt-0.5">{localStorage.getItem(key)}</p>
-                      </div>
-                      <button onClick={() => { localStorage.removeItem(key); alert("精算完了を取り消しました"); }}
-                        className="text-xs text-gray-400 border border-gray-200 rounded-lg px-2 py-1">取消</button>
-                    </div>
-                  ) : (
-                    <button onClick={() => {
-                      const lines = settlementData.settlements.map(s => `${s.from}→${s.to} ¥${s.amount.toLocaleString()}`).join(', ');
-                      if (!window.confirm(`この期間の精算を確定しますか？\n\n${lines || '精算なし'}`)) return;
-                      localStorage.setItem(key, `${new Date().toLocaleDateString('ja-JP')} 確定`);
-                      alert("✅ 精算を確定しました");
-                    }}
-                      className="w-full py-3 bg-indigo-500 text-white rounded-xl font-bold text-sm">
-                      💰 この期間の精算を確定する
-                    </button>
-                  )}
-                </div>
-              );
-            })()}
         </div>
       )}
 
@@ -1098,6 +1070,64 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
                       </div>
                     )}
                   </>
+                );
+              })()}
+
+              {/* 精算確定ステータス・確定ボタン */}
+              {(() => {
+                const settleKey = `kakeibo_settled_${settleDateFrom}_${settleDateTo}`;
+                const isSettled = !!localStorage.getItem(settleKey);
+                const hasSettle = settlementData.settlements.length > 0;
+                const partnerNameLocal = members[1]?.name || "相手";
+                const settleAmtLocal = hasSettle
+                  ? (settlementData.settlements.find(s => s.from === partnerNameLocal)?.amount
+                     ?? settlementData.settlements[0]?.amount ?? 0)
+                  : 0;
+                const advanceNetLocal = settlementData.advanceNet || 0;
+                const totalClaimLocal = Math.round(settleAmtLocal + advanceNetLocal);
+
+                return (
+                  <div className={`rounded-2xl p-4 border ${isSettled ? "bg-emerald-50 border-emerald-200" : "bg-white border-gray-100"}`}>
+                    {isSettled ? (
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="text-2xl flex-shrink-0">✅</span>
+                          <div className="min-w-0">
+                            <p className="text-sm font-bold text-emerald-700">支払い済み</p>
+                            <p className="text-xs text-emerald-500 mt-0.5 truncate">{localStorage.getItem(settleKey)}</p>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => {
+                            if (!window.confirm("精算完了を取り消しますか？")) return;
+                            localStorage.removeItem(settleKey);
+                            setSettleConfirmTick(t => t + 1);
+                          }}
+                          className="flex-shrink-0 text-xs text-gray-400 border border-gray-200 rounded-lg px-3 py-1.5">
+                          取消
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex items-center gap-2 mb-3">
+                          <span className="text-2xl">⏳</span>
+                          <p className="text-sm font-bold text-gray-500">未払い</p>
+                        </div>
+                        <button
+                          onClick={() => {
+                            const lines = settlementData.settlements.map(s => `${s.from}→${s.to} ¥${s.amount.toLocaleString()}`).join(', ');
+                            const extra = totalClaimLocal !== settleAmtLocal
+                              ? `\n（立替込み最終精算額: ¥${totalClaimLocal.toLocaleString()}）` : '';
+                            if (!window.confirm(`この期間の精算を確定しますか？\n\n${lines || '精算なし'}${extra}`)) return;
+                            localStorage.setItem(settleKey, `${new Date().toLocaleDateString('ja-JP')} 確定`);
+                            setSettleConfirmTick(t => t + 1);
+                          }}
+                          className="w-full py-3 bg-indigo-500 text-white rounded-xl font-bold text-sm">
+                          💰 この期間の精算を確定する
+                        </button>
+                      </>
+                    )}
+                  </div>
                 );
               })()}
 
