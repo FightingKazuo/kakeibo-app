@@ -518,3 +518,4 @@ export function HomePage({ transactions, categories, pointAccounts, learnedRules
     </div>
   );
 }
+
