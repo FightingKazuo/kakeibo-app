@@ -222,6 +222,7 @@ export default function App() {
         setCategories(cats    || loadStorage(STORAGE_KEYS.CATEGORIES, DEFAULT_CATS));
         setLearnedRules(rules || loadStorage(STORAGE_KEYS.RULES, []));
         setMembers(mems       || loadStorage(STORAGE_KEYS.MEMBERS, DEFAULT_MEMBERS));
+        if (mems) saveStorage(STORAGE_KEYS.MEMBERS, mems); // ローカルキャッシュを最新化
         setImportHistory(importHist || {});
 
         // ポイント口座：既存データにデフォルト口座が欠けていたら補完
@@ -332,6 +333,7 @@ export default function App() {
 
   const handleMembersChange = async (newMembers) => {
     setMembers(newMembers);
+    saveStorage(STORAGE_KEYS.MEMBERS, newMembers); // ローカルキャッシュにも保存（Supabase障害時のフォールバック用）
     try { await saveMembers(shareId, newMembers); } catch {}
   };
 
@@ -764,6 +766,14 @@ export default function App() {
           ${currentPage === "assets"   ? "max-w-2xl" : ""}
           ${currentPage === "settings" ? "max-w-2xl" : ""}
         `}>
+          {syncStatus === "error" && (
+            <button onClick={() => window.location.reload()}
+              className="md:hidden w-full flex items-center gap-2 bg-rose-50 border-b border-rose-200 px-4 py-2 text-left">
+              <span className="text-sm">⚠️</span>
+              <span className="text-xs font-bold text-rose-600 flex-1">同期エラー：最新データを取得できていません（表示は古い/仮のデータの可能性）</span>
+              <span className="text-xs text-rose-500 underline flex-shrink-0">再読込</span>
+            </button>
+          )}
           <main>{renderPage()}</main>
           <BottomNav currentPage={currentPage} onNavigate={navigate} />
         </div>
