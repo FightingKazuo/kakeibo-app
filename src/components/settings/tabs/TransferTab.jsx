@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { getTransferKeywords, learnTransferKeyword, removeTransferKeyword } from "../../../services/csvParser";
+import { getTransferKeywords, getCustomTransferKeywords, learnTransferKeyword, removeTransferKeyword } from "../../../services/csvParser";
+import { saveTransferKeywords } from "../../../utils/supabase";
 
-export function TransferTab() {
+export function TransferTab({ shareId }) {
   const [keywords,   setKeywords]   = useState(() => getTransferKeywords());
   const [newKeyword, setNewKeyword] = useState("");
 
@@ -19,6 +20,7 @@ export function TransferTab() {
           onClick={() => {
             if (!newKeyword.trim()) return;
             learnTransferKeyword(newKeyword.trim());
+            if (shareId) { try { saveTransferKeywords(shareId, getCustomTransferKeywords()); } catch {} }
             setKeywords(getTransferKeywords());
             setNewKeyword("");
           }}
@@ -35,7 +37,11 @@ export function TransferTab() {
               <p className="text-sm text-gray-700">{kw}</p>
             </div>
             <button
-              onClick={() => { removeTransferKeyword(kw); setKeywords(getTransferKeywords()); }}
+              onClick={() => {
+                removeTransferKeyword(kw);
+                if (shareId) { try { saveTransferKeywords(shareId, getCustomTransferKeywords()); } catch {} }
+                setKeywords(getTransferKeywords());
+              }}
               className="text-gray-300 hover:text-rose-400 text-xl">×</button>
           </div>
         ))}
