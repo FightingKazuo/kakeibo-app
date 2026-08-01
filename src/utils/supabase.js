@@ -136,6 +136,10 @@ export const fetchCsvSourceLabels  = (shareId) => fetchSetting("csv_source_label
 export const fetchBudgets          = (shareId) => fetchSetting("budgets",             shareId);
 export const saveBalanceAdjustments = (shareId, data) => upsertSetting("balance_adjustments", shareId, data);
 export const fetchBalanceAdjustments = (shareId) => fetchSetting("balance_adjustments", shareId);
+export const saveTaxRules          = (shareId, data) => upsertSetting("tax_rules",          shareId, data);
+export const fetchTaxRules         = (shareId) => fetchSetting("tax_rules",          shareId);
+export const saveTransferKeywords  = (shareId, data) => upsertSetting("transfer_keywords",  shareId, data);
+export const fetchTransferKeywords = (shareId) => fetchSetting("transfer_keywords",  shareId);
 
 // ── 申請中取引 ────────────────────────────────────────────
 export const submitPendingTransaction = async (shareId, tx, submittedBy) => {
