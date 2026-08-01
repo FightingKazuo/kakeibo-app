@@ -100,3 +100,8 @@ export const describeTaxDiff = (storeName, itemsTotal, receiptTotal) => {
   if (diff > 0) return `消費税等 +¥${diff.toLocaleString()}（差額率${Math.round(ratio*100)}%）`;
   return `値引き等 -¥${Math.abs(diff).toLocaleString()}`;
 };
+
+// ─── Supabase同期用（他端末・パートナーアプリとルールを共有するため）───
+export const overwriteTaxRules = (rules) => {
+  try { localStorage.setItem(TAX_STORAGE_KEY, JSON.stringify(rules || {})); } catch {}
+};
