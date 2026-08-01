@@ -17,6 +17,7 @@ export function AddPage({
   onAdd, onDelete, onLearnRule, onImportHistoryChange,
   activeCsvSources, onActiveCsvSourcesChange,
   isPartnerMode, partnerShareId, partnerName,
+  shareId,
 }) {
   const [tab, setTab] = useState("manual");
 
@@ -65,6 +66,7 @@ export function AddPage({
             existingTransactions={existingTransactions}
             onAdd={onAdd} onDelete={onDelete} onLearnRule={onLearnRule}
             onBack={() => {}}
+            shareId={shareId}
           />
         )}
 
