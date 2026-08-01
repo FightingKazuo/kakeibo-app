@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { EmptyState } from "../../ui/EmptyState";
 import { DEFAULT_CATEGORY_RULES, BANK_CARD_MAPPING } from "../../../constants";
-import { getTransferKeywords, learnTransferKeyword, removeTransferKeyword } from "../../../services/csvParser";
+import { getTransferKeywords, getCustomTransferKeywords, learnTransferKeyword, removeTransferKeyword } from "../../../services/csvParser";
+import { saveTransferKeywords } from "../../../utils/supabase";
 
 const SUBTABS = [
   { id: "learned",    label: "学習ルール",   icon: "🧠" },
@@ -10,7 +11,7 @@ const SUBTABS = [
   { id: "transfer",   label: "振替キーワード", icon: "🔄" },
 ];
 
-export function RulesTab({ learnedRules, onDeleteRule }) {
+export function RulesTab({ learnedRules, onDeleteRule, shareId }) {
   const [sub, setSub] = useState("learned");
   const [transferKws, setTransferKws] = useState(() => getTransferKeywords());
   const [newKw, setNewKw] = useState("");
@@ -114,6 +115,7 @@ export function RulesTab({ learnedRules, onDeleteRule }) {
               onClick={() => {
                 if (!newKw.trim()) return;
                 learnTransferKeyword(newKw.trim());
+                if (shareId) { try { saveTransferKeywords(shareId, getCustomTransferKeywords()); } catch {} }
                 setTransferKws(getTransferKeywords());
                 setNewKw("");
               }}
@@ -136,6 +138,7 @@ export function RulesTab({ learnedRules, onDeleteRule }) {
                   {!isDefault && (
                     <button onClick={() => {
                       removeTransferKeyword(kw);
+                      if (shareId) { try { saveTransferKeywords(shareId, getCustomTransferKeywords()); } catch {} }
                       setTransferKws(getTransferKeywords());
                     }} className="text-gray-300 hover:text-rose-400 text-xl">×</button>
                   )}
