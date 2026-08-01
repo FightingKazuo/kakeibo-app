@@ -113,9 +113,9 @@ export function SettingsPage({
         <ShareTab shareId={shareId} inviteUrl={inviteUrl} onJoinShare={onJoinShare} syncStatus={syncStatus} />
       )}
       {tab === "datalinks" && <DataLinksTab />}
-      {tab === "transfer"  && <TransferTab />}
-      {tab === "taxrules"  && <TaxRulesTab />}
-      {tab === "rules"     && <RulesTab learnedRules={learnedRules} onDeleteRule={onDeleteRule} />}
+      {tab === "transfer"  && <TransferTab shareId={shareId} />}
+      {tab === "taxrules"  && <TaxRulesTab shareId={shareId} />}
+      {tab === "rules"     && <RulesTab learnedRules={learnedRules} onDeleteRule={onDeleteRule} shareId={shareId} />}
       {tab === "backup"    && <BackupTab transactions={transactions} categories={categories} learnedRules={learnedRules} onAdd={onAdd} />}
       {tab === "data"      && <DataTab transactions={transactions} categories={categories} learnedRules={learnedRules} onDeleteRule={onDeleteRule} onResetCategories={onResetCategories} onReset={onReset} onReapplyCategories={onReapplyCategories} onReapplyCsvFormatId={onReapplyCsvFormatId} onRebuildImportHistory={onRebuildImportHistory} />}
     </div>
