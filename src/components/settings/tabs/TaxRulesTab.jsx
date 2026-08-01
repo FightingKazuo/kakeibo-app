@@ -1,6 +1,9 @@
+import { useState } from "react";
 import { getAllTaxRules, removeTaxRule } from "../../../services/taxLearning";
+import { saveTaxRules } from "../../../utils/supabase";
 
-export function TaxRulesTab() {
+export function TaxRulesTab({ shareId }) {
+  const [tick, setTick] = useState(0); // 削除後に再描画するためのトリガー
   const taxRules = getAllTaxRules();
   const entries  = Object.entries(taxRules);
 
@@ -29,7 +32,11 @@ export function TaxRulesTab() {
                   · {rule.samples}回学習 · {rule.learnedAt?.slice(0, 10)}
                 </p>
               </div>
-              <button onClick={() => removeTaxRule(store)} className="text-gray-300 hover:text-rose-400 text-xl">×</button>
+              <button onClick={() => {
+                removeTaxRule(store);
+                if (shareId) { try { saveTaxRules(shareId, getAllTaxRules()); } catch {} }
+                setTick(t => t + 1);
+              }} className="text-gray-300 hover:text-rose-400 text-xl">×</button>
             </div>
           ))}
         </div>
