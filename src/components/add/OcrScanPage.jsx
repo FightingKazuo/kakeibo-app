@@ -6,14 +6,15 @@ import { DEFAULT_CATEGORY_RULES, STORAGE_KEYS } from "../../constants";
 import { loadStorage, saveStorage } from "../../utils/storage";
 import { runTesseract, runOCRSpace, extractAmount, extractDate, extractStoreName, extractReceiptItems } from "../../services/ocrUtils";
 import { analyzeWithGemini, testGeminiKey, parseOCRTextWithGemini } from "../../services/geminiOcr";
-import { learnTaxRule, describeTaxDiff, calcTaxInclusive } from "../../services/taxLearning";
+import { learnTaxRule, describeTaxDiff, calcTaxInclusive, getAllTaxRules } from "../../services/taxLearning";
+import { saveTaxRules } from "../../utils/supabase";
 import { CategorySuggestion } from "../common/CategorySuggestion";
 import { DuplicateCheckModal } from "../common/DuplicateCheckModal";
 import { PrimaryButton } from "../ui/PrimaryButton";
 import { ItemsAccordion } from "./shared/ItemsAccordion";
 import { CsvOcrDupModal } from "./shared/CsvOcrDupModal";
 
-export function OcrScanPage({ categories, allRules, learnedRules, members, pointAccounts, existingTransactions, onAdd, onDelete, onLearnRule, onBack }) {
+export function OcrScanPage({ categories, allRules, learnedRules, members, pointAccounts, existingTransactions, onAdd, onDelete, onLearnRule, onBack, shareId }) {
   const [ocrStep,       setOcrStep]       = useState("upload");
   const [ocrProgress,   setOcrProgress]   = useState(0);
   const [ocrLabel,      setOcrLabel]      = useState("");
@@ -156,6 +157,7 @@ export function OcrScanPage({ categories, allRules, learnedRules, members, point
     const receiptTotal = Number(amount);
     if (items && items.length > 0) {
       learnTaxRule(label, items.reduce((s, i) => s + i.amount, 0), receiptTotal);
+      if (shareId) { try { saveTaxRules(shareId, getAllTaxRules()); } catch {} }
     }
 
     const hist = [{ label, amount, date, cat }, ...ocrHistory].slice(0, 5);
