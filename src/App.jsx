@@ -74,9 +74,12 @@ import {
   fetchBudgets, saveBudgets,
   fetchBalanceAdjustments, saveBalanceAdjustments,
   fetchPendingTransactions, updatePendingStatus,
+  fetchTaxRules, saveTaxRules,
+  fetchTransferKeywords, saveTransferKeywords,
   testConnection,
 } from "./utils/supabase";
-import { learnTransferKeyword } from "./services/csvParser";
+import { learnTransferKeyword, overwriteTransferKeywords } from "./services/csvParser";
+import { overwriteTaxRules } from "./services/taxLearning";
 
 import { HomePage }            from "./components/home/HomePage";
 import { TransactionListPage } from "./components/transactions/TransactionListPage";
@@ -209,6 +212,18 @@ export default function App() {
             const saved = localStorage.getItem("kakeibo_budgets");
             if (saved) { const parsed = JSON.parse(saved); setBudgets(parsed); await saveBudgets(shareId, parsed); }
           }
+        } catch {}
+
+        // 消費税学習ルール（Supabaseにあればローカルキャッシュへ反映＝端末・パートナーアプリ間で共有）
+        try {
+          const taxRules = await fetchTaxRules(shareId);
+          if (taxRules) overwriteTaxRules(taxRules);
+        } catch {}
+
+        // 振替キーワード（同上）
+        try {
+          const transferKws = await fetchTransferKeywords(shareId);
+          if (transferKws) overwriteTransferKeywords(transferKws);
         } catch {}
 
         if (txs && txs.length > 0) {
@@ -700,6 +715,7 @@ export default function App() {
           isPartnerMode={isPartnerMode}
           partnerShareId={localStorage.getItem("kakeibo_partner_share_id") || ""}
           partnerName={members[1]?.name || "パートナー"}
+          shareId={shareId}
         />;
       case "analysis":
         return <AnalysisPage transactions={transactions} categories={categories} members={members} pointAccounts={pointAccountsWithBalance} onUpdate={handleUpdate} pendingTxs={pendingTxs} onApprovePending={handleApprovePending} onRejectPending={handleRejectPending} initialTab={analysisJumpTab || (isPartnerMode ? "partner" : "analysis")} budgets={budgets} />;
