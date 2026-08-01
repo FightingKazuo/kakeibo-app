@@ -71,6 +71,16 @@ export const removeTransferKeyword = (keyword) => {
   } catch {}
 };
 
+// ─── Supabase同期用（他端末・パートナーアプリとキーワードを共有するため）───
+export const getCustomTransferKeywords = () => {
+  try { return JSON.parse(localStorage.getItem(TRANSFER_STORAGE_KEY) || "[]"); }
+  catch { return []; }
+};
+
+export const overwriteTransferKeywords = (keywords) => {
+  try { localStorage.setItem(TRANSFER_STORAGE_KEY, JSON.stringify(keywords || [])); } catch {}
+};
+
 const isTransferLabel = (label) => {
   const keywords = getTransferKeywords();
   return keywords.some(kw => label.includes(kw));
