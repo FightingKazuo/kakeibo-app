@@ -9,7 +9,7 @@ import { BalanceCard } from "./BalanceCard";
 import { RecentExpenseCard } from "./RecentExpenseCard";
 import { TransactionItem } from "../transactions/TransactionItem";
 
-const APP_VERSION = "v3.9.1";
+const APP_VERSION = "v3.10.0";
 const BAR_COLORS = ["#6366f1","#f43f5e","#10b981","#f59e0b","#3b82f6","#8b5cf6","#ec4899","#14b8a6"];
 
 // ── 今月サマリーカード ────────────────────────────────────────
@@ -373,11 +373,15 @@ export function HomePage({ transactions, categories, pointAccounts, learnedRules
   const totalIncome  = useMemo(() => transactions.filter(t => t.type === "income").reduce((s, t) => s + t.amount, 0), [transactions]);
   const totalExpense = useMemo(() => expenseTxs.reduce((s, t) => s + Math.abs(t.amount), 0), [expenseTxs]);
 
-  const thisMonthBalance = useMemo(() => {
-    const inc = currentMonthTxs.filter(t => t.type === "income").reduce((s, t) => s + t.amount, 0);
-    const exp = currentMonthTxs.filter(t => t.type === "expense").reduce((s, t) => s + Math.abs(t.amount), 0);
-    return inc - exp;
-  }, [currentMonthTxs]);
+  const thisMonthIncome = useMemo(() =>
+    currentMonthTxs.filter(t => t.type === "income").reduce((s, t) => s + t.amount, 0),
+    [currentMonthTxs]
+  );
+  const thisMonthExpense = useMemo(() =>
+    currentMonthTxs.filter(t => t.type === "expense").reduce((s, t) => s + Math.abs(t.amount), 0),
+    [currentMonthTxs]
+  );
+  const thisMonthBalance = useMemo(() => thisMonthIncome - thisMonthExpense, [thisMonthIncome, thisMonthExpense]);
 
   const last7DaysExpense = useMemo(() => {
     const d = new Date(); d.setDate(d.getDate() - 6);
@@ -439,9 +443,10 @@ export function HomePage({ transactions, categories, pointAccounts, learnedRules
       <div className="md:grid md:grid-cols-5 md:gap-6 md:px-8 md:py-6">
         <div className="md:col-span-2 md:space-y-4">
           <BalanceCard
-            totalIncome={totalIncome}
-            totalExpense={totalExpense}
+            thisMonthIncome={thisMonthIncome}
+            thisMonthExpense={thisMonthExpense}
             thisMonthBalance={thisMonthBalance}
+            totalBalance={totalIncome - totalExpense}
             year={now.getFullYear()}
             month={now.getMonth() + 1}
           />
@@ -518,4 +523,3 @@ export function HomePage({ transactions, categories, pointAccounts, learnedRules
     </div>
   );
 }
-
