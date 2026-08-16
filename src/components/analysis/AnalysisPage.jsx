@@ -1,18 +1,18 @@
 import { useState, useMemo, useEffect } from "react";
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, PieChart, Pie, Cell, BarChart, Bar } from "recharts";
 import { toYM, fmtCurrency } from "../../utils/format";
-import { fetchTransactions, fetchMembers, submitPendingTransaction } from "../../utils/supabase";
+import { fetchTransactions, fetchMembers, submitPendingTransaction, fetchMyPendingTransactions } from "../../utils/supabase";
 import { PIE_COLORS } from "../../constants";
 import { MonthSelector } from "../common/MonthSelector";
 import { EmptyState } from "../ui/EmptyState";
 
-export function AnalysisPage({ transactions, categories, members, pointAccounts, onUpdate, csvSourceLabels, pendingTxs, onApprovePending, onRejectPending, initialTab, budgets }) {
+export function AnalysisPage({ transactions, categories, members, pointAccounts, onUpdate, csvSourceLabels, pendingTxs, onApprovePending, onRejectPending, initialTab, kazuoShareId: propKazuoShareId, onKazuoShareIdChange }) {
   const [tab,          setTab]          = useState(initialTab || "analysis");
   const [showSettleTxs, setShowSettleTxs] = useState(false);
   const [selMonth, setSelMonth] = useState("all");
   const [selectedCat,  setSelectedCat]  = useState(null); // タップで明細表示するカテゴリ
   // 🤝 共有確認タブ
-  const [partnerShareId,   setPartnerShareId]   = useState(() => localStorage.getItem("kakeibo_partner_share_id") || "");
+  const [partnerShareId,   setPartnerShareId]   = useState(() => propKazuoShareId || localStorage.getItem("kakeibo_partner_share_id") || "");
   const [partnerInputId,   setPartnerInputId]   = useState(() => localStorage.getItem("kakeibo_partner_share_id") || "");
   const [partnerTxs,       setPartnerTxs]       = useState([]);
   const [partnerMembers,   setPartnerMembers]   = useState([]);
@@ -22,7 +22,8 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
   const [partnerShowTxs,   setPartnerShowTxs]  = useState(false);
   const [partnerExpandedTx, setPartnerExpandedTx] = useState(null);
   const [settleExpandedTx,  setSettleExpandedTx]  = useState(null); // 展開中の取引ID
-  const [showSubmitForm,   setShowSubmitForm]   = useState(false); // 申請フォーム表示
+  const [showSubmitForm,   setShowSubmitForm]   = useState(false);
+  const [myPendingTxs,     setMyPendingTxs]     = useState([]); // 彼女が申請した取引一覧 // 申請フォーム表示
   const [submitForm,       setSubmitForm]       = useState({ label: "", amount: "", date: new Date().toISOString().slice(0,10), category: "食費" });
   const [submitting,       setSubmitting]       = useState(false);
 
@@ -44,7 +45,6 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
   const [settleSortAsc, setSettleSortAsc] = useState(true); // true=昇順(古い順)
   const [selectedSettle, setSelectedSettle] = useState(new Set());
   const [showSettleEditPanel, setShowSettleEditPanel] = useState(false);
-  const [settleConfirmTick, setSettleConfirmTick] = useState(0); // 確定/取消後の再描画トリガー
 
   const months = useMemo(
     () => [...new Set(transactions.map(t => toYM(t.date)))].sort().reverse(),
@@ -97,9 +97,9 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
     return { prevExp, diff, diffPct };
   }, [transactions, selMonth, totalExpense]);
 
-  // 🤝 共有確認: shareIdが設定されたら自動ロード
+  // 🤝 共有確認: shareIdが設定されたら自動ロード（タブを開き直すたびに最新化）
   useEffect(() => {
-    if (!partnerShareId) return;
+    if (!partnerShareId || tab !== "partner") return;
     const load = async () => {
       setPartnerLoading(true); setPartnerError("");
       try {
@@ -109,11 +109,18 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
         ]);
         setPartnerTxs(txs || []);
         // membersがnullの場合はデフォルト値を使う
-        setPartnerMembers(mems || [
+        const resolvedMems = mems || [
           { id: "m1", name: "かずお" },
           { id: "m2", name: "パートナー" },
-        ]);
+        ];
+        setPartnerMembers(resolvedMems);
         localStorage.setItem("kakeibo_partner_share_id", partnerShareId);
+        // 自分が申請した取引も取得
+        try {
+          const myName = resolvedMems[1]?.name || "パートナー";
+          const myPending = await fetchMyPendingTransactions(partnerShareId, myName);
+          setMyPendingTxs(myPending || []);
+        } catch {}
       } catch {
         setPartnerError("取得に失敗しました。IDを確認してください。");
       } finally {
@@ -121,7 +128,7 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
       }
     };
     load();
-  }, [partnerShareId]);
+  }, [partnerShareId, tab]);
 
   // ── 精算計算 ──────────────────────────────────────────────
   const settlementData = useMemo(() => {
@@ -270,6 +277,38 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
   );
 
   // ── 月次レポート用データ ──────────────────────────────────
+  const monthlyReport = useMemo(() => {
+    const months = [...new Set(transactions.map(t => toYM(t.date)))].sort().reverse().slice(0, 6);
+    return months.map(m => {
+      const mt    = transactions.filter(t => toYM(t.date) === m);
+      const inc   = mt.filter(t => t.type === "income").reduce((s, t) => s + t.amount, 0);
+      const exp   = mt.filter(t => t.type === "expense").reduce((s, t) => s + Math.abs(t.amount), 0);
+      const days  = new Date(parseInt(m.slice(0,4)), parseInt(m.slice(5,7)), 0).getDate();
+      const bycat = mt.filter(t => t.type === "expense")
+        .reduce((acc, t) => { acc[t.category] = (acc[t.category]||0) + Math.abs(t.amount); return acc; }, {});
+      const topCat = Object.entries(bycat).sort((a,b) => b[1]-a[1])[0];
+      return { ym: m, label: m.slice(5)+"月", inc, exp, bal: inc-exp, days, dailyAvg: Math.round(exp/days), topCat };
+    });
+  }, [transactions]);
+
+  const catTrendData = useMemo(() => {
+    const months = [...new Set(transactions.map(t => toYM(t.date)))].sort().slice(-6);
+    const topCats = Object.entries(
+      transactions.filter(t => t.type === "expense")
+        .reduce((acc, t) => { acc[t.category] = (acc[t.category]||0)+Math.abs(t.amount); return acc; }, {})
+    ).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([n])=>n);
+
+    return months.map(m => {
+      const row = { month: m.slice(5)+"月" };
+      const mt  = transactions.filter(t => toYM(t.date) === m && t.type === "expense");
+      topCats.forEach(cat => {
+        row[cat] = mt.filter(t => t.category === cat).reduce((s,t) => s+Math.abs(t.amount), 0);
+      });
+      return { ...row, _cats: topCats };
+    });
+  }, [transactions]);
+
+  const catTrendCats = catTrendData[0]?._cats || [];
   const CAT_COLORS   = ["#6366f1","#f43f5e","#10b981","#f59e0b","#8b5cf6"];
 
 
@@ -280,6 +319,7 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
         <div className="flex gap-2 mb-3 overflow-x-auto scrollbar-none">
           {[
             { id: "analysis",   label: "📊 分析"   },
+            { id: "report",     label: "📈 月次"   },
             { id: "settlement", label: "💸 精算"   },
             { id: "partner",    label: "🤝 共有確認" },
           ].map(t => (
@@ -408,40 +448,7 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
                           className="w-full flex items-center gap-3 px-4 py-3 text-left active:bg-gray-50">
                           <div className="w-3.5 h-3.5 rounded-full flex-shrink-0" style={{ background: color }} />
                           <span className="text-base flex-shrink-0">{d.emoji}</span>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center justify-between mb-1">
-                              <span className="text-sm font-semibold text-gray-800">{d.name}</span>
-                              <div className="flex items-center gap-2">
-                                {budgets?.[d.name] > 0 && (() => {
-                                  const budgetPct = Math.round(d.value / budgets[d.name] * 100);
-                                  return (
-                                    <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full ${
-                                      budgetPct >= 100 ? "bg-rose-100 text-rose-600" :
-                                      budgetPct >= 80  ? "bg-amber-100 text-amber-600" :
-                                      "bg-emerald-100 text-emerald-600"
-                                    }`}>
-                                      予算{budgetPct}%
-                                    </span>
-                                  );
-                                })()}
-                                <span className="text-sm font-bold text-gray-700">{fmtCurrency(d.value)}</span>
-                              </div>
-                            </div>
-                            {/* 支出進捗バー */}
-                            <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                              <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: color }} />
-                            </div>
-                            {/* 予算バー */}
-                            {budgets?.[d.name] > 0 && (
-                              <div className="h-1 bg-gray-50 rounded-full overflow-hidden mt-0.5">
-                                <div className={`h-full rounded-full transition-all ${
-                                  d.value / budgets[d.name] >= 1 ? "bg-rose-400" :
-                                  d.value / budgets[d.name] >= 0.8 ? "bg-amber-400" : "bg-emerald-400"
-                                }`} style={{ width: `${Math.min(100, Math.round(d.value / budgets[d.name] * 100))}%` }} />
-                              </div>
-                            )}
-                          </div>
-                          <span className="text-xs text-gray-400 flex-shrink-0 w-8 text-right">{pct}%</span>
+
                           <span className="text-gray-300 text-xs">{isSelected ? "▲" : "▼"}</span>
                         </button>
                         {/* ① 明細展開パネル */}
@@ -474,6 +481,100 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
           })()}
         </div>
       )}
+
+      {/* ── 月次レポートタブ ── */}
+      {tab === "report" && (
+        <div className="px-4 py-5 space-y-5">
+          {/* テキスト出力ボタン */}
+          {monthlyReport.length > 0 && (() => {
+            const r = monthlyReport[0];
+            const text = [
+              `📊 ${r.label} 家計レポート`,
+              `━━━━━━━━━━━━`,
+              `収入：${fmtCurrency(r.inc)}`,
+              `支出：${fmtCurrency(r.exp)}`,
+              `収支：${r.bal >= 0 ? "+" : ""}${fmtCurrency(r.bal)}`,
+              `1日平均：${fmtCurrency(r.dailyAvg)}`,
+              r.topCat ? `最多支出：${r.topCat[0]} ${fmtCurrency(r.topCat[1])}` : "",
+            ].filter(Boolean).join("\n");
+            return (
+              <button
+                onClick={() => navigator.clipboard?.writeText(text).then(() => alert("コピーしました！"))}
+                className="w-full py-2.5 rounded-xl text-xs font-semibold bg-indigo-50 text-indigo-600 border border-indigo-100">
+                📋 今月のレポートをコピー
+              </button>
+            );
+          })()}
+
+          <div className="bg-white rounded-2xl p-4 border border-gray-100">
+            <p className="text-xs font-semibold text-gray-500 mb-3 uppercase tracking-wide">直近6ヶ月</p>
+            <div className="space-y-3">
+              {monthlyReport.map((r, i) => (
+                <div key={r.ym} className={`rounded-xl p-3 ${i === 0 ? "bg-indigo-50 border border-indigo-100" : "bg-gray-50"}`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className={`text-sm font-bold ${i === 0 ? "text-indigo-700" : "text-gray-700"}`}>{r.label}</span>
+                    {i > 0 && monthlyReport[i-1] && (
+                      <span className={`text-xs font-semibold ${r.exp > monthlyReport[i-1]?.exp ? "text-rose-500" : "text-emerald-500"}`}>
+                        {r.exp > monthlyReport[i-1]?.exp ? "▲" : "▼"}
+                        {Math.abs(Math.round(((r.exp - monthlyReport[i-1]?.exp) / (monthlyReport[i-1]?.exp||1)) * 100))}%
+                      </span>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-4 gap-1 text-xs">
+                    <div className="text-center">
+                      <p className="text-gray-400">収入</p>
+                      <p className="font-bold text-emerald-600">{fmtCurrency(r.inc)}</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-gray-400">支出</p>
+                      <p className="font-bold text-rose-600">{fmtCurrency(r.exp)}</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-gray-400">収支</p>
+                      <p className={`font-bold ${r.bal >= 0 ? "text-indigo-600" : "text-orange-500"}`}>{r.bal >= 0 ? "+" : ""}{fmtCurrency(r.bal)}</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-gray-400">1日均</p>
+                      <p className="font-bold text-gray-600">{fmtCurrency(r.dailyAvg)}</p>
+                    </div>
+                  </div>
+                  {r.topCat && (
+                    <p className="text-xs text-gray-400 mt-1.5">
+                      最多: {categories.find(c=>c.name===r.topCat[0])?.emoji} {r.topCat[0]} {fmtCurrency(r.topCat[1])}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {catTrendData.length > 0 && catTrendCats.length > 0 && (
+            <div className="bg-white rounded-2xl p-4 border border-gray-100">
+              <p className="text-xs font-semibold text-gray-500 mb-3 uppercase tracking-wide">カテゴリ別支出推移</p>
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={catTrendData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                  <XAxis dataKey="month" tick={{ fontSize: 10 }} />
+                  <YAxis tick={{ fontSize: 9 }} tickFormatter={v => `${(v/10000).toFixed(0)}万`} width={32} />
+                  <Tooltip formatter={(v, n) => [`¥${v.toLocaleString()}`, n]} />
+                  {catTrendCats.map((cat, i) => (
+                    <Bar key={cat} dataKey={cat} stackId="a" fill={CAT_COLORS[i % CAT_COLORS.length]} />
+                  ))}
+                </BarChart>
+              </ResponsiveContainer>
+              <div className="flex flex-wrap gap-2 mt-3">
+                {catTrendCats.map((cat, i) => (
+                  <div key={cat} className="flex items-center gap-1">
+                    <div className="w-2.5 h-2.5 rounded-full" style={{ background: CAT_COLORS[i] }} />
+                    <span className="text-xs text-gray-500">{categories.find(c=>c.name===cat)?.emoji} {cat}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
 
       {/* 🤝 共有確認タブ */}
       {tab === "partner" && (() => { try {
@@ -511,7 +612,9 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
           const advNet = advTotalSelf - advTotalPartner;
 
           // パートナー（彼女）が払うべき金額（正=支払い、負=受け取り）
-          const finalAmt = -settleAmt + advNet;
+          // ※精算タブのtotalClaim(=settleAmt+advanceNet)と符号規則を合わせるため、
+          //   合算してから反転する（settleAmtだけを反転すると符号がズレるバグがあった）
+          const finalAmt = -(settleAmt + advNet);
 
           return {
             selfName: partnerMembers[0]?.name || "かずお",
@@ -559,6 +662,34 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
                 切替
               </button>
             </div>
+
+            {/* 申請した取引一覧（ステータス確認） */}
+            {myPendingTxs.length > 0 && (
+              <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+                <div className="px-4 py-3 border-b border-gray-50">
+                  <p className="text-xs font-bold text-gray-700">📋 申請した共有支出</p>
+                  <p className="text-xs text-gray-400 mt-0.5">承認されると精算に反映されます</p>
+                </div>
+                {myPendingTxs.map((t, i) => {
+                  const status = t._status;
+                  const badge = status === "approved" ? { label: "✅ 承認済み", cls: "bg-emerald-100 text-emerald-700" }
+                              : status === "rejected" ? { label: "❌ 却下",    cls: "bg-rose-100 text-rose-700"     }
+                              : { label: "🕐 承認待ち", cls: "bg-amber-100 text-amber-700" };
+                  return (
+                    <div key={i} className="flex items-center gap-3 px-4 py-3 border-b border-gray-50 last:border-b-0">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-800 truncate">{t.label}</p>
+                        <p className="text-xs text-gray-400">{t.date} · {t.category}</p>
+                      </div>
+                      <div className="text-right flex-shrink-0 space-y-1">
+                        <p className="text-sm font-bold text-rose-500">-{fmtCurrency(Math.abs(t.amount))}</p>
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${badge.cls}`}>{badge.label}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
 
             {/* 申請ボタン */}
             <button onClick={() => setShowSubmitForm(p => !p)}
@@ -1070,64 +1201,6 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
                       </div>
                     )}
                   </>
-                );
-              })()}
-
-              {/* 精算確定ステータス・確定ボタン */}
-              {(() => {
-                const settleKey = `kakeibo_settled_${settleDateFrom}_${settleDateTo}`;
-                const isSettled = !!localStorage.getItem(settleKey);
-                const hasSettle = settlementData.settlements.length > 0;
-                const partnerNameLocal = members[1]?.name || "相手";
-                const settleAmtLocal = hasSettle
-                  ? (settlementData.settlements.find(s => s.from === partnerNameLocal)?.amount
-                     ?? settlementData.settlements[0]?.amount ?? 0)
-                  : 0;
-                const advanceNetLocal = settlementData.advanceNet || 0;
-                const totalClaimLocal = Math.round(settleAmtLocal + advanceNetLocal);
-
-                return (
-                  <div className={`rounded-2xl p-4 border ${isSettled ? "bg-emerald-50 border-emerald-200" : "bg-white border-gray-100"}`}>
-                    {isSettled ? (
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <span className="text-2xl flex-shrink-0">✅</span>
-                          <div className="min-w-0">
-                            <p className="text-sm font-bold text-emerald-700">支払い済み</p>
-                            <p className="text-xs text-emerald-500 mt-0.5 truncate">{localStorage.getItem(settleKey)}</p>
-                          </div>
-                        </div>
-                        <button
-                          onClick={() => {
-                            if (!window.confirm("精算完了を取り消しますか？")) return;
-                            localStorage.removeItem(settleKey);
-                            setSettleConfirmTick(t => t + 1);
-                          }}
-                          className="flex-shrink-0 text-xs text-gray-400 border border-gray-200 rounded-lg px-3 py-1.5">
-                          取消
-                        </button>
-                      </div>
-                    ) : (
-                      <>
-                        <div className="flex items-center gap-2 mb-3">
-                          <span className="text-2xl">⏳</span>
-                          <p className="text-sm font-bold text-gray-500">未払い</p>
-                        </div>
-                        <button
-                          onClick={() => {
-                            const lines = settlementData.settlements.map(s => `${s.from}→${s.to} ¥${s.amount.toLocaleString()}`).join(', ');
-                            const extra = totalClaimLocal !== settleAmtLocal
-                              ? `\n（立替込み最終精算額: ¥${totalClaimLocal.toLocaleString()}）` : '';
-                            if (!window.confirm(`この期間の精算を確定しますか？\n\n${lines || '精算なし'}${extra}`)) return;
-                            localStorage.setItem(settleKey, `${new Date().toLocaleDateString('ja-JP')} 確定`);
-                            setSettleConfirmTick(t => t + 1);
-                          }}
-                          className="w-full py-3 bg-indigo-500 text-white rounded-xl font-bold text-sm">
-                          💰 この期間の精算を確定する
-                        </button>
-                      </>
-                    )}
-                  </div>
                 );
               })()}
 
