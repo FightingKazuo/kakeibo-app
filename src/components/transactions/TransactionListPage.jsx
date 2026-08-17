@@ -1,9 +1,30 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { toYM, fmtCurrency } from "../../utils/format";
 import { MonthSelector } from "../common/MonthSelector";
 import { TransactionItem } from "./TransactionItem";
 import { CSV_SOURCES_ALL }  from "../../constants";
 import { EmptyState } from "../ui/EmptyState";
+
+// ─── 検索・絞り込み条件をsessionStorageに保持（編集画面へ移動して戻っても維持） ───
+const LIST_FILTER_KEY = "kakeibo_list_filters";
+const loadListFilters = () => {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(LIST_FILTER_KEY) || "{}");
+    return {
+      q:            saved.q ?? "",
+      selMonth:     saved.selMonth ?? "all",
+      srcFilter:    saved.srcFilter ?? "all",
+      csvSrcFilter: saved.csvSrcFilter ?? "all",
+      shareFilter:  saved.shareFilter ?? "all",
+      errFilter:    saved.errFilter ?? false,
+      catFilters:   new Set(saved.catFilters || []),
+      sortBy:       saved.sortBy ?? "date",
+      sortAsc:      saved.sortAsc ?? true,
+    };
+  } catch {
+    return { q: "", selMonth: "all", srcFilter: "all", csvSrcFilter: "all", shareFilter: "all", errFilter: false, catFilters: new Set(), sortBy: "date", sortAsc: true };
+  }
+};
 
 // ─── 取引を共有/個人/相手に分割した表示行を生成 ───────────────
 // 品目に複数のtype（shared/personal/partner）が混在する取引を分割
@@ -58,16 +79,27 @@ const splitByCatFilter = (tx, catFilters) => {
 };
 
 export function TransactionListPage({ transactions, categories, members, pointAccounts, learnedRules, onEdit, onDelete, onUpdate, onNavigate, csvSourceLabels }) {
-  const [q,             setQ]             = useState("");
-  const [selMonth,      setSelMonth]      = useState("all");
-  const [srcFilter,     setSrcFilter]     = useState("all");
-  const [csvSrcFilter,  setCsvSrcFilter]  = useState("all"); // CSV内カード絞り込み
-  const [shareFilter,   setShareFilter]   = useState("all");
-  const [errFilter,     setErrFilter]     = useState(false);
-  const [catFilters,    setCatFilters]    = useState(new Set());
+  const initialListFilters = loadListFilters();
+  const [q,             setQ]             = useState(initialListFilters.q);
+  const [selMonth,      setSelMonth]      = useState(initialListFilters.selMonth);
+  const [srcFilter,     setSrcFilter]     = useState(initialListFilters.srcFilter);
+  const [csvSrcFilter,  setCsvSrcFilter]  = useState(initialListFilters.csvSrcFilter); // CSV内カード絞り込み
+  const [shareFilter,   setShareFilter]   = useState(initialListFilters.shareFilter);
+  const [errFilter,     setErrFilter]     = useState(initialListFilters.errFilter);
+  const [catFilters,    setCatFilters]    = useState(initialListFilters.catFilters);
   const [showCatPicker, setShowCatPicker] = useState(false);
-  const [sortBy,        setSortBy]        = useState("date");
-  const [sortAsc,       setSortAsc]       = useState(true); // true=古い順
+  const [sortBy,        setSortBy]        = useState(initialListFilters.sortBy);
+  const [sortAsc,       setSortAsc]       = useState(initialListFilters.sortAsc); // true=古い順
+
+  // 検索・絞り込み条件が変わるたびに保存（編集画面へ移動して戻っても維持するため）
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(LIST_FILTER_KEY, JSON.stringify({
+        q, selMonth, srcFilter, csvSrcFilter, shareFilter, errFilter,
+        catFilters: Array.from(catFilters), sortBy, sortAsc,
+      }));
+    } catch {}
+  }, [q, selMonth, srcFilter, csvSrcFilter, shareFilter, errFilter, catFilters, sortBy, sortAsc]);
 
   // カレンダービュー
   const [calView,    setCalView]    = useState(false);
