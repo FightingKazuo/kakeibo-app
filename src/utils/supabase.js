@@ -164,6 +164,17 @@ export const fetchPendingTransactions = async (shareId) => {
   return (rows || []).map(r => ({ ...r.data, _pendingId: r.id, _submittedBy: r.submitted_by, _createdAt: r.created_at }));
 };
 
+export const fetchMyPendingTransactions = async (shareId, submittedBy) => {
+  const rows = await sbFetch(
+    `pending_transactions?share_id=eq.${shareId}&submitted_by=eq.${encodeURIComponent(submittedBy)}&order=created_at.desc`,
+    { headers: { "Prefer": "return=representation" } }
+  );
+  return (rows || []).map(r => ({
+    ...r.data, _pendingId: r.id, _status: r.status,
+    _createdAt: r.created_at, _submittedBy: r.submitted_by,
+  }));
+};
+
 export const updatePendingStatus = async (pendingId, status) => {
   await sbFetch(`pending_transactions?id=eq.${pendingId}`, {
     method: "PATCH",
