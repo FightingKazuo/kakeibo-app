@@ -448,7 +448,11 @@ export function AnalysisPage({ transactions, categories, members, pointAccounts,
                           className="w-full flex items-center gap-3 px-4 py-3 text-left active:bg-gray-50">
                           <div className="w-3.5 h-3.5 rounded-full flex-shrink-0" style={{ background: color }} />
                           <span className="text-base flex-shrink-0">{d.emoji}</span>
-
+                          <span className="flex-1 min-w-0 text-sm font-medium text-gray-800 truncate">{d.name}</span>
+                          <div className="text-right flex-shrink-0">
+                            <p className="text-sm font-bold text-gray-800">{fmtCurrency(d.value)}</p>
+                            <p className="text-xs text-gray-400">{pct}%</p>
+                          </div>
                           <span className="text-gray-300 text-xs">{isSelected ? "▲" : "▼"}</span>
                         </button>
                         {/* ① 明細展開パネル */}
