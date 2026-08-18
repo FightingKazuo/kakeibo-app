@@ -5,11 +5,11 @@ import { TransactionItem } from "./TransactionItem";
 import { CSV_SOURCES_ALL }  from "../../constants";
 import { EmptyState } from "../ui/EmptyState";
 
-// ─── 検索・絞り込み条件をsessionStorageに保持（編集画面へ移動して戻っても維持） ───
+// ─── 検索・絞り込み条件をlocalStorageに保持（編集画面へ移動して戻っても維持。localStorageなのでアプリ再起動後も保持） ───
 const LIST_FILTER_KEY = "kakeibo_list_filters";
 const loadListFilters = () => {
   try {
-    const saved = JSON.parse(sessionStorage.getItem(LIST_FILTER_KEY) || "{}");
+    const saved = JSON.parse(localStorage.getItem(LIST_FILTER_KEY) || "{}");
     return {
       q:            saved.q ?? "",
       selMonth:     saved.selMonth ?? "all",
@@ -91,10 +91,10 @@ export function TransactionListPage({ transactions, categories, members, pointAc
   const [sortBy,        setSortBy]        = useState(initialListFilters.sortBy);
   const [sortAsc,       setSortAsc]       = useState(initialListFilters.sortAsc); // true=古い順
 
-  // 検索・絞り込み条件が変わるたびに保存（編集画面へ移動して戻っても維持するため）
+  // 検索・絞り込み条件が変わるたびに保存（編集画面へ移動して戻っても維持。localStorageなのでアプリ再起動後も保持するため）
   useEffect(() => {
     try {
-      sessionStorage.setItem(LIST_FILTER_KEY, JSON.stringify({
+      localStorage.setItem(LIST_FILTER_KEY, JSON.stringify({
         q, selMonth, srcFilter, csvSrcFilter, shareFilter, errFilter,
         catFilters: Array.from(catFilters), sortBy, sortAsc,
       }));
